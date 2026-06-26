@@ -8,9 +8,10 @@ import { z } from "zod";
 
 import type { Id } from "@backend/dataModel";
 import { api } from "@backend/api";
+import { EXERCISES } from "@/lib/exercises";
 import { getMcpConvexClient } from "./convex";
 
-const exerciseSlug = z.enum(["bench", "squat", "deadlift"]);
+const exerciseSlug = z.string().min(1).max(64);
 const setPreset = z.object({ weight: z.number(), reps: z.number() });
 const exerciseInput = z.object({
   slug: exerciseSlug,
@@ -31,10 +32,31 @@ function jsonResult(data: unknown) {
   };
 }
 
-const EXERCISE_NOTE = "Exercises must be one of: bench, squat, deadlift.";
+const EXERCISE_NOTE =
+  "Use slug values from the list_exercises tool (curated catalog).";
 
 export function registerWorkoutMcpTools(server: McpServer) {
   const convex = () => getMcpConvexClient();
+
+  server.registerTool(
+    "list_exercises",
+    {
+      title: "List exercises",
+      description:
+        "List the curated exercise catalog (slug, name, short label, muscle group). Use these slugs when creating or updating templates.",
+      inputSchema: {},
+    },
+    async () => {
+      return jsonResult(
+        EXERCISES.map(({ slug, name, short, category }) => ({
+          slug,
+          name,
+          short,
+          category,
+        })),
+      );
+    },
+  );
 
   server.registerTool(
     "list_templates",
