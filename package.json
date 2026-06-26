@@ -3,14 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "convex dev --run 'pnpm exec next dev'",
-    "dev:frontend": "next dev",
+    "dev": "convex dev --start 'next dev -p 4271'",
+    "dev:web": "next dev -p 4271",
     "dev:backend": "convex dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "verify": "node scripts/verify.mjs",
     "prepare": "husky"
   },
   "lint-staged": {
@@ -23,6 +24,8 @@
     ]
   },
   "dependencies": {
+    "@convex-dev/workos": "^0.0.3",
+    "@workos-inc/authkit-nextjs": "^4.1.4",
     "convex": "^1.42.0",
     "next": "16.2.9",
     "react": "19.2.4",

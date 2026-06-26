@@ -1,3 +1,34 @@
 {
-  "functions": "backend/"
+  "functions": "backend/",
+  "authKit": {
+    "dev": {
+      "configure": {
+        "redirectUris": ["http://localhost:4271/callback"],
+        "appHomepageUrl": "http://localhost:4271",
+        "corsOrigins": ["http://localhost:4271"]
+      },
+      "localEnvVars": {
+        "WORKOS_CLIENT_ID": "${authEnv.WORKOS_CLIENT_ID}",
+        "WORKOS_API_KEY": "${authEnv.WORKOS_API_KEY}",
+        "NEXT_PUBLIC_WORKOS_REDIRECT_URI": "http://localhost:4271/callback"
+      }
+    },
+    "preview": {
+      "configure": {
+        "redirectUris": ["https://${buildEnv.VERCEL_BRANCH_URL}/callback"],
+        "appHomepageUrl": "https://${buildEnv.VERCEL_PROJECT_PRODUCTION_URL}",
+        "corsOrigins": ["https://${buildEnv.VERCEL_BRANCH_URL}"]
+      }
+    },
+    "prod": {
+      "environmentType": "production",
+      "configure": {
+        "redirectUris": [
+          "https://${buildEnv.VERCEL_PROJECT_PRODUCTION_URL}/callback"
+        ],
+        "appHomepageUrl": "https://${buildEnv.VERCEL_PROJECT_PRODUCTION_URL}",
+        "corsOrigins": ["https://${buildEnv.VERCEL_PROJECT_PRODUCTION_URL}"]
+      }
+    }
+  }
 }
