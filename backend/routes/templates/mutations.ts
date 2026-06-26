@@ -2,45 +2,18 @@ import { v } from "convex/values";
 
 import { mutation } from "../../_generated/server";
 import { requireUser } from "../../lib/auth";
-import { exerciseSlugValidator } from "../../schemas/exercises";
-
-const exerciseInput = v.object({
-  slug: exerciseSlugValidator,
-  sets: v.array(v.object({ weight: v.number(), reps: v.number() })),
-});
-
-const clampWhole = (n: number) => Math.max(0, Math.round(n));
-
-// Normalize per-set presets; always keep at least one row.
-function normalizeSets(sets: { weight: number; reps: number }[]) {
-  const cleaned = sets
-    .slice(0, 20)
-    .map((s) => ({ weight: clampWhole(s.weight), reps: clampWhole(s.reps) }));
-  return cleaned.length ? cleaned : [{ weight: 0, reps: 0 }];
-}
+import {
+  createTemplate as createTemplateLib,
+  exerciseInputValidator,
+  removeTemplate as removeTemplateLib,
+  updateTemplate as updateTemplateLib,
+} from "../../lib/templates";
 
 export const create = mutation({
-  args: { name: v.string(), exercises: v.array(exerciseInput) },
-  handler: async (ctx, { name, exercises }) => {
+  args: { name: v.string(), exercises: v.array(exerciseInputValidator) },
+  handler: async (ctx, args) => {
     const user = await requireUser(ctx);
-    const now = Date.now();
-    const templateId = await ctx.db.insert("workoutTemplates", {
-      userId: user._id,
-      name: name.trim() || "Untitled",
-      createdAt: now,
-      updatedAt: now,
-    });
-    await Promise.all(
-      exercises.map((e, i) =>
-        ctx.db.insert("templateExercises", {
-          templateId,
-          exerciseSlug: e.slug,
-          orderIndex: i,
-          sets: normalizeSets(e.sets),
-        }),
-      ),
-    );
-    return templateId;
+    return createTemplateLib(ctx, user._id, args);
   },
 });
 
@@ -48,36 +21,11 @@ export const update = mutation({
   args: {
     templateId: v.id("workoutTemplates"),
     name: v.string(),
-    exercises: v.array(exerciseInput),
+    exercises: v.array(exerciseInputValidator),
   },
-  handler: async (ctx, { templateId, name, exercises }) => {
+  handler: async (ctx, args) => {
     const user = await requireUser(ctx);
-    const template = await ctx.db.get(templateId);
-    if (!template || template.userId !== user._id)
-      throw new Error("Template not found");
-
-    await ctx.db.patch(templateId, {
-      name: name.trim() || "Untitled",
-      updatedAt: Date.now(),
-    });
-
-    // Replace the exercise rows wholesale — simplest correct update for a small
-    // ordered list.
-    const existing = await ctx.db
-      .query("templateExercises")
-      .withIndex("by_template", (q) => q.eq("templateId", templateId))
-      .collect();
-    await Promise.all(existing.map((e) => ctx.db.delete(e._id)));
-    await Promise.all(
-      exercises.map((e, i) =>
-        ctx.db.insert("templateExercises", {
-          templateId,
-          exerciseSlug: e.slug,
-          orderIndex: i,
-          sets: normalizeSets(e.sets),
-        }),
-      ),
-    );
+    await updateTemplateLib(ctx, user._id, args);
   },
 });
 
@@ -85,16 +33,7 @@ export const remove = mutation({
   args: { templateId: v.id("workoutTemplates") },
   handler: async (ctx, { templateId }) => {
     const user = await requireUser(ctx);
-    const template = await ctx.db.get(templateId);
-    if (!template || template.userId !== user._id)
-      throw new Error("Template not found");
-
-    const exercises = await ctx.db
-      .query("templateExercises")
-      .withIndex("by_template", (q) => q.eq("templateId", templateId))
-      .collect();
-    await Promise.all(exercises.map((e) => ctx.db.delete(e._id)));
-    await ctx.db.delete(templateId);
+    await removeTemplateLib(ctx, user._id, templateId);
   },
 });
 

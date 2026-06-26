@@ -131,7 +131,7 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
         return;
       }
       toast.success("Workout finished");
-      router.push(historyHref);
+      router.push("/dashboard");
     } catch {
       setFinishing(false);
       toast.error("Couldn't finish workout");
@@ -165,7 +165,7 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
     } else {
       toast.success("Workout finished");
     }
-    router.push(historyHref);
+    router.push("/dashboard");
   }
 
   return (

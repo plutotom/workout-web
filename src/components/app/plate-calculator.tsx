@@ -17,9 +17,11 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import {
+  BAR_PRESETS,
   platesToWeight,
   solveWeightToPlates,
   STANDARD_PLATES,
+  type PlateConfig,
   type PlateCount,
   type Unit,
 } from "@/lib/plates/solver";
@@ -87,25 +89,97 @@ export function PlateCalculator({
 }) {
   const user = useQuery(api.routes.auth.users.current);
   const unit: Unit = user?.unit ?? "lb";
+  const defaultBar =
+    (unit === "lb" ? user?.barWeightLb : user?.barWeightKg) ??
+    STANDARD_PLATES[unit].bar;
+
+  // Per-calculation bar override (transient — the saved default lives in
+  // Settings). null means "use the default".
+  const [barOverride, setBarOverride] = useState<number | null>(null);
+  const bar = barOverride ?? defaultBar;
+  const config: PlateConfig = { bar, plates: STANDARD_PLATES[unit].plates };
 
   return (
-    <Tabs defaultValue="toPlates" className="gap-4">
-      <TabsList className="w-full">
-        <TabsTrigger value="toPlates">Weight → Plates</TabsTrigger>
-        <TabsTrigger value="toWeight">Plates → Weight</TabsTrigger>
-      </TabsList>
+    <div className="flex flex-col gap-4">
+      <Tabs defaultValue="toPlates" className="gap-4">
+        <TabsList className="w-full">
+          <TabsTrigger value="toPlates">Weight → Plates</TabsTrigger>
+          <TabsTrigger value="toWeight">Plates → Weight</TabsTrigger>
+        </TabsList>
 
-      <TabsContent value="toPlates">
-        <WeightToPlates
-          initialWeight={initialWeight}
-          unit={unit}
-          onApply={onApply}
-        />
-      </TabsContent>
-      <TabsContent value="toWeight">
-        <PlatesToWeight unit={unit} onApply={onApply} />
-      </TabsContent>
-    </Tabs>
+        <TabsContent value="toPlates">
+          <WeightToPlates
+            initialWeight={initialWeight}
+            config={config}
+            unit={unit}
+            onApply={onApply}
+          />
+        </TabsContent>
+        <TabsContent value="toWeight">
+          <PlatesToWeight config={config} unit={unit} onApply={onApply} />
+        </TabsContent>
+      </Tabs>
+
+      <BarControl bar={bar} unit={unit} onChange={setBarOverride} />
+    </div>
+  );
+}
+
+/** Compact, tucked-away bar note + selector. Collapsed by default. */
+function BarControl({
+  bar,
+  unit,
+  onChange,
+}: {
+  bar: number;
+  unit: Unit;
+  onChange: (bar: number) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [custom, setCustom] = useState("");
+
+  return (
+    <div className="border-t pt-3">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="text-muted-foreground flex w-full items-center justify-between text-sm"
+      >
+        <span>
+          Bar weight: {fmt(bar)} {unit}
+        </span>
+        <span className="underline underline-offset-2">
+          {open ? "Done" : "Change"}
+        </span>
+      </button>
+
+      {open ? (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          {BAR_PRESETS[unit].map((b) => (
+            <Button
+              key={b}
+              type="button"
+              size="sm"
+              variant={bar === b ? "default" : "outline"}
+              onClick={() => onChange(b)}
+            >
+              {fmt(b)} {unit}
+            </Button>
+          ))}
+          <Input
+            inputMode="numeric"
+            value={custom}
+            placeholder="Custom"
+            className="h-8 w-24"
+            aria-label="Custom bar weight"
+            onChange={(e) => setCustom(e.target.value.replace(/[^0-9]/g, ""))}
+            onBlur={() => {
+              if (custom !== "") onChange(Number(custom));
+            }}
+          />
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -120,14 +194,15 @@ function PlateChip({ plate, count }: PlateCount) {
 
 function WeightToPlates({
   initialWeight,
+  config,
   unit,
   onApply,
 }: {
   initialWeight: number;
+  config: PlateConfig;
   unit: Unit;
   onApply?: (weight: number) => void;
 }) {
-  const config = STANDARD_PLATES[unit];
   const [value, setValue] = useState(
     initialWeight > 0 ? String(initialWeight) : "",
   );
@@ -211,13 +286,14 @@ function WeightToPlates({
 }
 
 function PlatesToWeight({
+  config,
   unit,
   onApply,
 }: {
+  config: PlateConfig;
   unit: Unit;
   onApply?: (weight: number) => void;
 }) {
-  const config = STANDARD_PLATES[unit];
   const [counts, setCounts] = useState<Record<number, number>>({});
 
   const perSide: PlateCount[] = useMemo(

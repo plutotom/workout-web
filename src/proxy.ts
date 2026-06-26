@@ -5,7 +5,14 @@ export default authkitProxy({
     enabled: true,
     // `/` is intentionally omitted: the root redirects to /dashboard, which is
     // auth-protected, so unauthenticated visitors are sent to sign-in.
-    unauthenticatedPaths: ["/sign-in", "/sign-up", "/sign-out", "/callback"],
+    unauthenticatedPaths: [
+      "/sign-in",
+      "/sign-up",
+      "/sign-out",
+      "/callback",
+      "/api/mcp",
+      "/.well-known/oauth-protected-resource",
+    ],
   },
 });
 

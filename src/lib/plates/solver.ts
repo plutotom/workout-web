@@ -14,6 +14,12 @@ export const STANDARD_PLATES: Record<Unit, PlateConfig> = {
   kg: { bar: 20, plates: [25, 20, 15, 10, 5, 2.5, 1.25] },
 };
 
+// Common bar weights offered as quick presets (Olympic, women's, training).
+export const BAR_PRESETS: Record<Unit, number[]> = {
+  lb: [45, 35, 15],
+  kg: [20, 15, 10],
+};
+
 /** A denomination loaded `count` times **on each side**. */
 export interface PlateCount {
   plate: number;

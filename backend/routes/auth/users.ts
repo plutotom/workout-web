@@ -59,3 +59,24 @@ export const setUnit = mutation({
     await ctx.db.patch(user._id, { unit });
   },
 });
+
+/** Set the default bar weight for a unit (used by the plate calculator). */
+export const setBar = mutation({
+  args: { unit: unitValidator, barWeight: v.number() },
+  handler: async (ctx, { unit, barWeight }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_workosId", (q) => q.eq("workosId", identity.subject))
+      .unique();
+    if (!user) throw new Error("User not found");
+
+    const value = Math.max(0, Math.round(barWeight));
+    await ctx.db.patch(
+      user._id,
+      unit === "lb" ? { barWeightLb: value } : { barWeightKg: value },
+    );
+  },
+});

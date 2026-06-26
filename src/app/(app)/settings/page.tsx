@@ -4,6 +4,7 @@ import { LogOut } from "lucide-react";
 import { PageHeader } from "@/components/app/page-header";
 import { Button } from "@/components/ui/button";
 import { GeneralSettings } from "./general-settings";
+import { McpSettings } from "./mcp-settings";
 
 export default function SettingsPage() {
   return (
@@ -11,6 +12,8 @@ export default function SettingsPage() {
       <PageHeader title="Settings" />
 
       <GeneralSettings />
+
+      <McpSettings />
 
       <Button
         asChild
