@@ -3,13 +3,9 @@ import { authkitProxy } from "@workos-inc/authkit-nextjs";
 export default authkitProxy({
   middlewareAuth: {
     enabled: true,
-    unauthenticatedPaths: [
-      "/",
-      "/sign-in",
-      "/sign-up",
-      "/sign-out",
-      "/callback",
-    ],
+    // `/` is intentionally omitted: the root redirects to /dashboard, which is
+    // auth-protected, so unauthenticated visitors are sent to sign-in.
+    unauthenticatedPaths: ["/sign-in", "/sign-up", "/sign-out", "/callback"],
   },
 });
 
