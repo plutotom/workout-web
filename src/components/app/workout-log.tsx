@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { exerciseName, exerciseUsesBar } from "@/lib/exercises";
+import { useExerciseCatalog } from "@/components/app/exercise-catalog-provider";
 
 type TemplateData =
   | {
@@ -60,6 +60,7 @@ function templateDiffersFromSession(
 
 export function WorkoutLog({ sessionId }: { sessionId: string }) {
   const router = useRouter();
+  const catalog = useExerciseCatalog();
   const session = useQuery(api.routes.workouts.queries.get, {
     sessionId: sessionId as Id<"workoutSessions">,
   });
@@ -193,7 +194,7 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
         <Card key={exercise._id}>
           <CardHeader>
             <CardTitle className="text-base">
-              {exerciseName(exercise.slug)}
+              {catalog.name(exercise.slug)}
             </CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-1">
@@ -209,7 +210,7 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
                 set={set}
                 index={i + 1}
                 editable={editable}
-                includeBar={exerciseUsesBar(exercise.slug)}
+                includeBar={catalog.usesBar(exercise.slug)}
               />
             ))}
             {editable ? (

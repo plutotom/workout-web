@@ -43,18 +43,28 @@ export function registerWorkoutMcpTools(server: McpServer) {
     {
       title: "List exercises",
       description:
-        "List the curated exercise catalog (slug, name, short label, muscle group). Use these slugs when creating or updating templates.",
+        "List the exercise catalog (slug, name, short label, muscle group): the curated catalog plus the user's own custom exercises. Use these slugs when creating or updating templates.",
       inputSchema: {},
     },
-    async () => {
-      return jsonResult(
-        EXERCISES.map(({ slug, name, short, category }) => ({
-          slug,
-          name,
-          short,
-          category,
-        })),
-      );
+    async (_args, extra) => {
+      const customs = await convex().query(api.routes.mcp.queries.listCustom, {
+        apiKey: apiKeyFrom(extra),
+      });
+      const curated = EXERCISES.map(({ slug, name, short, category }) => ({
+        slug,
+        name,
+        short,
+        category,
+        custom: false,
+      }));
+      const custom = customs.map((c) => ({
+        slug: c.slug,
+        name: c.name,
+        short: c.short ?? c.name,
+        category: c.category,
+        custom: true,
+      }));
+      return jsonResult([...curated, ...custom]);
     },
   );
 

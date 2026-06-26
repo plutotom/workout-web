@@ -2,6 +2,7 @@ import { v } from "convex/values";
 
 import { query } from "../../_generated/server";
 import { getUserFromApiKey } from "../../lib/apiKeys";
+import { listCustomExercises } from "../../lib/exercises";
 import {
   getTemplate as getTemplateLib,
   listTemplates as listTemplatesLib,
@@ -19,6 +20,17 @@ export const listTemplates = query({
     const user = await getUserFromApiKey(ctx, apiKey);
     if (!user) throw new Error("Invalid API key");
     return listTemplatesLib(ctx, user._id);
+  },
+});
+
+/** The user's custom exercises (excludes archived), for merging into the catalog. */
+export const listCustom = query({
+  args: { apiKey: v.string() },
+  handler: async (ctx, { apiKey }) => {
+    const user = await getUserFromApiKey(ctx, apiKey);
+    if (!user) throw new Error("Invalid API key");
+    const all = await listCustomExercises(ctx, user._id);
+    return all.filter((e) => !e.archived);
   },
 });
 

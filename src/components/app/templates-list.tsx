@@ -10,13 +10,14 @@ import { PageHeader } from "@/components/app/page-header";
 import { StartWorkoutButton } from "@/components/app/start-workout-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { exerciseShort } from "@/lib/exercises";
+import { useExerciseCatalog } from "@/components/app/exercise-catalog-provider";
 
-function summarize(exercises: { slug: string; setCount: number }[]): string {
+function summarize(
+  exercises: { slug: string; setCount: number }[],
+  short: (slug: string) => string,
+): string {
   if (exercises.length === 0) return "No exercises";
-  return exercises
-    .map((e) => `${exerciseShort(e.slug)} ${e.setCount}`)
-    .join(" · ");
+  return exercises.map((e) => `${short(e.slug)} ${e.setCount}`).join(" · ");
 }
 
 function formatLast(ts: number | null): string {
@@ -28,6 +29,7 @@ function formatLast(ts: number | null): string {
 }
 
 export function TemplatesList() {
+  const catalog = useExerciseCatalog();
   const templates = useQuery(api.routes.templates.queries.list);
 
   return (
@@ -67,7 +69,7 @@ export function TemplatesList() {
               <CardHeader>
                 <CardTitle className="text-base">{t.name}</CardTitle>
                 <p className="text-muted-foreground text-sm">
-                  {summarize(t.exercises)}
+                  {summarize(t.exercises, catalog.short)}
                 </p>
                 <p className="text-muted-foreground text-xs">
                   {formatLast(t.lastSessionAt)}

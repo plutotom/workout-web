@@ -11,9 +11,12 @@
 import type * as hello from "../hello.js";
 import type * as lib_apiKeys from "../lib/apiKeys.js";
 import type * as lib_auth from "../lib/auth.js";
+import type * as lib_exercises from "../lib/exercises.js";
 import type * as lib_templates from "../lib/templates.js";
 import type * as lib_workouts from "../lib/workouts.js";
 import type * as routes_auth_users from "../routes/auth/users.js";
+import type * as routes_exercises_mutations from "../routes/exercises/mutations.js";
+import type * as routes_exercises_queries from "../routes/exercises/queries.js";
 import type * as routes_mcp_keys from "../routes/mcp/keys.js";
 import type * as routes_mcp_mutations from "../routes/mcp/mutations.js";
 import type * as routes_mcp_queries from "../routes/mcp/queries.js";
@@ -37,9 +40,12 @@ declare const fullApi: ApiFromModules<{
   hello: typeof hello;
   "lib/apiKeys": typeof lib_apiKeys;
   "lib/auth": typeof lib_auth;
+  "lib/exercises": typeof lib_exercises;
   "lib/templates": typeof lib_templates;
   "lib/workouts": typeof lib_workouts;
   "routes/auth/users": typeof routes_auth_users;
+  "routes/exercises/mutations": typeof routes_exercises_mutations;
+  "routes/exercises/queries": typeof routes_exercises_queries;
   "routes/mcp/keys": typeof routes_mcp_keys;
   "routes/mcp/mutations": typeof routes_mcp_mutations;
   "routes/mcp/queries": typeof routes_mcp_queries;

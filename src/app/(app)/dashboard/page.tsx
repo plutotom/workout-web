@@ -14,7 +14,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { exerciseShort } from "@/lib/exercises";
+import { useExerciseCatalog } from "@/components/app/exercise-catalog-provider";
 
 function formatDate(ts: number): string {
   return new Date(ts).toLocaleDateString(undefined, {
@@ -24,14 +24,16 @@ function formatDate(ts: number): string {
   });
 }
 
-function summarize(exercises: { slug: string; setCount: number }[]): string {
+function summarize(
+  exercises: { slug: string; setCount: number }[],
+  short: (slug: string) => string,
+): string {
   if (exercises.length === 0) return "No exercises";
-  return exercises
-    .map((e) => `${exerciseShort(e.slug)} ${e.setCount}`)
-    .join(" · ");
+  return exercises.map((e) => `${short(e.slug)} ${e.setCount}`).join(" · ");
 }
 
 export default function DashboardPage() {
+  const catalog = useExerciseCatalog();
   const active = useQuery(api.routes.workouts.queries.active);
   const recent = useQuery(api.routes.workouts.queries.recent);
   const templates = useQuery(api.routes.templates.queries.list);
@@ -100,7 +102,8 @@ export default function DashboardPage() {
                 <div className="min-w-0">
                   <p className="font-medium">{s.templateName}</p>
                   <p className="text-muted-foreground truncate text-sm">
-                    {formatDate(s.completedAt)} · {summarize(s.exercises)}
+                    {formatDate(s.completedAt)} ·{" "}
+                    {summarize(s.exercises, catalog.short)}
                   </p>
                 </div>
                 <ChevronRight className="text-muted-foreground size-5 shrink-0" />

@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { EXERCISES, exerciseName, exerciseUsesBar } from "@/lib/exercises";
+import { useExerciseCatalog } from "@/components/app/exercise-catalog-provider";
 
 const DEFAULT_SET_ROWS = 3;
 const emptySet = () => ({ weight: 0, reps: 0 });
@@ -45,6 +45,7 @@ export function TemplateEditorForm({
   initial: { name: string; exercises: EditorExercise[] };
 }) {
   const router = useRouter();
+  const catalog = useExerciseCatalog();
   const create = useMutation(api.routes.templates.mutations.create);
   const update = useMutation(api.routes.templates.mutations.update);
   const remove = useMutation(api.routes.templates.mutations.remove);
@@ -186,7 +187,7 @@ export function TemplateEditorForm({
             <Card key={ex.slug}>
               <CardHeader className="flex-row items-center justify-between gap-2 space-y-0 pb-0">
                 <CardTitle className="text-base">
-                  {exerciseName(ex.slug)}
+                  {catalog.name(ex.slug)}
                 </CardTitle>
                 <div className="flex items-center gap-1">
                   <Button
@@ -258,7 +259,7 @@ export function TemplateEditorForm({
                       />
                       <PlateCalcButton
                         weight={set.weight}
-                        includeBar={exerciseUsesBar(ex.slug)}
+                        includeBar={catalog.usesBar(ex.slug)}
                         onApply={(w) =>
                           setSetValue(exIndex, setIndex, "weight", w)
                         }
@@ -315,7 +316,7 @@ export function TemplateEditorForm({
           type="button"
           variant="outline"
           className="w-full"
-          disabled={usedSlugs.size >= EXERCISES.length}
+          disabled={usedSlugs.size >= catalog.all.length}
           onClick={() => {
             setPickerKey((k) => k + 1);
             setPickerOpen(true);

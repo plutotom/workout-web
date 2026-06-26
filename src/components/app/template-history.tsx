@@ -9,7 +9,7 @@ import type { Id } from "@backend/dataModel";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
 import { Card } from "@/components/ui/card";
-import { exerciseShort } from "@/lib/exercises";
+import { useExerciseCatalog } from "@/components/app/exercise-catalog-provider";
 
 function formatDate(ts: number): string {
   return new Date(ts).toLocaleDateString(undefined, {
@@ -21,14 +21,16 @@ function formatDate(ts: number): string {
 
 function summarize(
   exercises: { slug: string; setCount: number; completedCount: number }[],
+  short: (slug: string) => string,
 ): string {
   if (exercises.length === 0) return "No exercises";
   return exercises
-    .map((e) => `${exerciseShort(e.slug)} ${e.completedCount || e.setCount}`)
+    .map((e) => `${short(e.slug)} ${e.completedCount || e.setCount}`)
     .join(" · ");
 }
 
 export function TemplateHistory({ id }: { id: string }) {
+  const catalog = useExerciseCatalog();
   const templateId = id as Id<"workoutTemplates">;
   const template = useQuery(api.routes.templates.queries.get, { templateId });
   const sessions = useQuery(api.routes.workouts.queries.history, {
@@ -58,7 +60,7 @@ export function TemplateHistory({ id }: { id: string }) {
                 <div className="min-w-0">
                   <p className="font-medium">{formatDate(s.completedAt)}</p>
                   <p className="text-muted-foreground truncate text-sm">
-                    {summarize(s.exercises)}
+                    {summarize(s.exercises, catalog.short)}
                   </p>
                 </div>
                 <ChevronRight className="text-muted-foreground size-5 shrink-0" />
