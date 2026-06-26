@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { hapticSuccess, hapticTap } from "@/lib/haptics";
 import { useExerciseCatalog } from "@/components/app/exercise-catalog-provider";
 
 type TemplateData =
@@ -124,6 +125,7 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
     setFinishing(true);
     try {
       await finish({ sessionId: sessionId as Id<"workoutSessions"> });
+      hapticSuccess();
       // Offer to push today's numbers back to the template, but only if they
       // actually differ.
       if (templateDiffers) {
@@ -293,10 +295,20 @@ function SetRow({
     null,
   );
   const completed = pendingCompleted ?? set.completed;
+  // Drives the one-shot celebration (halo + spring). Only set on a real tap, so
+  // already-completed sets don't all animate when the screen loads.
+  const [celebrate, setCelebrate] = useState(false);
 
   function toggleCompleted() {
     const next = !completed;
     setPendingCompleted(next);
+    if (next) {
+      // A little tactile reward for ticking a set off; nothing on un-checking.
+      hapticTap();
+      setCelebrate(true);
+    } else {
+      setCelebrate(false);
+    }
     void updateSet({ setId: set._id, completed: next }).catch(() =>
       setPendingCompleted(null),
     );
@@ -322,8 +334,8 @@ function SetRow({
   return (
     <div
       className={cn(
-        "grid grid-cols-[2rem_1fr_1fr_2.5rem] items-center gap-2 rounded-md px-1 py-1.5",
-        completed && "border-success/40 bg-success/10 border",
+        "grid grid-cols-[2rem_1fr_1fr_2.5rem] items-center gap-2 rounded-md border border-transparent px-1 py-1.5 transition-colors duration-200",
+        completed && "border-success/40 bg-success/10",
       )}
     >
       <span className="text-muted-foreground text-sm tabular-nums">
@@ -369,13 +381,32 @@ function SetRow({
         aria-label={completed ? "Mark set incomplete" : "Mark set complete"}
         disabled={!editable}
         className={cn(
-          "size-9 justify-self-center",
+          "relative size-9 justify-self-center active:scale-90",
+          celebrate && "animate-check-thunk",
           completed &&
             "bg-success text-success-foreground hover:bg-success/90 border-transparent",
         )}
         onClick={toggleCompleted}
+        onAnimationEnd={(e) => {
+          // The halo is the longest part of the celebration; end it there.
+          if (e.animationName === "check-ring") setCelebrate(false);
+        }}
       >
-        <Check className="size-4" />
+        {/* Halo that radiates out once on completion. */}
+        {celebrate ? (
+          <span
+            aria-hidden
+            className="animate-check-ring ring-success pointer-events-none absolute inset-0 rounded-md ring-2"
+          />
+        ) : null}
+        <Check
+          className={cn(
+            "size-4 transition-transform",
+            celebrate && "animate-pop",
+            completed && "scale-110",
+          )}
+          strokeWidth={completed ? 3 : 2}
+        />
       </Button>
     </div>
   );

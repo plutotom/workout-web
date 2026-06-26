@@ -87,3 +87,76 @@ body {
   /* Disable text size adjust so the gym UI stays predictable on mobile. */
   -webkit-text-size-adjust: 100%;
 }
+
+/* Kill the grey tap-flash on mobile; we provide our own press feedback. */
+button,
+a,
+[role="button"],
+[role="group"] {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* A quick "pop" for confirmations (e.g. completing a set). */
+@keyframes pop {
+  0% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.22);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.animate-pop {
+  animation: pop 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* A green halo that radiates out once when a set is checked off. */
+@keyframes check-ring {
+  0% {
+    transform: scale(0.7);
+    opacity: 0.55;
+  }
+  100% {
+    transform: scale(1.9);
+    opacity: 0;
+  }
+}
+
+.animate-check-ring {
+  animation: check-ring 0.5s ease-out forwards;
+}
+
+/* A quick spring on the button itself when it flips to complete. */
+@keyframes check-thunk {
+  0% {
+    transform: scale(1);
+  }
+  35% {
+    transform: scale(0.86);
+  }
+  70% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.animate-check-thunk {
+  animation: check-thunk 0.32s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Respect users who ask for less motion — disable our transitions/animations. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

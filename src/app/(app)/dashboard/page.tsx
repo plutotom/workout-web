@@ -98,7 +98,7 @@ export default function DashboardPage() {
         ) : (
           recent.sessions.map((s) => (
             <Link key={s._id} href={`/workout/${s._id}`}>
-              <Card className="flex-row items-center justify-between gap-3 px-4 py-3">
+              <Card className="flex-row items-center justify-between gap-3 px-4 py-3 transition-all duration-150 hover:border-white/20 active:scale-[0.98]">
                 <div className="min-w-0">
                   <p className="font-medium">{s.templateName}</p>
                   <p className="text-muted-foreground truncate text-sm">
