@@ -10,9 +10,27 @@ export const exerciseInputValidator = v.object({
 });
 
 export type ExerciseInput = {
-  slug: "bench" | "squat" | "deadlift";
+  slug: string;
   sets: { weight: number; reps: number }[];
 };
+
+const MAX_SLUG_LENGTH = 64;
+
+function assertValidSlug(slug: string) {
+  const trimmed = slug.trim();
+  if (!trimmed) throw new Error("Exercise slug is required");
+  if (trimmed.length > MAX_SLUG_LENGTH)
+    throw new Error(
+      `Exercise slug must be at most ${MAX_SLUG_LENGTH} characters`,
+    );
+}
+
+function normalizeExercises(exercises: ExerciseInput[]) {
+  return exercises.map((e) => {
+    assertValidSlug(e.slug);
+    return { slug: e.slug.trim(), sets: normalizeTemplateSets(e.sets) };
+  });
+}
 
 const clampWhole = (n: number) => Math.max(0, Math.round(n));
 
@@ -37,13 +55,14 @@ export async function createTemplate(
     createdAt: now,
     updatedAt: now,
   });
+  const normalized = normalizeExercises(exercises);
   await Promise.all(
-    exercises.map((e, i) =>
+    normalized.map((e, i) =>
       ctx.db.insert("templateExercises", {
         templateId,
         exerciseSlug: e.slug,
         orderIndex: i,
-        sets: normalizeTemplateSets(e.sets),
+        sets: e.sets,
       }),
     ),
   );
@@ -77,13 +96,14 @@ export async function updateTemplate(
     .withIndex("by_template", (q) => q.eq("templateId", templateId))
     .collect();
   await Promise.all(existing.map((e) => ctx.db.delete(e._id)));
+  const normalized = normalizeExercises(exercises);
   await Promise.all(
-    exercises.map((e, i) =>
+    normalized.map((e, i) =>
       ctx.db.insert("templateExercises", {
         templateId,
         exerciseSlug: e.slug,
         orderIndex: i,
-        sets: normalizeTemplateSets(e.sets),
+        sets: e.sets,
       }),
     ),
   );

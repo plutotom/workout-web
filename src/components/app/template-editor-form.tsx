@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { api } from "@backend/api";
 import type { Id } from "@backend/dataModel";
 import { PageHeader } from "@/components/app/page-header";
+import { ExercisePicker } from "@/components/app/exercise-picker";
 import { PlateCalcButton } from "@/components/app/plate-calculator";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -23,19 +24,13 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import { EXERCISES, exerciseName, type ExerciseSlug } from "@/lib/exercises";
+import { EXERCISES, exerciseName, exerciseUsesBar } from "@/lib/exercises";
 
 const DEFAULT_SET_ROWS = 3;
 const emptySet = () => ({ weight: 0, reps: 0 });
 
 type TemplateSet = { weight: number; reps: number };
-type EditorExercise = { slug: ExerciseSlug; sets: TemplateSet[] };
+type EditorExercise = { slug: string; sets: TemplateSet[] };
 
 function toWhole(raw: string): number {
   const digits = raw.replace(/[^0-9]/g, "");
@@ -59,6 +54,7 @@ export function TemplateEditorForm({
     initial.exercises,
   );
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerKey, setPickerKey] = useState(0);
   const [saving, setSaving] = useState(false);
 
   const usedSlugs = new Set(exercises.map((e) => e.slug));
@@ -85,14 +81,17 @@ export function TemplateEditorForm({
     setExercises((prev) => prev.filter((_, i) => i !== index));
   }
 
-  function addExercise(slug: ExerciseSlug) {
-    setExercises((prev) => [
-      ...prev,
-      {
-        slug,
-        sets: Array.from({ length: DEFAULT_SET_ROWS }, emptySet),
-      },
-    ]);
+  function addExercises(slugs: string[]) {
+    setExercises((prev) => {
+      const have = new Set(prev.map((e) => e.slug));
+      const additions = slugs
+        .filter((s) => !have.has(s))
+        .map((slug) => ({
+          slug,
+          sets: Array.from({ length: DEFAULT_SET_ROWS }, emptySet),
+        }));
+      return [...prev, ...additions];
+    });
     setPickerOpen(false);
   }
 
@@ -259,6 +258,7 @@ export function TemplateEditorForm({
                       />
                       <PlateCalcButton
                         weight={set.weight}
+                        includeBar={exerciseUsesBar(ex.slug)}
                         onApply={(w) =>
                           setSetValue(exIndex, setIndex, "weight", w)
                         }
@@ -316,7 +316,10 @@ export function TemplateEditorForm({
           variant="outline"
           className="w-full"
           disabled={usedSlugs.size >= EXERCISES.length}
-          onClick={() => setPickerOpen(true)}
+          onClick={() => {
+            setPickerKey((k) => k + 1);
+            setPickerOpen(true);
+          }}
         >
           <Plus className="size-4" />
           Add exercise
@@ -325,32 +328,13 @@ export function TemplateEditorForm({
 
       {templateId ? <DeleteTemplateButton onConfirm={handleDelete} /> : null}
 
-      <Sheet open={pickerOpen} onOpenChange={setPickerOpen}>
-        <SheetContent side="bottom">
-          <SheetHeader>
-            <SheetTitle>Add exercise</SheetTitle>
-          </SheetHeader>
-          <div className="flex flex-col gap-2 px-4 pb-6">
-            {EXERCISES.map((e) => (
-              <Button
-                key={e.slug}
-                variant="secondary"
-                size="lg"
-                className="justify-start"
-                disabled={usedSlugs.has(e.slug)}
-                onClick={() => addExercise(e.slug)}
-              >
-                {e.name}
-                {usedSlugs.has(e.slug) ? (
-                  <span className="text-muted-foreground ml-auto text-xs">
-                    Added
-                  </span>
-                ) : null}
-              </Button>
-            ))}
-          </div>
-        </SheetContent>
-      </Sheet>
+      <ExercisePicker
+        key={pickerKey}
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        usedSlugs={exercises.map((e) => e.slug)}
+        onAdd={addExercises}
+      />
     </div>
   );
 }

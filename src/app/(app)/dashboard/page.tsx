@@ -14,7 +14,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { exerciseShort, type ExerciseSlug } from "@/lib/exercises";
+import { exerciseShort } from "@/lib/exercises";
 
 function formatDate(ts: number): string {
   return new Date(ts).toLocaleDateString(undefined, {
@@ -27,7 +27,7 @@ function formatDate(ts: number): string {
 function summarize(exercises: { slug: string; setCount: number }[]): string {
   if (exercises.length === 0) return "No exercises";
   return exercises
-    .map((e) => `${exerciseShort(e.slug as ExerciseSlug)} ${e.setCount}`)
+    .map((e) => `${exerciseShort(e.slug)} ${e.setCount}`)
     .join(" · ");
 }
 

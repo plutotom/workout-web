@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 
 import { mutation, query } from "../../_generated/server";
-import { requireUser } from "../../lib/auth";
+import { requireUser, getUser } from "../../lib/auth";
 import {
   apiKeyDisplayPrefix,
   generateRawApiKey,
@@ -30,7 +30,8 @@ export const create = mutation({
 export const list = query({
   args: {},
   handler: async (ctx) => {
-    const user = await requireUser(ctx);
+    const user = await getUser(ctx);
+    if (!user) return [];
     const keys = await ctx.db
       .query("mcpApiKeys")
       .withIndex("by_user", (q) => q.eq("userId", user._id))

@@ -1,12 +1,7 @@
 import { v } from "convex/values";
 
-// V1 exercise catalog is a fixed set of three barbell lifts (locked decision),
-// so it lives as a constant + validator rather than a seeded table. Display
-// names are resolved on the client from the matching slug.
+// Informational — the authoritative curated catalog lives client-side in
+// src/lib/exercises.ts. Slugs are open strings to support future custom lifts.
 export const EXERCISE_SLUGS = ["bench", "squat", "deadlift"] as const;
 
-export const exerciseSlugValidator = v.union(
-  v.literal("bench"),
-  v.literal("squat"),
-  v.literal("deadlift"),
-);
+export const exerciseSlugValidator = v.string();

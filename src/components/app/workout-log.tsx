@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { exerciseName, type ExerciseSlug } from "@/lib/exercises";
+import { exerciseName, exerciseUsesBar } from "@/lib/exercises";
 
 type TemplateData =
   | {
@@ -193,7 +193,7 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
         <Card key={exercise._id}>
           <CardHeader>
             <CardTitle className="text-base">
-              {exerciseName(exercise.slug as ExerciseSlug)}
+              {exerciseName(exercise.slug)}
             </CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-1">
@@ -209,6 +209,7 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
                 set={set}
                 index={i + 1}
                 editable={editable}
+                includeBar={exerciseUsesBar(exercise.slug)}
               />
             ))}
             {editable ? (
@@ -273,10 +274,12 @@ function SetRow({
   set,
   index,
   editable,
+  includeBar,
 }: {
   set: Doc<"sets">;
   index: number;
   editable: boolean;
+  includeBar: boolean;
 }) {
   const updateSet = useMutation(api.routes.workouts.mutations.updateSet);
   // Weight is controlled so an applied plate-calc value reflects immediately.
@@ -340,6 +343,7 @@ function SetRow({
         />
         <PlateCalcButton
           weight={Number(weightStr) || 0}
+          includeBar={includeBar}
           onApply={editable ? applyWeight : undefined}
           aria-label={`Plates for set ${index}`}
           className="absolute top-1/2 right-0.5 size-8 -translate-y-1/2"

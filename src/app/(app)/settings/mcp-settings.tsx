@@ -47,12 +47,14 @@ export function McpSettings() {
       ? window.location.origin
       : "https://your-app.vercel.app";
 
+  const mcpUrl = `${origin}/api/mcp`;
+
   const cursorConfig = newKey
     ? JSON.stringify(
         {
           mcpServers: {
             "workout-web": {
-              url: `${origin}/api/mcp`,
+              url: mcpUrl,
               headers: { Authorization: `Bearer ${newKey}` },
             },
           },
@@ -174,10 +176,27 @@ export function McpSettings() {
             )}
           </div>
 
-          <p className="text-muted-foreground text-xs">
-            MCP endpoint:{" "}
-            <code className="text-foreground break-all">{origin}/api/mcp</code>
-          </p>
+          <div className="grid gap-2">
+            <div className="flex items-center justify-between gap-2">
+              <Label htmlFor="mcp-endpoint-url">MCP endpoint URL</Label>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 shrink-0"
+                onClick={() => copyText(mcpUrl, "MCP URL")}
+              >
+                <Copy className="size-3.5" />
+                Copy
+              </Button>
+            </div>
+            <Input
+              id="mcp-endpoint-url"
+              readOnly
+              value={mcpUrl}
+              className="font-mono text-xs break-all"
+            />
+          </div>
         </CardContent>
       </Card>
 
@@ -196,6 +215,26 @@ export function McpSettings() {
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4">
+            <div className="grid gap-2">
+              <div className="flex items-center justify-between gap-2">
+                <Label>MCP server URL</Label>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-8 shrink-0"
+                  onClick={() => copyText(mcpUrl, "MCP URL")}
+                >
+                  <Copy className="size-3.5" />
+                  Copy
+                </Button>
+              </div>
+              <Input
+                readOnly
+                value={mcpUrl}
+                className="font-mono text-xs break-all"
+              />
+            </div>
             <div className="grid gap-2">
               <div className="flex items-center justify-between gap-2">
                 <Label>API key</Label>

@@ -34,11 +34,14 @@ function fmt(n: number): string {
 export function PlateCalcButton({
   weight,
   onApply,
+  includeBar = true,
   className,
   "aria-label": ariaLabel = "Plate calculator",
 }: {
   weight: number;
   onApply?: (weight: number) => void;
+  /** When false (e.g. dumbbell lifts), plate math omits bar weight. */
+  includeBar?: boolean;
   className?: string;
   "aria-label"?: string;
 }) {
@@ -64,6 +67,7 @@ export function PlateCalcButton({
           <div className="px-4 pb-6">
             <PlateCalculator
               initialWeight={weight}
+              includeBar={includeBar}
               onApply={
                 onApply
                   ? (w) => {
@@ -82,16 +86,19 @@ export function PlateCalcButton({
 
 export function PlateCalculator({
   initialWeight,
+  includeBar = true,
   onApply,
 }: {
   initialWeight: number;
+  includeBar?: boolean;
   onApply?: (weight: number) => void;
 }) {
   const user = useQuery(api.routes.auth.users.current);
   const unit: Unit = user?.unit ?? "lb";
-  const defaultBar =
-    (unit === "lb" ? user?.barWeightLb : user?.barWeightKg) ??
-    STANDARD_PLATES[unit].bar;
+  const defaultBar = includeBar
+    ? ((unit === "lb" ? user?.barWeightLb : user?.barWeightKg) ??
+      STANDARD_PLATES[unit].bar)
+    : 0;
 
   // Per-calculation bar override (transient — the saved default lives in
   // Settings). null means "use the default".
@@ -112,15 +119,23 @@ export function PlateCalculator({
             initialWeight={initialWeight}
             config={config}
             unit={unit}
+            includeBar={includeBar}
             onApply={onApply}
           />
         </TabsContent>
         <TabsContent value="toWeight">
-          <PlatesToWeight config={config} unit={unit} onApply={onApply} />
+          <PlatesToWeight
+            config={config}
+            unit={unit}
+            includeBar={includeBar}
+            onApply={onApply}
+          />
         </TabsContent>
       </Tabs>
 
-      <BarControl bar={bar} unit={unit} onChange={setBarOverride} />
+      {includeBar ? (
+        <BarControl bar={bar} unit={unit} onChange={setBarOverride} />
+      ) : null}
     </div>
   );
 }
@@ -196,11 +211,13 @@ function WeightToPlates({
   initialWeight,
   config,
   unit,
+  includeBar,
   onApply,
 }: {
   initialWeight: number;
   config: PlateConfig;
   unit: Unit;
+  includeBar: boolean;
   onApply?: (weight: number) => void;
 }) {
   const [value, setValue] = useState(
@@ -232,7 +249,9 @@ function WeightToPlates({
         </p>
       ) : !result.feasible ? (
         <p className="text-muted-foreground text-sm">
-          Below the bar ({fmt(config.bar)} {unit}).
+          {includeBar
+            ? `Below the bar (${fmt(config.bar)} ${unit}).`
+            : "Enter a valid weight."}
         </p>
       ) : (
         <div className="flex flex-col gap-3">
@@ -241,7 +260,9 @@ function WeightToPlates({
               Each side
             </p>
             {result.perSide.length === 0 ? (
-              <p className="text-sm">Just the bar.</p>
+              <p className="text-sm">
+                {includeBar ? "Just the bar." : "No plates needed."}
+              </p>
             ) : (
               <div className="flex flex-wrap gap-1.5">
                 {result.perSide.map((p) => (
@@ -288,10 +309,12 @@ function WeightToPlates({
 function PlatesToWeight({
   config,
   unit,
+  includeBar,
   onApply,
 }: {
   config: PlateConfig;
   unit: Unit;
+  includeBar: boolean;
   onApply?: (weight: number) => void;
 }) {
   const [counts, setCounts] = useState<Record<number, number>>({});
@@ -365,8 +388,9 @@ function PlatesToWeight({
           {fmt(total)} {unit}
         </span>
         <span className="text-muted-foreground">
-          {" "}
-          · {fmt(config.bar)} bar + {fmt(perSideSum)} / side
+          {includeBar
+            ? ` · ${fmt(config.bar)} bar + ${fmt(perSideSum)} / side`
+            : ` · ${fmt(perSideSum)} / side`}
         </span>
       </p>
 

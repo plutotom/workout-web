@@ -21,7 +21,7 @@ export default function SettingsPage() {
         size="lg"
         className="text-destructive hover:text-destructive mt-2 w-full"
       >
-        <Link href="/sign-out">
+        <Link href="/sign-out" prefetch={false}>
           <LogOut className="size-4" />
           Sign out
         </Link>

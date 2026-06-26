@@ -7,7 +7,6 @@ import type { Id } from "@backend/dataModel";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
 import { TemplateEditorForm } from "@/components/app/template-editor-form";
-import type { ExerciseSlug } from "@/lib/exercises";
 
 export function EditTemplateLoader({ id }: { id: string }) {
   const templateId = id as Id<"workoutTemplates">;
@@ -42,7 +41,7 @@ export function EditTemplateLoader({ id }: { id: string }) {
       initial={{
         name: template.name,
         exercises: template.exercises.map((e) => ({
-          slug: e.slug as ExerciseSlug,
+          slug: e.slug,
           sets: e.sets.map((s) => ({ weight: s.weight, reps: s.reps })),
         })),
       }}

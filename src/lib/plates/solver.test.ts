@@ -52,6 +52,13 @@ describe("solveWeightToPlates (lb)", () => {
     expect(r.feasible).toBe(false);
     expect(r.perSide).toEqual([]);
   });
+
+  it("loads dumbbell weight with no bar", () => {
+    const r = solveWeightToPlates(50, { bar: 0, plates: lb.plates });
+    expect(r.exact).toBe(true);
+    expect(r.loadedTotal).toBe(50);
+    expect(r.perSide).toEqual([{ plate: 25, count: 1 }]);
+  });
 });
 
 describe("solveWeightToPlates (kg)", () => {

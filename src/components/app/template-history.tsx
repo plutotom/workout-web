@@ -9,7 +9,7 @@ import type { Id } from "@backend/dataModel";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
 import { Card } from "@/components/ui/card";
-import { exerciseShort, type ExerciseSlug } from "@/lib/exercises";
+import { exerciseShort } from "@/lib/exercises";
 
 function formatDate(ts: number): string {
   return new Date(ts).toLocaleDateString(undefined, {
@@ -24,12 +24,7 @@ function summarize(
 ): string {
   if (exercises.length === 0) return "No exercises";
   return exercises
-    .map(
-      (e) =>
-        `${exerciseShort(e.slug as ExerciseSlug)} ${
-          e.completedCount || e.setCount
-        }`,
-    )
+    .map((e) => `${exerciseShort(e.slug)} ${e.completedCount || e.setCount}`)
     .join(" · ");
 }
 

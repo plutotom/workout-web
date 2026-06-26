@@ -3,9 +3,12 @@
   "authKit": {
     "dev": {
       "configure": {
-        "redirectUris": ["http://localhost:4271/callback"],
+        "redirectUris": [
+          "http://localhost:4271/callback",
+          "https://workout.plutotom.com/callback"
+        ],
         "appHomepageUrl": "http://localhost:4271",
-        "corsOrigins": ["http://localhost:4271"]
+        "corsOrigins": ["http://localhost:4271", "https://workout.plutotom.com"]
       },
       "localEnvVars": {
         "WORKOS_CLIENT_ID": "${authEnv.WORKOS_CLIENT_ID}",
@@ -23,11 +26,9 @@
     "prod": {
       "environmentType": "production",
       "configure": {
-        "redirectUris": [
-          "https://${buildEnv.VERCEL_PROJECT_PRODUCTION_URL}/callback"
-        ],
-        "appHomepageUrl": "https://${buildEnv.VERCEL_PROJECT_PRODUCTION_URL}",
-        "corsOrigins": ["https://${buildEnv.VERCEL_PROJECT_PRODUCTION_URL}"]
+        "redirectUris": ["https://workout.plutotom.com/callback"],
+        "appHomepageUrl": "https://workout.plutotom.com",
+        "corsOrigins": ["https://workout.plutotom.com"]
       }
     }
   }

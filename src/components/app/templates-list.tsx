@@ -10,12 +10,12 @@ import { PageHeader } from "@/components/app/page-header";
 import { StartWorkoutButton } from "@/components/app/start-workout-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { exerciseShort, type ExerciseSlug } from "@/lib/exercises";
+import { exerciseShort } from "@/lib/exercises";
 
 function summarize(exercises: { slug: string; setCount: number }[]): string {
   if (exercises.length === 0) return "No exercises";
   return exercises
-    .map((e) => `${exerciseShort(e.slug as ExerciseSlug)} ${e.setCount}`)
+    .map((e) => `${exerciseShort(e.slug)} ${e.setCount}`)
     .join(" · ");
 }
 
