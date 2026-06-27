@@ -26,9 +26,13 @@ function assertValidSlug(slug: string) {
 }
 
 function normalizeExercises(exercises: ExerciseInput[]) {
-  return exercises.map((e) => {
+  const seen = new Set<string>();
+  return exercises.flatMap((e) => {
     assertValidSlug(e.slug);
-    return { slug: e.slug.trim(), sets: normalizeTemplateSets(e.sets) };
+    const slug = e.slug.trim();
+    if (seen.has(slug)) return [];
+    seen.add(slug);
+    return [{ slug, sets: normalizeTemplateSets(e.sets) }];
   });
 }
 
