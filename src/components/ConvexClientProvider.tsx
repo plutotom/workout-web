@@ -6,6 +6,7 @@ import {
   useAuth,
 } from "@workos-inc/authkit-nextjs/components";
 import { ConvexProviderWithAuth, ConvexReactClient } from "convex/react";
+import { ConvexQueryCacheProvider } from "convex-helpers/react/cache/provider";
 import { type ReactNode, useCallback, useState } from "react";
 
 export function ConvexClientProvider({ children }: { children: ReactNode }) {
@@ -18,7 +19,10 @@ export function ConvexClientProvider({ children }: { children: ReactNode }) {
     <AuthKitProvider>
       {convex ? (
         <ConvexProviderWithAuth client={convex} useAuth={useAuthFromAuthKit}>
-          {children}
+          {/* Keeps query subscriptions warm for a while after a component
+              unmounts, so navigating between tabs returns cached data
+              instantly instead of flashing a loading state every time. */}
+          <ConvexQueryCacheProvider>{children}</ConvexQueryCacheProvider>
         </ConvexProviderWithAuth>
       ) : (
         children

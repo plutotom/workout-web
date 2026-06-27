@@ -38,6 +38,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "convex": "^1.42.0",
+    "convex-helpers": "^0.1.120",
     "lucide-react": "^1.21.0",
     "mcp-handler": "^1.1.0",
     "next": "16.2.9",

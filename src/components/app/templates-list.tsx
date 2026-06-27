@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useQuery } from "convex/react";
+import { useQuery } from "convex-helpers/react/cache/hooks";
 import { Dumbbell, History, Pencil, Plus } from "lucide-react";
 
 import { api } from "@backend/api";

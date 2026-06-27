@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "convex/react";
+import { useQuery } from "convex-helpers/react/cache/hooks";
 
 import { api } from "@backend/api";
 import type { Id } from "@backend/dataModel";
