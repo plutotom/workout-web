@@ -12,6 +12,14 @@ import { EXERCISES } from "@/lib/exercises";
 import { getMcpConvexClient } from "./convex";
 
 const exerciseSlug = z.string().min(1).max(64);
+const muscleGroup = z.enum([
+  "chest",
+  "back",
+  "legs",
+  "shoulders",
+  "arms",
+  "core",
+]);
 const setPreset = z.object({ weight: z.number(), reps: z.number() });
 const exerciseInput = z.object({
   slug: exerciseSlug,
@@ -24,6 +32,11 @@ function apiKeyFrom(extra: ToolExtra): string {
   const token = extra.authInfo?.token;
   if (!token) throw new Error("Not authenticated");
   return token;
+}
+
+/** Accept either a `custom:<id>` slug (as listed) or the bare id. */
+function toCustomExerciseId(value: string): Id<"customExercises"> {
+  return value.replace(/^custom:/, "") as Id<"customExercises">;
 }
 
 function jsonResult(data: unknown) {
@@ -65,6 +78,72 @@ export function registerWorkoutMcpTools(server: McpServer) {
         custom: true,
       }));
       return jsonResult([...curated, ...custom]);
+    },
+  );
+
+  server.registerTool(
+    "create_exercise",
+    {
+      title: "Create custom exercise",
+      description:
+        "Create a private custom exercise for the user. Returns its slug, which can be used immediately in create_template / update_template. Set usesBar to true for barbell lifts (the plate calculator then includes the bar).",
+      inputSchema: {
+        name: z.string(),
+        category: muscleGroup,
+        usesBar: z.boolean(),
+        short: z.string().optional(),
+      },
+    },
+    async ({ name, category, usesBar, short }, extra) => {
+      const result = await convex().mutation(
+        api.routes.mcp.mutations.createCustomExercise,
+        { apiKey: apiKeyFrom(extra), name, category, usesBar, short },
+      );
+      return jsonResult(result);
+    },
+  );
+
+  server.registerTool(
+    "update_exercise",
+    {
+      title: "Update custom exercise",
+      description:
+        "Update a custom exercise (only custom: true entries from list_exercises can be edited). Pass the exercise's slug from list_exercises as exerciseId.",
+      inputSchema: {
+        exerciseId: z.string(),
+        name: z.string(),
+        category: muscleGroup,
+        usesBar: z.boolean(),
+        short: z.string().optional(),
+      },
+    },
+    async ({ exerciseId, name, category, usesBar, short }, extra) => {
+      await convex().mutation(api.routes.mcp.mutations.updateCustomExercise, {
+        apiKey: apiKeyFrom(extra),
+        exerciseId: toCustomExerciseId(exerciseId),
+        name,
+        category,
+        usesBar,
+        short,
+      });
+      return jsonResult({ ok: true, exerciseId });
+    },
+  );
+
+  server.registerTool(
+    "delete_exercise",
+    {
+      title: "Delete custom exercise",
+      description:
+        "Delete (archive) a custom exercise. It's hidden from the catalog afterward, but templates and past workouts that already reference it keep showing its name. Pass the exercise's slug from list_exercises as exerciseId.",
+      inputSchema: { exerciseId: z.string() },
+    },
+    async ({ exerciseId }, extra) => {
+      await convex().mutation(api.routes.mcp.mutations.archiveCustomExercise, {
+        apiKey: apiKeyFrom(extra),
+        exerciseId: toCustomExerciseId(exerciseId),
+      });
+      return jsonResult({ ok: true, exerciseId });
     },
   );
 
