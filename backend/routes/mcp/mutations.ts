@@ -3,11 +3,17 @@ import { v } from "convex/values";
 import { mutation } from "../../_generated/server";
 import { requireUserFromApiKey } from "../../lib/apiKeys";
 import {
+  archiveCustomExercise as archiveCustomExerciseLib,
+  createCustomExercise as createCustomExerciseLib,
+  updateCustomExercise as updateCustomExerciseLib,
+} from "../../lib/exercises";
+import {
   createTemplate as createTemplateLib,
   exerciseInputValidator,
   removeTemplate,
   updateTemplate as updateTemplateLib,
 } from "../../lib/templates";
+import { muscleGroupValidator } from "../../schemas/exercises";
 import {
   abandonWorkout as abandonWorkoutLib,
   addSet as addSetLib,
@@ -50,6 +56,43 @@ export const deleteTemplate = mutation({
   handler: async (ctx, { apiKey, templateId }) => {
     const user = await requireUserFromApiKey(ctx, apiKey);
     await removeTemplate(ctx, user._id, templateId);
+  },
+});
+
+export const createCustomExercise = mutation({
+  args: {
+    apiKey: v.string(),
+    name: v.string(),
+    short: v.optional(v.string()),
+    category: muscleGroupValidator,
+    usesBar: v.boolean(),
+  },
+  handler: async (ctx, { apiKey, ...args }) => {
+    const user = await requireUserFromApiKey(ctx, apiKey);
+    return createCustomExerciseLib(ctx, user._id, args);
+  },
+});
+
+export const updateCustomExercise = mutation({
+  args: {
+    apiKey: v.string(),
+    exerciseId: v.id("customExercises"),
+    name: v.string(),
+    short: v.optional(v.string()),
+    category: muscleGroupValidator,
+    usesBar: v.boolean(),
+  },
+  handler: async (ctx, { apiKey, ...args }) => {
+    const user = await requireUserFromApiKey(ctx, apiKey);
+    await updateCustomExerciseLib(ctx, user._id, args);
+  },
+});
+
+export const archiveCustomExercise = mutation({
+  args: { apiKey: v.string(), exerciseId: v.id("customExercises") },
+  handler: async (ctx, { apiKey, exerciseId }) => {
+    const user = await requireUserFromApiKey(ctx, apiKey);
+    await archiveCustomExerciseLib(ctx, user._id, exerciseId);
   },
 });
 
