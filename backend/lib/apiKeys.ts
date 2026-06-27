@@ -53,7 +53,12 @@ export async function requireUserFromApiKey(
     .unique();
   if (!record) throw new Error("Invalid API key");
 
-  await ctx.db.patch(record._id, { lastUsedAt: Date.now() });
+  // Throttle writes to reduce OCC conflicts when concurrent mutations share the same key.
+  // On a Convex OCC retry the timestamp will already be fresh and the write is skipped.
+  const now = Date.now();
+  if (!record.lastUsedAt || now - record.lastUsedAt > 5 * 60_000) {
+    await ctx.db.patch(record._id, { lastUsedAt: now });
+  }
 
   const user = await ctx.db.get(record.userId);
   if (!user) throw new Error("Invalid API key");
