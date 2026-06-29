@@ -25,9 +25,23 @@ Vercel runs `pnpm build`, which deploys Convex then builds Next.js:
 
 `convex deploy --cmd` sets `NEXT_PUBLIC_CONVEX_URL` for the Next.js build step.
 
-**Vercel env (production):** add `CONVEX_DEPLOY_KEY` from the Convex dashboard
-(Project Settings → Deploy Keys → Production Deploy Key). Without it, Vercel
-builds succeed for frontend-only changes but Convex functions stay stale.
+**Vercel env — use two deploy keys, scoped by environment:**
+
+| Vercel environment | `CONVEX_DEPLOY_KEY` source                                      |
+| ------------------ | --------------------------------------------------------------- |
+| **Production**     | Convex Dashboard → Project Settings → **Production** Deploy Key |
+| **Preview**        | Convex Dashboard → Project Settings → **Preview** Deploy Key    |
+
+Both variables are named `CONVEX_DEPLOY_KEY` in Vercel, but each key must be
+restricted to the matching environment (Production only / Preview only). If a
+production key is available during a preview build, Convex fails with:
+
+> Detected a non-production build environment and "CONVEX_DEPLOY_KEY" for a
+> production Convex deployment.
+
+Preview deploys get a branch-specific Convex backend (see `convex.json` →
+`authKit.preview`). Without a preview key, PR preview builds will not deploy
+backend/schema changes.
 
 For local Next.js builds without deploying Convex, use `pnpm build:web`.
 
