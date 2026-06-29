@@ -2,7 +2,7 @@ import { v } from "convex/values";
 
 import { mutation } from "../../_generated/server";
 import { requireUser } from "../../lib/auth";
-import { upsertExerciseNote } from "../../lib/exercise-notes";
+import { upsertExerciseNote } from "../../lib/exercise_notes";
 import {
   archiveCustomExercise,
   createCustomExercise,

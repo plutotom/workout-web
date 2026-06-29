@@ -1,6 +1,6 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
-import { getNotesBySlugs } from "./exercise-notes";
+import { getNotesBySlugs } from "./exercise_notes";
 
 const clampWhole = (n: number) => Math.max(0, Math.round(n));
 

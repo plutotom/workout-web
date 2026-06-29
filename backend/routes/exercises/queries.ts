@@ -2,7 +2,7 @@ import { v } from "convex/values";
 
 import { query } from "../../_generated/server";
 import { getUser } from "../../lib/auth";
-import { getNotesBySlugs } from "../../lib/exercise-notes";
+import { getNotesBySlugs } from "../../lib/exercise_notes";
 import { listCustomExercises } from "../../lib/exercises";
 import { exerciseSlugValidator } from "../../schemas/exercises";
 
