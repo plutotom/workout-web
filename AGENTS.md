@@ -14,3 +14,21 @@ Convex functions live in `backend/`. As the app grows:
 - **Routes** — `backend/routes/<feature>/` (e.g. `auth/`, `templates/`, `workouts/`) for queries, mutations, and actions. Avoid dumping new function files at `backend/` root.
 
 See `.cursor/rules/backend-organization.mdc` for full conventions.
+
+## Deployment
+
+Vercel runs `pnpm build`, which deploys Convex then builds Next.js:
+
+```json
+"build": "convex deploy --cmd 'pnpm run build:web'"
+```
+
+`convex deploy --cmd` sets `NEXT_PUBLIC_CONVEX_URL` for the Next.js build step.
+
+**Vercel env (production):** add `CONVEX_DEPLOY_KEY` from the Convex dashboard
+(Project Settings → Deploy Keys → Production Deploy Key). Without it, Vercel
+builds succeed for frontend-only changes but Convex functions stay stale.
+
+For local Next.js builds without deploying Convex, use `pnpm build:web`.
+
+Manual full prod sync (Convex env vars + WorkOS redirects): `pnpm sync:prod`.

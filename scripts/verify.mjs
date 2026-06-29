@@ -89,7 +89,7 @@ for (const file of [
 const checks = [
   ["lint", ["exec", "eslint", "."]],
   ["format", ["format:check"]],
-  ["build", ["build"]],
+  ["build", ["build:web"]],
   ["convex sync", ["exec", "convex", "dev", "--once"]],
   ["convex query", ["exec", "convex", "run", "hello:getMessage"]],
 ];
