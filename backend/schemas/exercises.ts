@@ -31,4 +31,11 @@ export const exerciseTables = {
     usesBar: v.boolean(),
     archived: v.boolean(),
   }).index("by_user", ["userId"]),
+
+  // Per-user notes keyed by exercise slug — shared across templates and workouts.
+  exerciseNotes: defineTable({
+    userId: v.id("users"),
+    exerciseSlug: exerciseSlugValidator,
+    notes: v.string(),
+  }).index("by_user_slug", ["userId", "exerciseSlug"]),
 };

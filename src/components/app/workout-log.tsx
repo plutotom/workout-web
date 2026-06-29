@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { api } from "@backend/api";
 import type { Doc, Id } from "@backend/dataModel";
 import { EmptyState } from "@/components/app/empty-state";
+import { ExerciseNoteField } from "@/components/app/exercise-note-field";
 import { ExercisePicker } from "@/components/app/exercise-picker";
 import { PageHeader } from "@/components/app/page-header";
 import { PlateCalcButton } from "@/components/app/plate-calculator";
@@ -263,7 +264,13 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
               </div>
             ) : null}
           </CardHeader>
-          <CardContent className="flex flex-col gap-1">
+          <CardContent className="flex flex-col gap-3">
+            <ExerciseNoteField
+              key={`${exercise.slug}-${exercise.notes ?? ""}`}
+              exerciseSlug={exercise.slug}
+              initialNotes={exercise.notes}
+              editable={editable}
+            />
             <div className="text-muted-foreground grid grid-cols-[2rem_1fr_1fr_2rem_2.5rem] gap-2 px-1 text-xs font-medium tracking-wide uppercase">
               <span>Set</span>
               <span>Weight</span>
