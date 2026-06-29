@@ -4,12 +4,13 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation } from "convex/react";
 import { useQuery } from "convex-helpers/react/cache/hooks";
-import { Check, Plus } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { api } from "@backend/api";
 import type { Doc, Id } from "@backend/dataModel";
 import { EmptyState } from "@/components/app/empty-state";
+import { ExercisePicker } from "@/components/app/exercise-picker";
 import { PageHeader } from "@/components/app/page-header";
 import { PlateCalcButton } from "@/components/app/plate-calculator";
 import { Button } from "@/components/ui/button";
@@ -44,6 +45,12 @@ function templateDiffersFromSession(
   template: TemplateData,
 ): boolean {
   if (!template) return false;
+
+  const sessionSlugs = exercises.map((e) => e.slug);
+  const templateSlugs = template.exercises.map((e) => e.slug);
+  if (sessionSlugs.length !== templateSlugs.length) return true;
+  if (sessionSlugs.some((slug, i) => slug !== templateSlugs[i])) return true;
+
   const bySlug = new Map(template.exercises.map((e) => [e.slug, e.sets]));
   for (const ex of exercises) {
     const current = bySlug.get(ex.slug);
@@ -71,6 +78,9 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
     session ? { templateId: session.templateId } : "skip",
   );
   const addSet = useMutation(api.routes.workouts.mutations.addSet);
+  const deleteSet = useMutation(api.routes.workouts.mutations.deleteSet);
+  const moveExercise = useMutation(api.routes.workouts.mutations.moveExercise);
+  const addExercise = useMutation(api.routes.workouts.mutations.addExercise);
   const finish = useMutation(api.routes.workouts.mutations.finish);
   const abandon = useMutation(api.routes.workouts.mutations.abandon);
   const syncFromSession = useMutation(
@@ -79,6 +89,8 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
   const [finishing, setFinishing] = useState(false);
   const [incompleteOpen, setIncompleteOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerKey, setPickerKey] = useState(0);
 
   if (session === undefined) {
     return (
@@ -110,6 +122,21 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
   const hasUncheckedSets = session.exercises.some((ex) =>
     ex.sets.some((s) => !s.completed),
   );
+  const usedSlugs = session.exercises.map((e) => e.slug);
+
+  async function handleAddExercises(slugs: string[]) {
+    try {
+      for (const slug of slugs) {
+        await addExercise({
+          sessionId: sessionId as Id<"workoutSessions">,
+          exerciseSlug: slug,
+        });
+      }
+      setPickerOpen(false);
+    } catch {
+      toast.error("Couldn't add exercise");
+    }
+  }
 
   // The Finish button: if some sets are unchecked, ask save-or-discard first;
   // otherwise complete the workout directly.
@@ -193,18 +220,55 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
         </p>
       ) : null}
 
-      {session.exercises.map((exercise) => (
+      {session.exercises.map((exercise, exIndex) => (
         <Card key={exercise._id}>
-          <CardHeader>
+          <CardHeader className="flex-row items-center justify-between gap-2 space-y-0 pb-0">
             <CardTitle className="text-base">
               {catalog.name(exercise.slug)}
             </CardTitle>
+            {editable ? (
+              <div className="flex items-center gap-1">
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="size-8"
+                  aria-label="Move exercise up"
+                  disabled={exIndex === 0}
+                  onClick={() =>
+                    void moveExercise({
+                      sessionExerciseId: exercise._id,
+                      delta: -1,
+                    })
+                  }
+                >
+                  <ChevronUp className="size-4" />
+                </Button>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="size-8"
+                  aria-label="Move exercise down"
+                  disabled={exIndex === session.exercises.length - 1}
+                  onClick={() =>
+                    void moveExercise({
+                      sessionExerciseId: exercise._id,
+                      delta: 1,
+                    })
+                  }
+                >
+                  <ChevronDown className="size-4" />
+                </Button>
+              </div>
+            ) : null}
           </CardHeader>
           <CardContent className="flex flex-col gap-1">
-            <div className="text-muted-foreground grid grid-cols-[2rem_1fr_1fr_2.5rem] gap-2 px-1 text-xs font-medium tracking-wide uppercase">
+            <div className="text-muted-foreground grid grid-cols-[2rem_1fr_1fr_2rem_2.5rem] gap-2 px-1 text-xs font-medium tracking-wide uppercase">
               <span>Set</span>
               <span>Weight</span>
               <span>Reps</span>
+              <span />
               <span className="text-center">✓</span>
             </div>
             {exercise.sets.map((set, i) => (
@@ -213,7 +277,9 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
                 set={set}
                 index={i + 1}
                 editable={editable}
+                canDelete={exercise.sets.length > 1}
                 includeBar={catalog.usesBar(exercise.slug)}
+                onDelete={() => void deleteSet({ setId: set._id })}
               />
             ))}
             {editable ? (
@@ -230,6 +296,30 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
           </CardContent>
         </Card>
       ))}
+
+      {editable ? (
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full"
+          disabled={usedSlugs.length >= catalog.all.length}
+          onClick={() => {
+            setPickerKey((k) => k + 1);
+            setPickerOpen(true);
+          }}
+        >
+          <Plus className="size-4" />
+          Add exercise
+        </Button>
+      ) : null}
+
+      <ExercisePicker
+        key={pickerKey}
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        usedSlugs={usedSlugs}
+        onAdd={handleAddExercises}
+      />
 
       <Dialog open={incompleteOpen} onOpenChange={setIncompleteOpen}>
         <DialogContent>
@@ -258,8 +348,8 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
           <DialogHeader>
             <DialogTitle>Update template?</DialogTitle>
             <DialogDescription>
-              Update {session.templateName} to match the weights and reps you
-              just logged?
+              Update {session.templateName} to match the exercises, order, and
+              weights you just logged?
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="sm:flex-col sm:gap-2">
@@ -274,16 +364,24 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
   );
 }
 
+function selectNumericInput(e: React.FocusEvent<HTMLInputElement>) {
+  e.currentTarget.select();
+}
+
 function SetRow({
   set,
   index,
   editable,
+  canDelete,
   includeBar,
+  onDelete,
 }: {
   set: Doc<"sets">;
   index: number;
   editable: boolean;
+  canDelete: boolean;
   includeBar: boolean;
+  onDelete: () => void;
 }) {
   const updateSet = useMutation(api.routes.workouts.mutations.updateSet);
   // Weight is controlled so an applied plate-calc value reflects immediately.
@@ -335,7 +433,7 @@ function SetRow({
   return (
     <div
       className={cn(
-        "grid grid-cols-[2rem_1fr_1fr_2.5rem] items-center gap-2 rounded-md border border-transparent px-1 py-1.5 transition-colors duration-200",
+        "grid grid-cols-[2rem_1fr_1fr_2rem_2.5rem] items-center gap-2 rounded-md border border-transparent px-1 py-1.5 transition-colors duration-200",
         completed && "border-success/40 bg-success/10",
       )}
     >
@@ -352,6 +450,7 @@ function SetRow({
           disabled={!editable}
           className="h-9 pr-8 text-center"
           aria-label={`Set ${index} weight`}
+          onFocus={selectNumericInput}
           onChange={(e) => setWeightStr(e.target.value.replace(/[^0-9]/g, ""))}
           onBlur={(e) => commitWeight(e.target.value)}
         />
@@ -372,8 +471,20 @@ function SetRow({
         disabled={!editable}
         className="h-9 text-center"
         aria-label={`Set ${index} reps`}
+        onFocus={selectNumericInput}
         onBlur={(e) => commitReps(e.target.value)}
       />
+      <Button
+        type="button"
+        size="icon"
+        variant="ghost"
+        className="text-muted-foreground hover:text-foreground size-8 justify-self-center"
+        aria-label={`Remove set ${index}`}
+        disabled={!editable || !canDelete}
+        onClick={onDelete}
+      >
+        <X className="size-4" />
+      </Button>
       <Button
         type="button"
         size="icon"

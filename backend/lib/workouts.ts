@@ -148,6 +148,31 @@ export async function updateSet(
   await ctx.db.patch(setId, patch);
 }
 
+const DEFAULT_SET_ROWS = 3;
+
+async function sessionExercisesFor(
+  ctx: MutationCtx,
+  sessionId: Id<"workoutSessions">,
+) {
+  const exercises = await ctx.db
+    .query("sessionExercises")
+    .withIndex("by_session", (q) => q.eq("sessionId", sessionId))
+    .collect();
+  exercises.sort((a, b) => a.orderIndex - b.orderIndex);
+  return exercises;
+}
+
+async function assertSessionEditable(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  sessionId: Id<"workoutSessions">,
+) {
+  const session = await ownedSession(ctx, userId, sessionId);
+  if (session.status !== "in_progress")
+    throw new Error("Workout is no longer active");
+  return session;
+}
+
 export async function addSet(
   ctx: MutationCtx,
   userId: Id<"users">,
@@ -177,6 +202,101 @@ export async function addSet(
     reps: last?.reps ?? fallback?.reps ?? 0,
     completed: false,
   });
+}
+
+export async function deleteSet(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  setId: Id<"sets">,
+) {
+  const set = await ownedSetContext(ctx, userId, setId);
+  const sessionExercise = await ctx.db.get(set.sessionExerciseId);
+  if (!sessionExercise) throw new Error("Set not found");
+  await assertSessionEditable(ctx, userId, sessionExercise.sessionId);
+
+  const sets = await ctx.db
+    .query("sets")
+    .withIndex("by_session_exercise", (q) =>
+      q.eq("sessionExerciseId", set.sessionExerciseId),
+    )
+    .collect();
+  if (sets.length <= 1) throw new Error("Cannot delete the last set");
+
+  await ctx.db.delete(setId);
+
+  const remaining = sets
+    .filter((s) => s._id !== setId)
+    .sort((a, b) => a.orderIndex - b.orderIndex);
+  await Promise.all(
+    remaining.map((s, i) =>
+      s.orderIndex === i
+        ? Promise.resolve()
+        : ctx.db.patch(s._id, { orderIndex: i }),
+    ),
+  );
+}
+
+export async function moveSessionExercise(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  sessionExerciseId: Id<"sessionExercises">,
+  delta: number,
+) {
+  const sessionExercise = await ctx.db.get(sessionExerciseId);
+  if (!sessionExercise) throw new Error("Exercise not found");
+  await assertSessionEditable(ctx, userId, sessionExercise.sessionId);
+
+  const exercises = await sessionExercisesFor(ctx, sessionExercise.sessionId);
+  const index = exercises.findIndex((e) => e._id === sessionExerciseId);
+  const target = index + delta;
+  if (index < 0 || target < 0 || target >= exercises.length) return;
+
+  const current = exercises[index];
+  const swap = exercises[target];
+  await ctx.db.patch(current._id, { orderIndex: swap.orderIndex });
+  await ctx.db.patch(swap._id, { orderIndex: current.orderIndex });
+}
+
+export async function addSessionExercise(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  {
+    sessionId,
+    exerciseSlug,
+  }: {
+    sessionId: Id<"workoutSessions">;
+    exerciseSlug: Doc<"sessionExercises">["exerciseSlug"];
+  },
+) {
+  await assertSessionEditable(ctx, userId, sessionId);
+
+  const exercises = await sessionExercisesFor(ctx, sessionId);
+  if (exercises.some((e) => e.exerciseSlug === exerciseSlug))
+    throw new Error("Exercise already in workout");
+
+  const orderIndex =
+    exercises.length > 0 ? exercises[exercises.length - 1].orderIndex + 1 : 0;
+  const sessionExerciseId = await ctx.db.insert("sessionExercises", {
+    sessionId,
+    exerciseSlug,
+    orderIndex,
+  });
+
+  const fallback = await lastSetForExercise(ctx, userId, exerciseSlug);
+  const seed = fallback ?? { weight: 0, reps: 0 };
+  await Promise.all(
+    Array.from({ length: DEFAULT_SET_ROWS }, (_, i) =>
+      ctx.db.insert("sets", {
+        sessionExerciseId,
+        orderIndex: i,
+        weight: seed.weight,
+        reps: seed.reps,
+        completed: false,
+      }),
+    ),
+  );
+
+  return sessionExerciseId;
 }
 
 export async function finishWorkout(

@@ -40,7 +40,7 @@ export function PlateCalcButton({
 }: {
   weight: number;
   onApply?: (weight: number) => void;
-  /** When false (e.g. dumbbell lifts), plate math omits bar weight. */
+  /** Initial barbell toggle; user can change it inside the calculator. */
   includeBar?: boolean;
   className?: string;
   "aria-label"?: string;
@@ -67,7 +67,7 @@ export function PlateCalcButton({
           <div className="px-4 pb-6">
             <PlateCalculator
               initialWeight={weight}
-              includeBar={includeBar}
+              defaultIncludeBar={includeBar}
               onApply={
                 onApply
                   ? (w) => {
@@ -86,23 +86,25 @@ export function PlateCalcButton({
 
 export function PlateCalculator({
   initialWeight,
-  includeBar = true,
+  defaultIncludeBar = true,
   onApply,
 }: {
   initialWeight: number;
-  includeBar?: boolean;
+  /** Initial barbell toggle; user can change it inside the calculator. */
+  defaultIncludeBar?: boolean;
   onApply?: (weight: number) => void;
 }) {
   const user = useQuery(api.routes.auth.users.current);
   const unit: Unit = user?.unit ?? "lb";
-  const defaultBar = includeBar
-    ? ((unit === "lb" ? user?.barWeightLb : user?.barWeightKg) ??
-      STANDARD_PLATES[unit].bar)
-    : 0;
+  const [countBar, setCountBar] = useState(defaultIncludeBar);
+  const savedBar =
+    (unit === "lb" ? user?.barWeightLb : user?.barWeightKg) ??
+    STANDARD_PLATES[unit].bar;
 
   // Per-calculation bar override (transient — the saved default lives in
   // Settings). null means "use the default".
   const [barOverride, setBarOverride] = useState<number | null>(null);
+  const defaultBar = countBar ? savedBar : 0;
   const bar = barOverride ?? defaultBar;
   const config: PlateConfig = { bar, plates: STANDARD_PLATES[unit].plates };
 
@@ -119,7 +121,7 @@ export function PlateCalculator({
             initialWeight={initialWeight}
             config={config}
             unit={unit}
-            includeBar={includeBar}
+            countBar={countBar}
             onApply={onApply}
           />
         </TabsContent>
@@ -127,27 +129,38 @@ export function PlateCalculator({
           <PlatesToWeight
             config={config}
             unit={unit}
-            includeBar={includeBar}
+            countBar={countBar}
             onApply={onApply}
           />
         </TabsContent>
       </Tabs>
 
-      {includeBar ? (
-        <BarControl bar={bar} unit={unit} onChange={setBarOverride} />
-      ) : null}
+      <BarControl
+        bar={bar}
+        unit={unit}
+        countBar={countBar}
+        onCountBarChange={(next) => {
+          setCountBar(next);
+          setBarOverride(null);
+        }}
+        onChange={setBarOverride}
+      />
     </div>
   );
 }
 
-/** Compact, tucked-away bar note + selector. Collapsed by default. */
+/** Barbell toggle + optional bar weight selector. */
 function BarControl({
   bar,
   unit,
+  countBar,
+  onCountBarChange,
   onChange,
 }: {
   bar: number;
   unit: Unit;
+  countBar: boolean;
+  onCountBarChange: (countBar: boolean) => void;
   onChange: (bar: number) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -155,44 +168,63 @@ function BarControl({
 
   return (
     <div className="border-t pt-3">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="text-muted-foreground flex w-full items-center justify-between text-sm"
-      >
-        <span>
-          Bar weight: {fmt(bar)} {unit}
-        </span>
-        <span className="underline underline-offset-2">
-          {open ? "Done" : "Change"}
-        </span>
-      </button>
+      <div className="flex items-center justify-between gap-3">
+        <Label className="text-sm font-normal">Include barbell</Label>
+        <Button
+          type="button"
+          size="sm"
+          variant={countBar ? "default" : "outline"}
+          aria-pressed={countBar}
+          onClick={() => onCountBarChange(!countBar)}
+        >
+          {countBar ? "On" : "Off"}
+        </Button>
+      </div>
 
-      {open ? (
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          {BAR_PRESETS[unit].map((b) => (
-            <Button
-              key={b}
-              type="button"
-              size="sm"
-              variant={bar === b ? "default" : "outline"}
-              onClick={() => onChange(b)}
-            >
-              {fmt(b)} {unit}
-            </Button>
-          ))}
-          <Input
-            inputMode="numeric"
-            value={custom}
-            placeholder="Custom"
-            className="h-8 w-24"
-            aria-label="Custom bar weight"
-            onChange={(e) => setCustom(e.target.value.replace(/[^0-9]/g, ""))}
-            onBlur={() => {
-              if (custom !== "") onChange(Number(custom));
-            }}
-          />
-        </div>
+      {countBar ? (
+        <>
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            className="text-muted-foreground mt-3 flex w-full items-center justify-between text-sm"
+          >
+            <span>
+              Bar weight: {fmt(bar)} {unit}
+            </span>
+            <span className="underline underline-offset-2">
+              {open ? "Done" : "Change"}
+            </span>
+          </button>
+
+          {open ? (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              {BAR_PRESETS[unit].map((b) => (
+                <Button
+                  key={b}
+                  type="button"
+                  size="sm"
+                  variant={bar === b ? "default" : "outline"}
+                  onClick={() => onChange(b)}
+                >
+                  {fmt(b)} {unit}
+                </Button>
+              ))}
+              <Input
+                inputMode="numeric"
+                value={custom}
+                placeholder="Custom"
+                className="h-8 w-24"
+                aria-label="Custom bar weight"
+                onChange={(e) =>
+                  setCustom(e.target.value.replace(/[^0-9]/g, ""))
+                }
+                onBlur={() => {
+                  if (custom !== "") onChange(Number(custom));
+                }}
+              />
+            </div>
+          ) : null}
+        </>
       ) : null}
     </div>
   );
@@ -211,13 +243,13 @@ function WeightToPlates({
   initialWeight,
   config,
   unit,
-  includeBar,
+  countBar,
   onApply,
 }: {
   initialWeight: number;
   config: PlateConfig;
   unit: Unit;
-  includeBar: boolean;
+  countBar: boolean;
   onApply?: (weight: number) => void;
 }) {
   const [value, setValue] = useState(
@@ -243,13 +275,19 @@ function WeightToPlates({
         />
       </div>
 
+      {countBar ? (
+        <p className="text-muted-foreground text-sm">
+          Bar: {fmt(config.bar)} {unit}
+        </p>
+      ) : null}
+
       {target === 0 ? (
         <p className="text-muted-foreground text-sm">
           Enter a weight to see the load per side.
         </p>
       ) : !result.feasible ? (
         <p className="text-muted-foreground text-sm">
-          {includeBar
+          {countBar
             ? `Below the bar (${fmt(config.bar)} ${unit}).`
             : "Enter a valid weight."}
         </p>
@@ -261,7 +299,7 @@ function WeightToPlates({
             </p>
             {result.perSide.length === 0 ? (
               <p className="text-sm">
-                {includeBar ? "Just the bar." : "No plates needed."}
+                {countBar ? "Just the bar." : "No plates needed."}
               </p>
             ) : (
               <div className="flex flex-wrap gap-1.5">
@@ -309,12 +347,12 @@ function WeightToPlates({
 function PlatesToWeight({
   config,
   unit,
-  includeBar,
+  countBar,
   onApply,
 }: {
   config: PlateConfig;
   unit: Unit;
-  includeBar: boolean;
+  countBar: boolean;
   onApply?: (weight: number) => void;
 }) {
   const [counts, setCounts] = useState<Record<number, number>>({});
@@ -338,6 +376,12 @@ function PlatesToWeight({
 
   return (
     <div className="flex flex-col gap-4">
+      {countBar ? (
+        <p className="text-muted-foreground text-sm">
+          Bar: {fmt(config.bar)} {unit}
+        </p>
+      ) : null}
+
       {/* Selected plates sit ABOVE the buttons: when they wrap onto more rows,
           only the content above them shifts up — the buttons below stay put
           (the sheet is anchored to the bottom). */}
@@ -388,7 +432,7 @@ function PlatesToWeight({
           {fmt(total)} {unit}
         </span>
         <span className="text-muted-foreground">
-          {includeBar
+          {countBar
             ? ` · ${fmt(config.bar)} bar + ${fmt(perSideSum)} / side`
             : ` · ${fmt(perSideSum)} / side`}
         </span>

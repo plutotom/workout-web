@@ -37,6 +37,10 @@ function toWhole(raw: string): number {
   return digits === "" ? 0 : parseInt(digits, 10);
 }
 
+function selectNumericInput(e: React.FocusEvent<HTMLInputElement>) {
+  e.currentTarget.select();
+}
+
 export function TemplateEditorForm({
   templateId,
   initial,
@@ -248,6 +252,7 @@ export function TemplateEditorForm({
                         placeholder="0"
                         className="h-9 pr-8 text-center"
                         aria-label={`Set ${setIndex + 1} weight`}
+                        onFocus={selectNumericInput}
                         onChange={(e) =>
                           setSetValue(
                             exIndex,
@@ -275,6 +280,7 @@ export function TemplateEditorForm({
                       placeholder="0"
                       className="h-9 text-center"
                       aria-label={`Set ${setIndex + 1} reps`}
+                      onFocus={selectNumericInput}
                       onChange={(e) =>
                         setSetValue(
                           exIndex,
