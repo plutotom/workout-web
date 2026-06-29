@@ -1,5 +1,6 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
+import { getNotesBySlugs } from "./exercise-notes";
 
 const clampWhole = (n: number) => Math.max(0, Math.round(n));
 
@@ -451,6 +452,9 @@ export async function getWorkout(
     .collect();
   exercises.sort((a, b) => a.orderIndex - b.orderIndex);
 
+  const slugs = exercises.map((e) => e.exerciseSlug);
+  const notesBySlug = await getNotesBySlugs(ctx, userId, slugs);
+
   const withSets = await Promise.all(
     exercises.map(async (e) => {
       const sets = await ctx.db
@@ -460,7 +464,12 @@ export async function getWorkout(
         )
         .collect();
       sets.sort((a, b) => a.orderIndex - b.orderIndex);
-      return { _id: e._id, slug: e.exerciseSlug, sets };
+      return {
+        _id: e._id,
+        slug: e.exerciseSlug,
+        notes: notesBySlug[e.exerciseSlug],
+        sets,
+      };
     }),
   );
 

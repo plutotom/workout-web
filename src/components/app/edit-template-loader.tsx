@@ -43,6 +43,7 @@ export function EditTemplateLoader({ id }: { id: string }) {
         exercises: template.exercises.map((e) => ({
           slug: e.slug,
           sets: e.sets.map((s) => ({ weight: s.weight, reps: s.reps })),
+          notes: e.notes,
         })),
       }}
     />

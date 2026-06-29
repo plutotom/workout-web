@@ -3,12 +3,14 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation } from "convex/react";
+import { useQuery } from "convex-helpers/react/cache/hooks";
 import { ChevronDown, ChevronUp, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { api } from "@backend/api";
 import type { Id } from "@backend/dataModel";
 import { PageHeader } from "@/components/app/page-header";
+import { ExerciseNoteField } from "@/components/app/exercise-note-field";
 import { ExercisePicker } from "@/components/app/exercise-picker";
 import { PlateCalcButton } from "@/components/app/plate-calculator";
 import { Button } from "@/components/ui/button";
@@ -30,7 +32,7 @@ const DEFAULT_SET_ROWS = 3;
 const emptySet = () => ({ weight: 0, reps: 0 });
 
 type TemplateSet = { weight: number; reps: number };
-type EditorExercise = { slug: string; sets: TemplateSet[] };
+type EditorExercise = { slug: string; sets: TemplateSet[]; notes?: string };
 
 function toWhole(raw: string): number {
   const digits = raw.replace(/[^0-9]/g, "");
@@ -61,6 +63,12 @@ export function TemplateEditorForm({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerKey, setPickerKey] = useState(0);
   const [saving, setSaving] = useState(false);
+
+  const slugs = exercises.map((e) => e.slug);
+  const fetchedNotes = useQuery(api.routes.exercises.queries.getNotes, {
+    slugs,
+  });
+  const notesBySlug = fetchedNotes ?? {};
 
   const usedSlugs = new Set(exercises.map((e) => e.slug));
   const canSave = name.trim().length > 0 && exercises.length > 0 && !saving;
@@ -228,7 +236,12 @@ export function TemplateEditorForm({
                   </Button>
                 </div>
               </CardHeader>
-              <CardContent className="flex flex-col gap-1">
+              <CardContent className="flex flex-col gap-3">
+                <ExerciseNoteField
+                  key={`${ex.slug}-${ex.notes ?? notesBySlug[ex.slug] ?? ""}`}
+                  exerciseSlug={ex.slug}
+                  initialNotes={ex.notes ?? notesBySlug[ex.slug]}
+                />
                 <div className="text-muted-foreground grid grid-cols-[2rem_1fr_1fr_2rem] gap-2 px-1 text-xs font-medium tracking-wide uppercase">
                   <span>Set</span>
                   <span>Weight</span>

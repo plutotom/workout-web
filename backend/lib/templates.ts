@@ -2,6 +2,7 @@ import { v } from "convex/values";
 
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
+import { getNotesBySlugs } from "./exercise-notes";
 import { exerciseSlugValidator } from "../schemas/exercises";
 
 export const exerciseInputValidator = v.object({
@@ -187,12 +188,16 @@ export async function getTemplate(
     .collect();
   exercises.sort((a, b) => a.orderIndex - b.orderIndex);
 
+  const slugs = exercises.map((e) => e.exerciseSlug);
+  const notesBySlug = await getNotesBySlugs(ctx, userId, slugs);
+
   return {
     _id: template._id,
     name: template.name,
     exercises: exercises.map((e) => ({
       slug: e.exerciseSlug,
       sets: e.sets,
+      notes: notesBySlug[e.exerciseSlug],
     })),
   };
 }
