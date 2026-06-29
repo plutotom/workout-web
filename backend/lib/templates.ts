@@ -2,7 +2,7 @@ import { v } from "convex/values";
 
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
-import { getNotesBySlugs } from "./exercise-notes";
+import { getNotesBySlugs } from "./exercise_notes";
 import { exerciseSlugValidator } from "../schemas/exercises";
 
 export const exerciseInputValidator = v.object({

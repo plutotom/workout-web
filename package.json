@@ -6,7 +6,7 @@
     "dev": "convex dev --start 'next dev -p 4271'",
     "dev:web": "next dev -p 4271",
     "dev:backend": "convex dev",
-    "build": "convex deploy --cmd 'pnpm run build:web'",
+    "build": "convex deploy --cmd 'sh -c \"NEXT_PUBLIC_WORKOS_REDIRECT_URI=https://${VERCEL_URL}/callback pnpm run build:web\"'",
     "build:web": "next build",
     "start": "next start",
     "lint": "eslint .",
@@ -16,6 +16,8 @@
     "verify": "node scripts/verify.mjs",
     "sync:prod": "node scripts/sync-prod.mjs",
     "sync:prod:all": "node scripts/sync-prod.mjs --vercel",
+    "sync:preview": "node scripts/sync-preview.mjs",
+    "sync:preview:all": "node scripts/sync-preview.mjs --vercel",
     "prepare": "husky"
   },
   "lint-staged": {

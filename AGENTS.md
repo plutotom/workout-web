@@ -20,12 +20,14 @@ See `.cursor/rules/backend-organization.mdc` for full conventions.
 Vercel runs `pnpm build`, which deploys Convex then builds Next.js:
 
 ```json
-"build": "convex deploy --cmd 'pnpm run build:web'"
+"build": "convex deploy --cmd 'sh -c \"NEXT_PUBLIC_WORKOS_REDIRECT_URI=https://${VERCEL_URL}/callback pnpm run build:web\"'"
 ```
 
 `convex deploy --cmd` sets `NEXT_PUBLIC_CONVEX_URL` for the Next.js build step.
+Do **not** set `NEXT_PUBLIC_CONVEX_URL` for Vercel Preview — the deploy step
+injects it per preview backend.
 
-**Vercel env — use two deploy keys, scoped by environment:**
+### Vercel deploy keys
 
 | Vercel environment | `CONVEX_DEPLOY_KEY` source                                      |
 | ------------------ | --------------------------------------------------------------- |
@@ -42,6 +44,30 @@ production key is available during a preview build, Convex fails with:
 Preview deploys get a branch-specific Convex backend (see `convex.json` →
 `authKit.preview`). Without a preview key, PR preview builds will not deploy
 backend/schema changes.
+
+### WorkOS / AuthKit (preview builds)
+
+`convex.json` `authKit.preview` configures WorkOS redirect URIs from
+`VERCEL_BRANCH_URL` at deploy time. The Convex CLI still needs
+`WORKOS_CLIENT_ID` and `WORKOS_API_KEY` in the **Vercel Preview** build
+environment (not just on the Convex deployment).
+
+1. **Convex dashboard** — create a project-level AuthKit environment for
+   preview (Settings → Integrations → WorkOS on any deployment). See
+   [AuthKit auto-provision](https://docs.convex.dev/auth/authkit/auto-provision).
+2. **Convex preview env defaults** — set `WORKOS_CLIENT_ID`, `WORKOS_API_KEY`,
+   and `MCP_API_KEY_PEPPER` under Project Settings → Environment Variable
+   Defaults → Preview (applies to new preview backends).
+3. **Vercel Preview env** — same `WORKOS_*` vars plus `WORKOS_COOKIE_PASSWORD`.
+   `NEXT_PUBLIC_WORKOS_REDIRECT_URI` is set at build time via `VERCEL_URL` in
+   the build script; override manually only if sign-in fails.
+
+Quick sync from local `.env.local`:
+
+```bash
+pnpm sync:preview        # Convex preview defaults + preview/staging deployment
+pnpm sync:preview:all    # Also push WorkOS secrets to Vercel Preview
+```
 
 For local Next.js builds without deploying Convex, use `pnpm build:web`.
 
