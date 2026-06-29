@@ -2,10 +2,14 @@ import { v } from "convex/values";
 
 import { mutation } from "../../_generated/server";
 import { requireUser } from "../../lib/auth";
+import { exerciseSlugValidator } from "../../schemas/exercises";
 import {
   abandonWorkout,
+  addSessionExercise as addSessionExerciseLib,
   addSet as addSetLib,
+  deleteSet as deleteSetLib,
   finishWorkout,
+  moveSessionExercise as moveSessionExerciseLib,
   startWorkout,
   updateSet as updateSetLib,
 } from "../../lib/workouts";
@@ -39,6 +43,36 @@ export const addSet = mutation({
   handler: async (ctx, { sessionExerciseId }) => {
     const user = await requireUser(ctx);
     return addSetLib(ctx, user._id, sessionExerciseId);
+  },
+});
+
+export const deleteSet = mutation({
+  args: { setId: v.id("sets") },
+  handler: async (ctx, { setId }) => {
+    const user = await requireUser(ctx);
+    await deleteSetLib(ctx, user._id, setId);
+  },
+});
+
+export const moveExercise = mutation({
+  args: {
+    sessionExerciseId: v.id("sessionExercises"),
+    delta: v.number(),
+  },
+  handler: async (ctx, { sessionExerciseId, delta }) => {
+    const user = await requireUser(ctx);
+    await moveSessionExerciseLib(ctx, user._id, sessionExerciseId, delta);
+  },
+});
+
+export const addExercise = mutation({
+  args: {
+    sessionId: v.id("workoutSessions"),
+    exerciseSlug: exerciseSlugValidator,
+  },
+  handler: async (ctx, args) => {
+    const user = await requireUser(ctx);
+    return addSessionExerciseLib(ctx, user._id, args);
   },
 });
 
