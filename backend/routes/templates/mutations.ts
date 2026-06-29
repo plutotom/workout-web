@@ -5,6 +5,7 @@ import { requireUser } from "../../lib/auth";
 import {
   createTemplate as createTemplateLib,
   exerciseInputValidator,
+  normalizeTemplateSets,
   removeTemplate as removeTemplateLib,
   updateTemplate as updateTemplateLib,
 } from "../../lib/templates";
@@ -38,9 +39,10 @@ export const remove = mutation({
 });
 
 /**
- * Update a template's per-set presets to match a finished session, using **all**
- * logged set rows (checkmarks are just a progress aid, not a gate). Matches
- * exercises by slug; an exercise no longer on the template is skipped.
+ * Update a template to match a finished session: exercise order, any exercises
+ * added during the workout, and per-set presets from **all** logged set rows
+ * (checkmarks are just a progress aid, not a gate). Exercises only on the
+ * template (not in the session) are kept at the end in their relative order.
  */
 export const syncFromSession = mutation({
   args: { sessionId: v.id("workoutSessions") },
@@ -59,35 +61,46 @@ export const syncFromSession = mutation({
       .query("templateExercises")
       .withIndex("by_template", (q) => q.eq("templateId", template._id))
       .collect();
-    const bySlug = new Map(
-      templateExercises.map((te) => [te.exerciseSlug, te]),
-    );
+    templateExercises.sort((a, b) => a.orderIndex - b.orderIndex);
 
     const sessionExercises = await ctx.db
       .query("sessionExercises")
       .withIndex("by_session", (q) => q.eq("sessionId", sessionId))
       .collect();
+    sessionExercises.sort((a, b) => a.orderIndex - b.orderIndex);
 
-    let changed = false;
+    const sessionSlugSet = new Set(
+      sessionExercises.map((se) => se.exerciseSlug),
+    );
+    const exercises: {
+      slug: string;
+      sets: { weight: number; reps: number }[];
+    }[] = [];
+
     for (const se of sessionExercises) {
-      const target = bySlug.get(se.exerciseSlug);
-      if (!target) continue;
-
       const sets = await ctx.db
         .query("sets")
         .withIndex("by_session_exercise", (q) =>
           q.eq("sessionExerciseId", se._id),
         )
         .collect();
-      const logged = sets
-        .sort((a, b) => a.orderIndex - b.orderIndex)
-        .map((s) => ({ weight: s.weight, reps: s.reps }));
-      if (logged.length === 0) continue;
-
-      await ctx.db.patch(target._id, { sets: logged });
-      changed = true;
+      const logged = normalizeTemplateSets(
+        sets
+          .sort((a, b) => a.orderIndex - b.orderIndex)
+          .map((s) => ({ weight: s.weight, reps: s.reps })),
+      );
+      exercises.push({ slug: se.exerciseSlug, sets: logged });
     }
 
-    if (changed) await ctx.db.patch(template._id, { updatedAt: Date.now() });
+    for (const te of templateExercises) {
+      if (sessionSlugSet.has(te.exerciseSlug)) continue;
+      exercises.push({ slug: te.exerciseSlug, sets: te.sets });
+    }
+
+    await updateTemplateLib(ctx, user._id, {
+      templateId: template._id,
+      name: template.name,
+      exercises,
+    });
   },
 });
