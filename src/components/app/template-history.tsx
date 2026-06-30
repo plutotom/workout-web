@@ -20,13 +20,12 @@ function formatDate(ts: number): string {
 }
 
 function summarize(
-  exercises: { slug: string; setCount: number; completedCount: number }[],
+  exercises: { slug: string; completedCount: number }[],
   short: (slug: string) => string,
 ): string {
-  if (exercises.length === 0) return "No exercises";
-  return exercises
-    .map((e) => `${short(e.slug)} ${e.completedCount || e.setCount}`)
-    .join(" · ");
+  const done = exercises.filter((e) => e.completedCount > 0);
+  if (done.length === 0) return "No sets checked off";
+  return done.map((e) => `${short(e.slug)} ${e.completedCount}`).join(" · ");
 }
 
 export function TemplateHistory({ id }: { id: string }) {
