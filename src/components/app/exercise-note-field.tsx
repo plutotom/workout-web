@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { useMutation } from "convex/react";
 import { StickyNote } from "lucide-react";
 import { toast } from "sonner";
@@ -26,6 +26,7 @@ export function ExerciseNoteField({
 }) {
   const upsertNote = useMutation(api.routes.exercises.mutations.upsertNote);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const shouldFocusRef = useRef(false);
   const initial = (initialNotes ?? "").trim();
   const [value, setValue] = useState(initialNotes ?? "");
   const [saving, setSaving] = useState(false);
@@ -52,9 +53,15 @@ export function ExerciseNoteField({
   }
 
   function openEditor() {
+    shouldFocusRef.current = true;
     setExpanded(true);
-    requestAnimationFrame(() => textareaRef.current?.focus());
   }
+
+  useLayoutEffect(() => {
+    if (!expanded || !shouldFocusRef.current) return;
+    shouldFocusRef.current = false;
+    textareaRef.current?.focus();
+  }, [expanded]);
 
   if (!editable && !hasNote) return null;
 
