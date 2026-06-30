@@ -270,6 +270,7 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
               exerciseSlug={exercise.slug}
               initialNotes={exercise.notes}
               editable={editable}
+              compact
             />
             <div className="text-muted-foreground grid grid-cols-[2rem_1fr_1fr_2rem_2.5rem] gap-2 px-1 text-xs font-medium tracking-wide uppercase">
               <span>Set</span>
