@@ -351,7 +351,11 @@ export async function getRecentWorkouts(ctx: QueryCtx, userId: Id<"users">) {
               q.eq("sessionExerciseId", e._id),
             )
             .collect();
-          return { slug: e.exerciseSlug, setCount: sets.length };
+          return {
+            slug: e.exerciseSlug,
+            setCount: sets.length,
+            completedCount: sets.filter((s) => s.completed).length,
+          };
         }),
       );
 
