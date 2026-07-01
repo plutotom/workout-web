@@ -20,8 +20,12 @@ See `.cursor/rules/backend-organization.mdc` for full conventions.
 Vercel runs `pnpm build`, which deploys Convex then builds Next.js:
 
 ```json
-"build": "convex deploy --cmd 'sh -c \"NEXT_PUBLIC_WORKOS_REDIRECT_URI=https://${VERCEL_URL}/callback pnpm run build:web\"'"
+"build": "convex deploy --cmd 'sh -c \"NEXT_PUBLIC_WORKOS_REDIRECT_URI=$(node scripts/resolve-workos-redirect-uri.mjs) pnpm run build:web\"'"
 ```
+
+`scripts/resolve-workos-redirect-uri.mjs` sets the redirect URI from
+`convex.json` `authKit.prod` on **Production** builds (custom domain) and from
+`VERCEL_URL` on **Preview** builds.
 
 `convex deploy --cmd` sets `NEXT_PUBLIC_CONVEX_URL` for the Next.js build step.
 Do **not** set `NEXT_PUBLIC_CONVEX_URL` for Vercel Preview — the deploy step
@@ -59,8 +63,9 @@ environment (not just on the Convex deployment).
    and `MCP_API_KEY_PEPPER` under Project Settings → Environment Variable
    Defaults → Preview (applies to new preview backends).
 3. **Vercel Preview env** — same `WORKOS_*` vars plus `WORKOS_COOKIE_PASSWORD`.
-   `NEXT_PUBLIC_WORKOS_REDIRECT_URI` is set at build time via `VERCEL_URL` in
-   the build script; override manually only if sign-in fails.
+   `NEXT_PUBLIC_WORKOS_REDIRECT_URI` is set at build time by
+   `scripts/resolve-workos-redirect-uri.mjs` (`VERCEL_URL` on preview,
+   `authKit.prod` redirect URI on production).
 
 Quick sync from local `.env.local`:
 
