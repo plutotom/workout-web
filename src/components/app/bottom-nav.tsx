@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Dumbbell, Home, Settings } from "lucide-react";
+import { Dumbbell, Home, Settings, TrendingUp } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
 const tabs = [
   { href: "/dashboard", label: "Dashboard", icon: Home },
   { href: "/templates", label: "Templates", icon: Dumbbell },
+  { href: "/insights", label: "Insights", icon: TrendingUp },
   { href: "/settings", label: "Settings", icon: Settings },
 ] as const;
 
@@ -17,7 +18,7 @@ export function BottomNav() {
 
   return (
     <nav className="bg-background/95 fixed inset-x-0 bottom-0 z-40 border-t backdrop-blur supports-[backdrop-filter]:bg-background/80">
-      <div className="mx-auto grid max-w-[600px] grid-cols-3 pb-[env(safe-area-inset-bottom)]">
+      <div className="mx-auto grid max-w-[600px] grid-cols-4 pb-[env(safe-area-inset-bottom)]">
         {tabs.map(({ href, label, icon: Icon }) => {
           const active = pathname === href || pathname.startsWith(`${href}/`);
           return (

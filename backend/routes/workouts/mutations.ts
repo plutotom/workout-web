@@ -5,6 +5,7 @@ import { requireUser } from "../../lib/auth";
 import { exerciseSlugValidator } from "../../schemas/exercises";
 import {
   abandonWorkout,
+  deleteWorkout,
   addSessionExercise as addSessionExerciseLib,
   addSet as addSetLib,
   deleteSet as deleteSetLib,
@@ -90,5 +91,14 @@ export const abandon = mutation({
   handler: async (ctx, { sessionId }) => {
     const user = await requireUser(ctx);
     await abandonWorkout(ctx, user._id, sessionId);
+  },
+});
+
+/** Permanently remove a completed or abandoned session from history. */
+export const deleteSession = mutation({
+  args: { sessionId: v.id("workoutSessions") },
+  handler: async (ctx, { sessionId }) => {
+    const user = await requireUser(ctx);
+    await deleteWorkout(ctx, user._id, sessionId);
   },
 });

@@ -1768,6 +1768,7 @@ export type ExerciseCatalog = {
   all: Exercise[];
   name: (slug: string) => string;
   short: (slug: string) => string;
+  category: (slug: string) => MuscleGroup | undefined;
   usesBar: (slug: string) => boolean;
   search: (query: string, group: MuscleGroup | "all") => Exercise[];
 };
@@ -1799,6 +1800,7 @@ export function buildCatalog(
     all,
     name: (slug) => bySlug.get(slug)?.name ?? slug,
     short: (slug) => bySlug.get(slug)?.short ?? slug,
+    category: (slug) => bySlug.get(slug)?.category,
     usesBar: (slug) => resolveUsesBar(bySlug.get(slug)),
     search: (query, group) => {
       const q = query.trim().toLowerCase();

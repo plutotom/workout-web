@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { api } from "@backend/api";
 import type { Doc, Id } from "@backend/dataModel";
 import { EmptyState } from "@/components/app/empty-state";
+import { DeleteWorkoutButton } from "@/components/app/delete-workout-button";
 import { ExerciseNoteField } from "@/components/app/exercise-note-field";
 import { ExercisePicker } from "@/components/app/exercise-picker";
 import { PageHeader } from "@/components/app/page-header";
@@ -319,6 +320,11 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
           <Plus className="size-4" />
           Add exercise
         </Button>
+      ) : session.status === "completed" ? (
+        <DeleteWorkoutButton
+          sessionId={sessionId as Id<"workoutSessions">}
+          onDeleted={() => router.push(historyHref)}
+        />
       ) : null}
 
       <ExercisePicker
