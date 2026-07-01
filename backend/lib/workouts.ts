@@ -323,6 +323,31 @@ export async function abandonWorkout(
   }
 }
 
+/** Permanently remove a finished or abandoned session from history. */
+export async function deleteWorkout(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  sessionId: Id<"workoutSessions">,
+) {
+  const session = await ownedSession(ctx, userId, sessionId);
+  if (session.status === "in_progress") {
+    throw new Error("Cannot delete an active workout");
+  }
+
+  const exercises = await sessionExercisesFor(ctx, sessionId);
+  for (const exercise of exercises) {
+    const sets = await ctx.db
+      .query("sets")
+      .withIndex("by_session_exercise", (q) =>
+        q.eq("sessionExerciseId", exercise._id),
+      )
+      .collect();
+    await Promise.all(sets.map((set) => ctx.db.delete(set._id)));
+    await ctx.db.delete(exercise._id);
+  }
+  await ctx.db.delete(sessionId);
+}
+
 export async function getRecentWorkouts(ctx: QueryCtx, userId: Id<"users">) {
   const completed = await ctx.db
     .query("workoutSessions")

@@ -17,5 +17,6 @@ export function WarmQueries() {
   useQuery(api.routes.workouts.queries.recent);
   useQuery(api.routes.templates.queries.list);
   useQuery(api.routes.auth.users.current);
+  useQuery(api.routes.insights.queries.overview, { days: 30 });
   return null;
 }
