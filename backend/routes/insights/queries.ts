@@ -5,7 +5,9 @@ import { getUser } from "../../lib/auth";
 import {
   getExerciseHistory,
   getExerciseRecords,
+  getLifts,
   getOverview,
+  getSessionHistory,
 } from "../../lib/insights";
 
 export const insightsDaysValidator = v.union(
@@ -48,6 +50,26 @@ export const overview = query({
     const user = await getUser(ctx);
     if (!user) return emptyOverview;
     return getOverview(ctx, user._id, days);
+  },
+});
+
+/** All lifts in a time range, ranked by estimated 1RM. */
+export const lifts = query({
+  args: { days: insightsDaysValidator },
+  handler: async (ctx, { days }) => {
+    const user = await getUser(ctx);
+    if (!user) return [];
+    return getLifts(ctx, user._id, days);
+  },
+});
+
+/** All completed sessions in a time range, newest first. */
+export const sessionHistory = query({
+  args: { days: insightsDaysValidator },
+  handler: async (ctx, { days }) => {
+    const user = await getUser(ctx);
+    if (!user) return [];
+    return getSessionHistory(ctx, user._id, days);
   },
 });
 

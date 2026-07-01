@@ -6,6 +6,12 @@ export const TOP_LIFTS_LIMIT = 8;
 /** Min lifts shown when a muscle group is selected (if data exists). */
 export const MIN_GROUP_LIFTS = 3;
 
+/** Sessions shown on the overview before "View all". */
+export const RECENT_SESSIONS_LIMIT = 5;
+
+/** Sessions loaded per page on the full history screen. */
+export const SESSIONS_PAGE_SIZE = 20;
+
 export const INSIGHTS_DAY_OPTIONS: { value: InsightsDays; label: string }[] = [
   { value: "7", label: "7d" },
   { value: "30", label: "30d" },
