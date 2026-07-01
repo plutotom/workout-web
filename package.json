@@ -13,6 +13,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
+    "generate:splash": "node scripts/generate-splash-screens.mjs scripts/splash-base.png",
     "verify": "node scripts/verify.mjs",
     "sync:prod": "node scripts/sync-prod.mjs",
     "sync:prod:all": "node scripts/sync-prod.mjs --vercel",
@@ -66,6 +67,7 @@
     "husky": "^9.1.7",
     "lint-staged": "^17.0.8",
     "prettier": "^3.8.5",
+    "sharp": "^0.35.2",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^4.1.9"

@@ -13,7 +13,6 @@ export default authkitProxy({
       "/api/mcp",
       "/.well-known/oauth-protected-resource",
       "/serwist",
-      "/~offline",
     ],
   },
 });

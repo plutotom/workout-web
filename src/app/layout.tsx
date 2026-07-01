@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { ConvexClientProvider } from "@/components/ConvexClientProvider";
 import { ServiceWorkerProvider } from "@/components/service-worker-provider";
 import { Toaster } from "@/components/ui/sonner";
+import { appleSplashScreens } from "@/lib/pwa/splash-screens";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -29,6 +30,7 @@ export const metadata: Metadata = {
     capable: true,
     statusBarStyle: "black-translucent",
     title: APP_NAME,
+    startupImage: appleSplashScreens,
   },
   formatDetection: {
     telephone: false,
