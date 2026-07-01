@@ -290,8 +290,7 @@ export async function getOverview(
             : liftTrend(stats.bestEst1RM, priorBest),
       };
     })
-    .sort((a, b) => b.est1RM - a.est1RM)
-    .slice(0, 8);
+    .sort((a, b) => b.est1RM - a.est1RM);
 
   const recentSessions = inPeriod.slice(0, 5).map((s) => ({
     sessionId: s.sessionId,
