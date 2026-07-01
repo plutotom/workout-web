@@ -3,6 +3,8 @@ import type { QueryCtx } from "../_generated/server";
 
 export type InsightsDays = 7 | 30 | 90 | null;
 
+export const RECENT_SESSIONS_LIMIT = 5;
+
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const MS_PER_WEEK = 7 * MS_PER_DAY;
 
@@ -240,42 +242,59 @@ function liftTrend(
   return "flat";
 }
 
-export async function getOverview(
-  ctx: QueryCtx,
-  userId: Id<"users">,
+export type InsightsLift = {
+  slug: string;
+  sessionCount: number;
+  bestWeight: number;
+  bestReps: number;
+  est1RM: number;
+  trend: "up" | "flat" | "down";
+};
+
+export type InsightsSessionSummary = {
+  sessionId: Id<"workoutSessions">;
+  templateName: string;
+  completedAt: number;
+  durationMs: number;
+  volume: number;
+  exercises: { slug: string; completedCount: number }[];
+};
+
+function formatSessionSummary(session: LoadedSession): InsightsSessionSummary {
+  return {
+    sessionId: session.sessionId,
+    templateName: session.templateName,
+    completedAt: session.completedAt,
+    durationMs: Math.max(0, session.completedAt - session.startedAt),
+    volume: sessionVolume(session),
+    exercises: session.exercises.map((e) => ({
+      slug: e.slug,
+      completedCount: e.sets.filter((set) => set.completed).length,
+    })),
+  };
+}
+
+function priorStatsForPeriod(
+  all: LoadedSession[],
   days: InsightsDays,
-) {
-  const all = await loadCompletedSessions(ctx, userId);
-  const now = Date.now();
-  const start = rangeStart(days, now);
-
-  const inPeriod = all.filter((s) => inRange(s.completedAt, start, now));
-
-  const weekStreak = computeWeekStreak(all.map((s) => s.completedAt));
-
-  const totalDurationMs = inPeriod.reduce(
-    (sum, s) => sum + Math.max(0, s.completedAt - s.startedAt),
-    0,
+  now: number,
+): Map<string, SlugStats> {
+  if (days === null) return new Map();
+  const priorStart = now - 2 * days * MS_PER_DAY;
+  const priorEnd = now - days * MS_PER_DAY;
+  const priorPeriod = all.filter(
+    (s) => s.completedAt >= priorStart && s.completedAt < priorEnd,
   );
-  const totalVolume = inPeriod.reduce((sum, s) => sum + sessionVolume(s), 0);
+  return slugStatsInSessions(priorPeriod);
+}
 
-  const volumeBySlug = Array.from(slugVolumeInSessions(inPeriod).entries())
-    .map(([slug, volume]) => ({ slug, volume }))
-    .sort((a, b) => b.volume - a.volume);
-
+function liftsInPeriod(
+  inPeriod: LoadedSession[],
+  priorStats: Map<string, SlugStats>,
+  days: InsightsDays,
+): InsightsLift[] {
   const currentStats = slugStatsInSessions(inPeriod);
-
-  let priorStats = new Map<string, SlugStats>();
-  if (days !== null) {
-    const priorStart = now - 2 * days * MS_PER_DAY;
-    const priorEnd = now - days * MS_PER_DAY;
-    const priorPeriod = all.filter(
-      (s) => s.completedAt >= priorStart && s.completedAt < priorEnd,
-    );
-    priorStats = slugStatsInSessions(priorPeriod);
-  }
-
-  const topLifts = Array.from(currentStats.entries())
+  return Array.from(currentStats.entries())
     .map(([slug, stats]) => {
       const priorBest = priorStats.get(slug)?.bestEst1RM ?? 0;
       return {
@@ -291,18 +310,72 @@ export async function getOverview(
       };
     })
     .sort((a, b) => b.est1RM - a.est1RM);
+}
 
-  const recentSessions = inPeriod.slice(0, 5).map((s) => ({
-    sessionId: s.sessionId,
-    templateName: s.templateName,
-    completedAt: s.completedAt,
-    durationMs: Math.max(0, s.completedAt - s.startedAt),
-    volume: sessionVolume(s),
-    exercises: s.exercises.map((e) => ({
-      slug: e.slug,
-      completedCount: e.sets.filter((set) => set.completed).length,
-    })),
-  }));
+async function completedSessionsInPeriod(
+  ctx: QueryCtx,
+  userId: Id<"users">,
+  days: InsightsDays,
+) {
+  const all = await loadCompletedSessions(ctx, userId);
+  const now = Date.now();
+  const start = rangeStart(days, now);
+  const inPeriod = all.filter((s) => inRange(s.completedAt, start, now));
+  return { all, inPeriod, now };
+}
+
+export async function getLifts(
+  ctx: QueryCtx,
+  userId: Id<"users">,
+  days: InsightsDays,
+) {
+  const { all, inPeriod, now } = await completedSessionsInPeriod(
+    ctx,
+    userId,
+    days,
+  );
+  const priorStats = priorStatsForPeriod(all, days, now);
+  return liftsInPeriod(inPeriod, priorStats, days);
+}
+
+export async function getSessionHistory(
+  ctx: QueryCtx,
+  userId: Id<"users">,
+  days: InsightsDays,
+) {
+  const { inPeriod } = await completedSessionsInPeriod(ctx, userId, days);
+  return inPeriod.map(formatSessionSummary);
+}
+
+export async function getOverview(
+  ctx: QueryCtx,
+  userId: Id<"users">,
+  days: InsightsDays,
+) {
+  const { all, inPeriod, now } = await completedSessionsInPeriod(
+    ctx,
+    userId,
+    days,
+  );
+
+  const weekStreak = computeWeekStreak(all.map((s) => s.completedAt));
+
+  const totalDurationMs = inPeriod.reduce(
+    (sum, s) => sum + Math.max(0, s.completedAt - s.startedAt),
+    0,
+  );
+  const totalVolume = inPeriod.reduce((sum, s) => sum + sessionVolume(s), 0);
+
+  const volumeBySlug = Array.from(slugVolumeInSessions(inPeriod).entries())
+    .map(([slug, volume]) => ({ slug, volume }))
+    .sort((a, b) => b.volume - a.volume);
+
+  const priorStats = priorStatsForPeriod(all, days, now);
+  const topLifts = liftsInPeriod(inPeriod, priorStats, days);
+
+  const recentSessions = inPeriod
+    .slice(0, RECENT_SESSIONS_LIMIT)
+    .map(formatSessionSummary);
 
   return {
     stats: {

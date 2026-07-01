@@ -1,4 +1,27 @@
 import { cn } from "@/lib/utils";
+import Link from "next/link";
+
+export function InsightsSectionLink({
+  href,
+  children,
+  className,
+}: {
+  href: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className={cn(
+        "text-muted-foreground hover:text-foreground text-xs font-medium transition-colors",
+        className,
+      )}
+    >
+      {children}
+    </Link>
+  );
+}
 
 export function InsightsSection({
   title,
