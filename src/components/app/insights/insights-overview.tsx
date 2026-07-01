@@ -13,6 +13,8 @@ import { MUSCLE_GROUPS, type MuscleGroup } from "@/lib/exercises";
 import {
   INSIGHTS_DAY_OPTIONS,
   insightsDaysToArg,
+  MIN_GROUP_LIFTS,
+  TOP_LIFTS_LIMIT,
   type InsightsDays,
 } from "@/lib/insights/format";
 import type { MuscleVolume, OverviewStats } from "@/lib/insights/types";
@@ -107,8 +109,10 @@ export function InsightsOverview() {
   const displayStats = showEmpty ? EMPTY_STATS : stats;
   const filteredLifts = displayStats
     ? muscleFilter
-      ? displayStats.lifts.filter((l) => l.group === muscleFilter)
-      : displayStats.lifts
+      ? displayStats.lifts
+          .filter((l) => l.group === muscleFilter)
+          .slice(0, MIN_GROUP_LIFTS)
+      : displayStats.lifts.slice(0, TOP_LIFTS_LIMIT)
     : [];
   const muscleLabel = displayStats?.muscles.find(
     (m) => m.id === muscleFilter,

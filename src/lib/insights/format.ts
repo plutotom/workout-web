@@ -1,5 +1,11 @@
 export type InsightsDays = "7" | "30" | "90" | "all";
 
+/** Max lifts shown on the overview when no muscle group is selected. */
+export const TOP_LIFTS_LIMIT = 8;
+
+/** Min lifts shown when a muscle group is selected (if data exists). */
+export const MIN_GROUP_LIFTS = 3;
+
 export const INSIGHTS_DAY_OPTIONS: { value: InsightsDays; label: string }[] = [
   { value: "7", label: "7d" },
   { value: "30", label: "30d" },
