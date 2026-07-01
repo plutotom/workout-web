@@ -12,6 +12,7 @@ export default authkitProxy({
       "/callback",
       "/api/mcp",
       "/.well-known/oauth-protected-resource",
+      "/serwist",
     ],
   },
 });
