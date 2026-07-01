@@ -32,5 +32,14 @@ export default function manifest(): MetadataRoute.Manifest {
         purpose: "maskable",
       },
     ],
+    screenshots: [
+      {
+        src: "/splash/apple-splash-1170x2532.png",
+        sizes: "1170x2532",
+        type: "image/png",
+        form_factor: "narrow",
+        label: "Workout splash screen",
+      },
+    ],
   };
 }
