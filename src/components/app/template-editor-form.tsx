@@ -12,7 +12,7 @@ import type { Id } from "@backend/dataModel";
 import { PageHeader } from "@/components/app/page-header";
 import { ExerciseNoteField } from "@/components/app/exercise-note-field";
 import { ExercisePicker } from "@/components/app/exercise-picker";
-import { PlateCalcButton } from "@/components/app/plate-calculator";
+import { LiftWeightInput } from "@/components/app/lift-weight-input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -256,35 +256,20 @@ export function TemplateEditorForm({
                     <span className="text-muted-foreground text-sm tabular-nums">
                       {setIndex + 1}
                     </span>
-                    <div className="relative">
-                      <Input
-                        type="text"
-                        inputMode="numeric"
-                        pattern="[0-9]*"
-                        value={set.weight === 0 ? "" : String(set.weight)}
-                        placeholder="0"
-                        className="h-9 pr-8 text-center"
-                        aria-label={`Set ${setIndex + 1} weight`}
-                        onFocus={selectNumericInput}
-                        onChange={(e) =>
-                          setSetValue(
-                            exIndex,
-                            setIndex,
-                            "weight",
-                            toWhole(e.target.value),
-                          )
-                        }
-                      />
-                      <PlateCalcButton
-                        weight={set.weight}
-                        includeBar={catalog.usesBar(ex.slug)}
-                        onApply={(w) =>
-                          setSetValue(exIndex, setIndex, "weight", w)
-                        }
-                        aria-label={`Plates for set ${setIndex + 1}`}
-                        className="absolute top-1/2 right-0.5 size-8 -translate-y-1/2"
-                      />
-                    </div>
+                    <LiftWeightInput
+                      value={set.weight}
+                      inputClassName="h-9 text-center"
+                      aria-label={`Set ${setIndex + 1} weight`}
+                      onCommit={(weight) =>
+                        setSetValue(exIndex, setIndex, "weight", weight)
+                      }
+                      plateCalc={{
+                        includeBar: catalog.usesBar(ex.slug),
+                        onApply: (w) =>
+                          setSetValue(exIndex, setIndex, "weight", w),
+                        buttonAriaLabel: `Plates for set ${setIndex + 1}`,
+                      }}
+                    />
                     <Input
                       type="text"
                       inputMode="numeric"
