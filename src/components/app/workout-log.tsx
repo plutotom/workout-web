@@ -14,7 +14,7 @@ import { DeleteWorkoutButton } from "@/components/app/delete-workout-button";
 import { ExerciseNoteField } from "@/components/app/exercise-note-field";
 import { ExercisePicker } from "@/components/app/exercise-picker";
 import { PageHeader } from "@/components/app/page-header";
-import { PlateCalcButton } from "@/components/app/plate-calculator";
+import { LiftWeightInput } from "@/components/app/lift-weight-input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -398,10 +398,6 @@ function SetRow({
   onDelete: () => void;
 }) {
   const updateSet = useMutation(api.routes.workouts.mutations.updateSet);
-  // Weight is controlled so an applied plate-calc value reflects immediately.
-  const [weightStr, setWeightStr] = useState(
-    set.weight ? String(set.weight) : "",
-  );
   // Optimistic checkmark so the toggle flips instantly on tap (both ways),
   // independent of the mutation round-trip.
   const [pendingCompleted, setPendingCompleted] = useState<boolean | null>(
@@ -427,21 +423,10 @@ function SetRow({
     );
   }
 
-  function commitWeight(raw: string) {
-    const value = raw.trim() === "" ? 0 : Math.max(0, Math.floor(Number(raw)));
-    if (Number.isNaN(value) || value === set.weight) return;
-    void updateSet({ setId: set._id, weight: value });
-  }
-
   function commitReps(raw: string) {
     const value = raw.trim() === "" ? 0 : Math.max(0, Math.floor(Number(raw)));
     if (Number.isNaN(value) || value === set.reps) return;
     void updateSet({ setId: set._id, reps: value });
-  }
-
-  function applyWeight(weight: number) {
-    setWeightStr(String(weight));
-    if (weight !== set.weight) void updateSet({ setId: set._id, weight });
   }
 
   return (
@@ -454,28 +439,30 @@ function SetRow({
       <span className="text-muted-foreground text-sm tabular-nums">
         {index}
       </span>
-      <div className="relative">
-        <Input
-          type="text"
-          inputMode="numeric"
-          pattern="[0-9]*"
-          value={weightStr}
-          placeholder="0"
-          disabled={!editable}
-          className="h-9 pr-8 text-center"
-          aria-label={`Set ${index} weight`}
-          onFocus={selectNumericInput}
-          onChange={(e) => setWeightStr(e.target.value.replace(/[^0-9]/g, ""))}
-          onBlur={(e) => commitWeight(e.target.value)}
-        />
-        <PlateCalcButton
-          weight={Number(weightStr) || 0}
-          includeBar={includeBar}
-          onApply={editable ? applyWeight : undefined}
-          aria-label={`Plates for set ${index}`}
-          className="absolute top-1/2 right-0.5 size-8 -translate-y-1/2"
-        />
-      </div>
+      <LiftWeightInput
+        value={set.weight}
+        disabled={!editable}
+        inputClassName="h-9 text-center"
+        aria-label={`Set ${index} weight`}
+        onCommit={(weight) => {
+          if (weight !== set.weight) {
+            void updateSet({ setId: set._id, weight });
+          }
+        }}
+        plateCalc={
+          editable
+            ? {
+                includeBar,
+                onApply: (weight) => {
+                  if (weight !== set.weight) {
+                    void updateSet({ setId: set._id, weight });
+                  }
+                },
+                buttonAriaLabel: `Plates for set ${index}`,
+              }
+            : { includeBar, buttonAriaLabel: `Plates for set ${index}` }
+        }
+      />
       <Input
         type="text"
         inputMode="numeric"
