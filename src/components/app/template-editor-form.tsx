@@ -141,10 +141,13 @@ export function TemplateEditorForm({
   async function handleSave() {
     setSaving(true);
     try {
+      // Notes are persisted separately via ExerciseNoteField; only slug + sets
+      // belong on the template mutation payload.
+      const payload = exercises.map(({ slug, sets }) => ({ slug, sets }));
       if (templateId) {
-        await update({ templateId, name, exercises });
+        await update({ templateId, name, exercises: payload });
       } else {
-        await create({ name, exercises });
+        await create({ name, exercises: payload });
       }
       toast.success("Template saved");
       router.push("/templates");
