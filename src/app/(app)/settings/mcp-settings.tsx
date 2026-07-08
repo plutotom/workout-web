@@ -102,7 +102,7 @@ export function McpSettings() {
 
   return (
     <>
-      <Card>
+      <Card className="bg-[var(--surface)]">
         <CardHeader>
           <CardTitle className="text-base">MCP access</CardTitle>
           <CardDescription>

@@ -1,7 +1,6 @@
 import Link from "next/link";
-import { LogOut } from "lucide-react";
+import { LogOut, Settings2 } from "lucide-react";
 
-import { PageHeader } from "@/components/app/page-header";
 import { Button } from "@/components/ui/button";
 import { GeneralSettings } from "./general-settings";
 import { McpSettings } from "./mcp-settings";
@@ -9,7 +8,20 @@ import { McpSettings } from "./mcp-settings";
 export default function SettingsPage() {
   return (
     <div className="flex flex-col gap-5">
-      <PageHeader title="Settings" />
+      <div className="rounded-xl border bg-[var(--surface)] p-4">
+        <div className="mb-8 flex size-10 items-center justify-center rounded-lg bg-muted">
+          <Settings2 className="size-5" />
+        </div>
+        <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
+          Settings
+        </p>
+        <h1 className="mt-2 text-3xl font-semibold tracking-tight">
+          App controls
+        </h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Units, bar defaults, and external access.
+        </p>
+      </div>
 
       <GeneralSettings />
 

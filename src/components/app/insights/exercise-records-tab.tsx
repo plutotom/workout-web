@@ -11,7 +11,7 @@ export function ExerciseRecordsTab({ records }: { records: ExerciseRecords }) {
   return (
     <div className="flex flex-col gap-6">
       <InsightsSection title="Personal records">
-        <Card className="border-success/40 bg-success/5 gap-0 py-0">
+        <Card className="gap-0 border-foreground/40 bg-[var(--surface)] py-0">
           <CardContent className="flex flex-col gap-2.5 px-4 py-4">
             <div className="flex items-center justify-between gap-2 text-sm">
               <span className="text-muted-foreground">1RM</span>
@@ -36,7 +36,7 @@ export function ExerciseRecordsTab({ records }: { records: ExerciseRecords }) {
       </InsightsSection>
 
       <InsightsSection title="Rep ladder">
-        <div className="overflow-x-auto rounded-xl border">
+        <div className="overflow-x-auto rounded-xl border bg-[var(--surface)]">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-muted/40 text-muted-foreground text-left text-xs">

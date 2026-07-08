@@ -119,7 +119,10 @@ export function ExerciseHistoryTab({
                 const best = sessionBest(session);
 
                 return (
-                  <Card key={session.id} className="gap-0 py-0">
+                  <Card
+                    key={session.id}
+                    className="gap-0 bg-[var(--surface)] py-0"
+                  >
                     <CardHeader className="border-border/50 border-b px-4 py-3">
                       <CardTitle className="text-sm font-medium">
                         {session.workoutName}

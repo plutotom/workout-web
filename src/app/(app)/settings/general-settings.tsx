@@ -66,7 +66,7 @@ export function GeneralSettings() {
   }
 
   return (
-    <Card>
+    <Card className="bg-[var(--surface)]">
       <CardHeader>
         <CardTitle className="text-base">General</CardTitle>
         <CardDescription>Account, units, and bar.</CardDescription>
