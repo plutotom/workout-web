@@ -115,23 +115,57 @@ export function MuscleBand({
   );
 }
 
-export function MiniSparkline({ className }: { className?: string }) {
+export function MiniSparkline({
+  className,
+  values,
+}: {
+  className?: string;
+  values?: number[];
+}) {
+  const path = sparklinePath(values);
+
   return (
     <svg
       viewBox="0 0 120 40"
-      className={cn("h-10 w-full overflow-visible", className)}
+      className={cn("h-full w-full overflow-visible", className)}
       aria-hidden
     >
       <path
-        d="M2 32 C18 28 22 16 38 20 C52 23 55 30 70 22 C86 12 93 14 118 5"
+        d={path}
         fill="none"
         stroke="currentColor"
         strokeLinecap="round"
-        strokeWidth="4"
+        strokeLinejoin="round"
+        strokeWidth="3.5"
         className="animate-line-draw"
       />
     </svg>
   );
+}
+
+function sparklinePath(values: number[] | undefined): string {
+  const usable = values && values.length > 0 ? values : [0, 0, 0, 0, 0, 0, 0];
+  const min = Math.min(...usable);
+  const max = Math.max(...usable);
+  const range = max - min || 1;
+  const width = 116;
+  const height = 32;
+  const points = usable.map((value, index) => {
+    const x =
+      2 + (usable.length === 1 ? 0 : (index / (usable.length - 1)) * width);
+    const y = 36 - ((value - min) / range) * height;
+    return { x, y };
+  });
+
+  if (points.length === 1) {
+    return `M2 ${points[0].y} L118 ${points[0].y}`;
+  }
+
+  return points
+    .map((point, index) =>
+      index === 0 ? `M${point.x} ${point.y}` : `L${point.x} ${point.y}`,
+    )
+    .join(" ");
 }
 
 export function ProgressRing({

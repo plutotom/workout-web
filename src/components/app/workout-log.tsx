@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation } from "convex/react";
 import { useQuery } from "convex-helpers/react/cache/hooks";
-import { Check, ChevronDown, ChevronUp, Clock, Plus, X } from "lucide-react";
+import { Check, Clock, GripVertical, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { api } from "@backend/api";
@@ -37,6 +37,21 @@ type TemplateData =
     }
   | null
   | undefined;
+
+type DragState = {
+  from: number;
+  over: number;
+  pointerId: number;
+  pointerY: number;
+  offsetY: number;
+  rowLeft: number;
+  rowWidth: number;
+};
+type SessionExerciseForReorder = {
+  _id: Id<"sessionExercises">;
+};
+
+const REORDER_ROW_STEP_PX = 85;
 
 /**
  * True when the sets logged this session differ from the template's presets,
@@ -100,6 +115,68 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
     seconds: number;
     label: string;
   } | null>(null);
+  const [drag, setDrag] = useState<DragState | null>(null);
+
+  const exerciseCount = session?.exercises.length ?? 0;
+  const dragOverFromPoint = useCallback(
+    (x: number, y: number) => {
+      const target = document
+        .elementFromPoint(x, y)
+        ?.closest<HTMLElement>("[data-session-ex-index]");
+      const over = target ? Number(target.dataset.sessionExIndex) : null;
+
+      setDrag((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          pointerY: y,
+          over:
+            over !== null &&
+            Number.isInteger(over) &&
+            over >= 0 &&
+            over < exerciseCount
+              ? over
+              : current.over,
+        };
+      });
+    },
+    [exerciseCount],
+  );
+
+  const reorderExercise = useCallback(
+    async (
+      exercises: SessionExerciseForReorder[],
+      from: number,
+      to: number,
+    ) => {
+      setDrag(null);
+      if (from === to || to < 0 || to >= exercises.length) return;
+
+      const movedExercise = exercises[from];
+      if (!movedExercise) return;
+
+      try {
+        if (from < to) {
+          for (let index = from; index < to; index += 1) {
+            await moveExercise({
+              sessionExerciseId: movedExercise._id,
+              delta: 1,
+            });
+          }
+        } else {
+          for (let index = from; index > to; index -= 1) {
+            await moveExercise({
+              sessionExerciseId: movedExercise._id,
+              delta: -1,
+            });
+          }
+        }
+      } catch {
+        toast.error("Couldn't reorder exercise");
+      }
+    },
+    [moveExercise],
+  );
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 1000);
@@ -113,6 +190,43 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
     const id = window.setTimeout(() => setRest(null), remaining * 1000);
     return () => window.clearTimeout(id);
   }, [rest]);
+
+  useEffect(() => {
+    if (!drag || !session) return;
+    const activeSession = session;
+
+    function handlePointerMove(event: PointerEvent) {
+      if (event.pointerId !== drag?.pointerId) return;
+      event.preventDefault();
+      dragOverFromPoint(event.clientX, event.clientY);
+    }
+
+    function handlePointerEnd(event: PointerEvent) {
+      if (event.pointerId !== drag?.pointerId) return;
+      event.preventDefault();
+      void reorderExercise(activeSession.exercises, drag.from, drag.over);
+    }
+
+    function handlePointerCancel(event: PointerEvent) {
+      if (event.pointerId !== drag?.pointerId) return;
+      event.preventDefault();
+      setDrag(null);
+    }
+
+    window.addEventListener("pointermove", handlePointerMove, {
+      passive: false,
+    });
+    window.addEventListener("pointerup", handlePointerEnd, { passive: false });
+    window.addEventListener("pointercancel", handlePointerCancel, {
+      passive: false,
+    });
+
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerEnd);
+      window.removeEventListener("pointercancel", handlePointerCancel);
+    };
+  }, [drag, dragOverFromPoint, reorderExercise, session]);
 
   if (session === undefined) {
     return (
@@ -253,9 +367,11 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
   const restRemaining = rest
     ? Math.max(0, rest.seconds - Math.floor((now - rest.startedAt) / 1000))
     : 0;
+  const isReordering = drag !== null;
+  const draggedExercise = drag ? session.exercises[drag.from] : null;
 
   return (
-    <div className="flex flex-col gap-5 pb-24">
+    <div className="relative flex flex-col gap-5 pb-24">
       <PageHeader
         title={session.templateName}
         backHref={editable ? "/dashboard" : historyHref}
@@ -303,116 +419,171 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
       </div>
 
       {session.exercises.map((exercise, exIndex) => {
+        const reorderOffset = getReorderOffset(exIndex, drag);
+        if (drag && exIndex === drag.from) {
+          return (
+            <div
+              key={`${exercise._id}-placeholder`}
+              data-session-ex-index={exIndex}
+              className="pointer-events-none h-[65px] rounded-lg border border-dashed border-foreground/50 bg-foreground/5 transition-transform duration-200 ease-out"
+              style={{
+                transform: reorderOffset
+                  ? `translateY(${reorderOffset}px)`
+                  : undefined,
+              }}
+              aria-hidden
+            />
+          );
+        }
+
         const maxWeight = Math.max(...exercise.sets.map((s) => s.weight), 0);
         const repSummary = summarizeReps(exercise.sets.map((s) => s.reps));
+        const exerciseName = catalog.name(exercise.slug);
         return (
           <Card
             key={exercise._id}
-            className="overflow-hidden border-[var(--line)] bg-[var(--surface)]"
+            data-session-ex-index={exIndex}
+            className={cn(
+              "overflow-hidden border-[var(--line)] bg-[var(--surface)] transition-all duration-200",
+              isReordering && "gap-0 rounded-lg py-0 shadow-none",
+              drag?.over === exIndex && "border-foreground/50 bg-foreground/5",
+            )}
+            style={{
+              transform: reorderOffset
+                ? `translateY(${reorderOffset}px)`
+                : undefined,
+            }}
           >
-            <CardHeader className="flex-row items-start justify-between gap-2 space-y-0 pb-2">
-              <div>
-                <CardTitle className="text-base">
-                  {catalog.name(exercise.slug)}
+            <CardHeader
+              className={cn(
+                "flex flex-row items-start justify-between gap-3 space-y-0",
+                isReordering ? "px-4 py-3" : "pb-2",
+              )}
+            >
+              <div className="min-w-0 flex-1">
+                <CardTitle className="truncate text-base">
+                  {exerciseName}
                 </CardTitle>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {exercise.sets.length} × {repSummary} · up to {maxWeight} lb
-                </p>
+                {!isReordering ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {exercise.sets.length} × {repSummary} · up to {maxWeight} lb
+                  </p>
+                ) : null}
               </div>
-              {editable ? (
-                <div className="flex items-center gap-1">
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    className="size-8"
-                    aria-label="Move exercise up"
-                    disabled={exIndex === 0}
-                    onClick={() =>
-                      void moveExercise({
-                        sessionExerciseId: exercise._id,
-                        delta: -1,
-                      })
-                    }
-                  >
-                    <ChevronUp className="size-4" />
-                  </Button>
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    className="size-8"
-                    aria-label="Move exercise down"
-                    disabled={exIndex === session.exercises.length - 1}
-                    onClick={() =>
-                      void moveExercise({
-                        sessionExerciseId: exercise._id,
-                        delta: 1,
-                      })
-                    }
-                  >
-                    <ChevronDown className="size-4" />
-                  </Button>
-                </div>
-              ) : null}
-            </CardHeader>
-            <CardContent className="flex flex-col gap-3">
-              <ExerciseNoteField
-                key={`${exercise.slug}-${exercise.notes ?? ""}`}
-                exerciseSlug={exercise.slug}
-                initialNotes={exercise.notes}
-                editable={editable}
-                compact
-              />
-              <div className="text-muted-foreground grid grid-cols-[2rem_1fr_auto_1fr_2.5rem_2.5rem] gap-2 px-1 text-xs font-medium tracking-wide uppercase">
-                <span>Set</span>
-                <span>Weight</span>
-                <span />
-                <span>Reps</span>
-                <span />
-                <span className="text-center">✓</span>
-              </div>
-              {exercise.sets.map((set, i) => (
-                <SetRow
-                  key={set._id}
-                  set={set}
-                  index={i + 1}
-                  editable={editable}
-                  canDelete={exercise.sets.length > 1}
-                  includeBar={catalog.usesBar(exercise.slug)}
-                  onDelete={() => void deleteSet({ setId: set._id })}
-                  highlighted={set._id === nextSetId}
-                  onLogged={() => {
-                    const next = nextSetLabel(
-                      session.exercises,
-                      exercise._id,
-                      i,
-                    );
-                    setRest({
-                      startedAt: Date.now(),
-                      seconds: exercise.restSeconds ?? 75,
-                      label: next,
-                    });
-                  }}
-                />
-              ))}
               {editable ? (
                 <Button
+                  type="button"
+                  size="icon"
                   variant="ghost"
-                  size="sm"
-                  className="mt-1 self-start"
-                  onClick={() =>
-                    void addSet({ sessionExerciseId: exercise._id })
-                  }
+                  className={cn(
+                    "text-muted-foreground hover:text-foreground -mr-2 h-11 w-11 shrink-0 cursor-grab touch-none active:cursor-grabbing sm:-mr-1 sm:size-9",
+                    isReordering && "bg-foreground/5",
+                  )}
+                  aria-label={`Reorder ${exerciseName}`}
+                  aria-pressed={drag?.from === exIndex}
+                  onPointerDown={(event) => {
+                    event.preventDefault();
+                    const row = event.currentTarget.closest<HTMLElement>(
+                      "[data-session-ex-index]",
+                    );
+                    const rect = row?.getBoundingClientRect();
+                    hapticTap();
+                    setDrag({
+                      from: exIndex,
+                      over: exIndex,
+                      pointerId: event.pointerId,
+                      pointerY: event.clientY,
+                      offsetY: rect ? event.clientY - rect.top : 32,
+                      rowLeft: rect?.left ?? 0,
+                      rowWidth: rect?.width ?? 0,
+                    });
+                  }}
                 >
-                  <Plus className="size-4" />
-                  Add set
+                  <GripVertical className="size-4" />
                 </Button>
               ) : null}
-            </CardContent>
+            </CardHeader>
+            {!isReordering ? (
+              <CardContent className="flex flex-col gap-3">
+                <ExerciseNoteField
+                  key={`${exercise.slug}-${exercise.notes ?? ""}`}
+                  exerciseSlug={exercise.slug}
+                  initialNotes={exercise.notes}
+                  editable={editable}
+                  compact
+                />
+                <div className="text-muted-foreground grid grid-cols-[2rem_1fr_auto_1fr_2.5rem_2.5rem] gap-2 px-1 text-xs font-medium tracking-wide uppercase">
+                  <span>Set</span>
+                  <span>Weight</span>
+                  <span />
+                  <span>Reps</span>
+                  <span />
+                  <span className="text-center">✓</span>
+                </div>
+                {exercise.sets.map((set, i) => (
+                  <SetRow
+                    key={set._id}
+                    set={set}
+                    index={i + 1}
+                    editable={editable}
+                    canDelete={exercise.sets.length > 1}
+                    includeBar={catalog.usesBar(exercise.slug)}
+                    onDelete={() => void deleteSet({ setId: set._id })}
+                    highlighted={set._id === nextSetId}
+                    onLogged={() => {
+                      const next = nextSetLabel(
+                        session.exercises,
+                        exercise._id,
+                        i,
+                      );
+                      setRest({
+                        startedAt: Date.now(),
+                        seconds: exercise.restSeconds ?? 75,
+                        label: next,
+                      });
+                    }}
+                  />
+                ))}
+                {editable ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="mt-1 self-start"
+                    onClick={() =>
+                      void addSet({ sessionExerciseId: exercise._id })
+                    }
+                  >
+                    <Plus className="size-4" />
+                    Add set
+                  </Button>
+                ) : null}
+              </CardContent>
+            ) : null}
           </Card>
         );
       })}
+
+      {drag && draggedExercise ? (
+        <div
+          className="pointer-events-none fixed z-50 rounded-lg border border-foreground/60 bg-[var(--surface)] shadow-2xl shadow-black/40 ring-1 ring-white/10"
+          style={{
+            left: drag.rowLeft,
+            top: drag.pointerY - drag.offsetY,
+            width: drag.rowWidth,
+          }}
+        >
+          <div className="flex items-center justify-between gap-3 px-4 py-3">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-base font-semibold">
+                {catalog.name(draggedExercise.slug)}
+              </p>
+            </div>
+            <div className="bg-foreground/10 text-muted-foreground flex size-9 items-center justify-center rounded-md">
+              <GripVertical className="size-4" />
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {editable ? (
         <Button
@@ -559,6 +730,20 @@ function nextSetLabel(
   }
 
   return "finish workout";
+}
+
+function getReorderOffset(index: number, drag: DragState | null): number {
+  if (!drag) return 0;
+  if (index === drag.from) {
+    return (drag.over - drag.from) * REORDER_ROW_STEP_PX;
+  }
+  if (drag.from < drag.over && index > drag.from && index <= drag.over) {
+    return -REORDER_ROW_STEP_PX;
+  }
+  if (drag.from > drag.over && index >= drag.over && index < drag.from) {
+    return REORDER_ROW_STEP_PX;
+  }
+  return 0;
 }
 
 function selectNumericInput(e: React.FocusEvent<HTMLInputElement>) {
