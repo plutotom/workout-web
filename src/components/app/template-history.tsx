@@ -13,8 +13,8 @@ import { useExerciseCatalog } from "@/components/app/exercise-catalog-provider";
 
 function formatDate(ts: number): string {
   return new Date(ts).toLocaleDateString(undefined, {
-    weekday: "short",
-    month: "short",
+    weekday: "long",
+    month: "long",
     day: "numeric",
   });
 }
@@ -52,17 +52,21 @@ export function TemplateHistory({ id }: { id: string }) {
           description="Finished workouts from this template will appear here."
         />
       ) : (
-        <div className="flex flex-col gap-2">
+        <div className="grid gap-2">
           {sessions.map((s) => (
-            <Link key={s._id} href={`/workout/${s._id}`}>
-              <Card className="flex-row items-center justify-between gap-3 px-4 py-3 transition-all duration-150 hover:border-white/20 active:scale-[0.98]">
+            <Link
+              key={s._id}
+              href={`/workout/${s._id}`}
+              className="group block rounded-lg"
+            >
+              <Card className="flex-row items-center justify-between gap-3 bg-[var(--surface)] px-4 py-3 transition-all duration-150 active:scale-[0.98]">
                 <div className="min-w-0">
                   <p className="font-medium">{formatDate(s.completedAt)}</p>
-                  <p className="text-muted-foreground truncate text-sm">
+                  <p className="truncate text-sm text-muted-foreground">
                     {summarize(s.exercises, catalog.short)}
                   </p>
                 </div>
-                <ChevronRight className="text-muted-foreground size-5 shrink-0" />
+                <ChevronRight className="size-5 shrink-0 text-muted-foreground transition-transform group-active:translate-x-0.5" />
               </Card>
             </Link>
           ))}

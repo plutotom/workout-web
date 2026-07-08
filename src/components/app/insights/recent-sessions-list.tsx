@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { Card, CardContent } from "@/components/ui/card";
+import { ChevronRight } from "lucide-react";
+
 import {
   formatDate,
   formatDuration,
@@ -13,21 +14,26 @@ export function RecentSessionsList({
   sessions: RecentSession[];
 }) {
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="grid gap-2">
       {sessions.map((s) => (
-        <Link key={s.id} href={`/workout/${s.id}`}>
-          <Card className="gap-0 py-3 transition-all duration-150 hover:border-white/20 active:scale-[0.98]">
-            <CardContent className="px-4">
-              <p className="text-sm font-medium">{s.name}</p>
-              <p className="text-muted-foreground mt-0.5 text-xs">
+        <Link
+          key={s.id}
+          href={`/workout/${s.id}`}
+          className="group rounded-lg border bg-[var(--surface)] p-3 transition-all active:scale-[0.98]"
+        >
+          <div className="flex items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold">{s.name}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
                 {formatDate(s.completedAt)} ·{" "}
                 {formatDuration(s.durationMinutes)} · {formatVolume(s.volumeLb)}
               </p>
-              <p className="text-muted-foreground/80 mt-1 text-xs">
+              <p className="mt-1 truncate text-xs text-muted-foreground/80">
                 {s.summary}
               </p>
-            </CardContent>
-          </Card>
+            </div>
+            <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-active:translate-x-0.5" />
+          </div>
         </Link>
       ))}
     </div>

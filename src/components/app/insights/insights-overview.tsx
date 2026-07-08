@@ -9,8 +9,10 @@ import { EmptyState } from "@/components/app/empty-state";
 import { useExerciseCatalog } from "@/components/app/exercise-catalog-provider";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { MiniSparkline } from "@/components/app/workout-design";
 import { MUSCLE_GROUPS, type MuscleGroup } from "@/lib/exercises";
 import {
+  formatVolume,
   INSIGHTS_DAY_OPTIONS,
   insightsDaysToArg,
   MIN_GROUP_LIFTS,
@@ -108,14 +110,27 @@ export function InsightsOverview() {
     !!muscleFilter && groupLifts.length > MIN_GROUP_LIFTS && !showAllGroupLifts;
 
   const hasData = (displayStats?.workouts ?? 0) > 0;
+  const topLift = displayStats?.lifts[0];
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Insights</h1>
-        <p className="text-muted-foreground mt-0.5 text-sm">
-          How you&apos;re doing
+      <div className="rounded-xl border bg-[var(--surface)] p-4">
+        <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
+          Insights
         </p>
+        <div className="mt-2 flex items-end justify-between gap-4">
+          <div className="min-w-0">
+            <h1 className="text-3xl font-semibold tracking-tight">
+              {displayStats ? formatVolume(displayStats.volumeLb) : "Loading"}
+            </h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {topLift
+                ? `Top lift · ${catalog.short(topLift.slug)} ${topLift.weight} lb`
+                : "Your training signal will collect here."}
+            </p>
+          </div>
+          <MiniSparkline className="w-28 shrink-0 text-foreground" />
+        </div>
       </div>
 
       <Tabs value={days} onValueChange={(v) => setDays(v as InsightsDays)}>

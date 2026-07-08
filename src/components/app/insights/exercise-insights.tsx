@@ -80,6 +80,18 @@ export function ExerciseInsights({
   return (
     <div className="flex flex-col gap-5">
       <PageHeader title={catalog.name(slug)} backHref="/insights" />
+      <div className="rounded-xl border bg-[var(--surface)] p-4">
+        <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
+          Exercise
+        </p>
+        <h2 className="mt-2 text-3xl font-semibold tracking-tight">
+          {records.est1RM} lb
+        </h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Estimated 1RM · {sessions?.length ?? 0} logged session
+          {(sessions?.length ?? 0) === 1 ? "" : "s"}
+        </p>
+      </div>
 
       <Tabs
         value={tab}

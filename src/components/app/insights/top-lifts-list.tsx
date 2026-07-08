@@ -1,10 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowDown, ArrowRight, ArrowUp } from "lucide-react";
+import { ArrowDown, ArrowRight, ArrowUp, ChevronRight } from "lucide-react";
 
 import { useExerciseCatalog } from "@/components/app/exercise-catalog-provider";
-import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import type { TopLift } from "@/lib/insights/types";
 import type { InsightsDays } from "@/lib/insights/format";
@@ -43,29 +42,39 @@ export function TopLiftsList({
   }
 
   return (
-    <div className="flex flex-col gap-1.5">
-      {lifts.map((lift) => (
+    <div className="grid gap-2">
+      {lifts.map((lift, index) => (
         <Link
           key={lift.slug}
           href={`/insights/exercise/${lift.slug}?days=${days}`}
+          className="group rounded-lg border bg-[var(--surface)] p-3 transition-all active:scale-[0.98]"
         >
-          <Card className="gap-0 py-3 transition-all duration-150 hover:border-white/20 active:scale-[0.98]">
-            <CardContent className="px-4">
-              <div className="flex items-center justify-between gap-2">
-                <span className="truncate text-sm font-medium">
+          <div className="flex items-center gap-3">
+            <span className="grid size-8 shrink-0 place-items-center rounded-md bg-muted text-sm font-semibold tabular-nums text-muted-foreground">
+              {index + 1}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <p className="truncate text-sm font-semibold">
                   {catalog.name(lift.slug)}
-                </span>
-                <span className="flex shrink-0 items-center gap-1 text-sm font-semibold tabular-nums">
-                  {lift.weight} lb
+                </p>
+                <span className="flex shrink-0 items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
                   <TrendIcon trend={lift.trend} />
                 </span>
               </div>
-              <p className="text-muted-foreground mt-0.5 text-xs">
+              <p className="mt-0.5 text-xs text-muted-foreground">
                 {lift.sessions} session{lift.sessions === 1 ? "" : "s"} · est.
-                1RM {lift.est1RM}
+                1RM {lift.est1RM} lb
               </p>
-            </CardContent>
-          </Card>
+            </div>
+            <div className="shrink-0 text-right">
+              <p className="text-lg font-semibold tabular-nums">
+                {lift.weight}
+              </p>
+              <p className="text-xs text-muted-foreground">lb</p>
+            </div>
+            <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-active:translate-x-0.5" />
+          </div>
         </Link>
       ))}
     </div>
