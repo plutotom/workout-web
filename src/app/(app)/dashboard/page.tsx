@@ -18,7 +18,6 @@ import {
 import { useExerciseCatalog } from "@/components/app/exercise-catalog-provider";
 import {
   buildMuscleSegments,
-  formatLb,
   MiniSparkline,
   MuscleBand,
   ProgressRing,
@@ -52,7 +51,10 @@ export default function DashboardPage() {
   const hasTemplates = (templates?.length ?? 0) > 0;
   const today = templates?.[0] ?? null;
   const weekCount = overview?.stats.workoutCount ?? 0;
-  const momentum = overview?.stats.totalVolume ?? 0;
+  const currentVolume = overview?.stats.totalVolume ?? 0;
+  const priorVolume = overview?.stats.priorTotalVolume ?? 0;
+  const momentum = formatMomentum(currentVolume, priorVolume);
+  const volumeTrend = overview?.volumeTrend?.map((point) => point.volume) ?? [];
   const muscleSegments = today
     ? buildMuscleSegments(
         today.exercises.map((ex) => ({
@@ -140,11 +142,25 @@ export default function DashboardPage() {
             </div>
           </CardContent>
         </Card>
-        <Card className="animate-rise-in bg-[var(--surface)]">
-          <CardContent className="grid gap-1 p-4">
-            <p className="text-sm font-medium">Momentum</p>
-            <p className="text-xl font-semibold">{formatLb(momentum)}</p>
-            <MiniSparkline className="text-foreground" />
+        <Card className="animate-rise-in overflow-hidden bg-[var(--surface)]">
+          <CardContent className="grid h-full min-h-36 grid-rows-[auto_1fr] gap-2 p-4">
+            <div>
+              <p className="text-muted-foreground text-xs font-semibold tracking-[0.18em] uppercase">
+                Momentum
+              </p>
+              <p className="mt-2 text-3xl font-semibold tracking-tight">
+                {momentum.value}
+              </p>
+              <p className="text-sm leading-tight text-muted-foreground">
+                volume, vs
+                <br />
+                last week
+              </p>
+            </div>
+            <MiniSparkline
+              values={volumeTrend}
+              className="self-end text-foreground"
+            />
           </CardContent>
         </Card>
       </div>
@@ -204,4 +220,13 @@ export default function DashboardPage() {
       ) : null}
     </div>
   );
+}
+
+function formatMomentum(current: number, prior: number) {
+  if (prior <= 0) {
+    return { value: current > 0 ? "New" : "0%" };
+  }
+
+  const pct = Math.round(((current - prior) / prior) * 100);
+  return { value: `${pct > 0 ? "+" : ""}${pct}%` };
 }

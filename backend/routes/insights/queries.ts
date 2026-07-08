@@ -22,8 +22,10 @@ const emptyOverview = {
     workoutCount: 0,
     totalDurationMs: 0,
     totalVolume: 0,
+    priorTotalVolume: 0,
     weekStreak: 0,
   },
+  volumeTrend: [] as { start: number; volume: number }[],
   volumeBySlug: [] as { slug: string; volume: number }[],
   topLifts: [] as {
     slug: string;

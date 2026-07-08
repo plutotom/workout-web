@@ -150,7 +150,7 @@ function sessionVolume(session: LoadedSession): number {
   let vol = 0;
   for (const ex of session.exercises) {
     for (const set of ex.sets) {
-      if (isValidSet(set.weight, set.reps)) {
+      if (set.completed && isValidSet(set.weight, set.reps)) {
         vol += set.weight * set.reps;
       }
     }
@@ -164,7 +164,7 @@ function slugVolumeInSessions(sessions: LoadedSession[]): Map<string, number> {
     for (const ex of session.exercises) {
       let vol = 0;
       for (const set of ex.sets) {
-        if (isValidSet(set.weight, set.reps)) {
+        if (set.completed && isValidSet(set.weight, set.reps)) {
           vol += set.weight * set.reps;
         }
       }
@@ -196,7 +196,7 @@ function slugStatsInSessions(
 
     for (const ex of session.exercises) {
       for (const set of ex.sets) {
-        if (!isValidSet(set.weight, set.reps)) continue;
+        if (!set.completed || !isValidSet(set.weight, set.reps)) continue;
         const est = estimate1RM(set.weight, set.reps);
         const cur = perSession.get(ex.slug);
         if (!cur || est > cur.bestEst1RM) {
@@ -260,6 +260,11 @@ export type InsightsSessionSummary = {
   exercises: { slug: string; completedCount: number }[];
 };
 
+export type VolumeTrendPoint = {
+  start: number;
+  volume: number;
+};
+
 function formatSessionSummary(session: LoadedSession): InsightsSessionSummary {
   return {
     sessionId: session.sessionId,
@@ -286,6 +291,49 @@ function priorStatsForPeriod(
     (s) => s.completedAt >= priorStart && s.completedAt < priorEnd,
   );
   return slugStatsInSessions(priorPeriod);
+}
+
+function sessionsInPriorPeriod(
+  all: LoadedSession[],
+  days: InsightsDays,
+  now: number,
+) {
+  if (days === null) return [];
+  const priorStart = now - 2 * days * MS_PER_DAY;
+  const priorEnd = now - days * MS_PER_DAY;
+  return all.filter(
+    (s) => s.completedAt >= priorStart && s.completedAt < priorEnd,
+  );
+}
+
+function volumeTrendForPeriod(
+  sessions: LoadedSession[],
+  days: InsightsDays,
+  now: number,
+): VolumeTrendPoint[] {
+  if (days === null) {
+    return sessions
+      .slice()
+      .sort((a, b) => a.completedAt - b.completedAt)
+      .map((session) => ({
+        start: session.completedAt,
+        volume: sessionVolume(session),
+      }));
+  }
+
+  const start = rangeStart(days, now);
+  if (start === null) return [];
+
+  return Array.from({ length: days }, (_, index) => {
+    const dayStart = start + index * MS_PER_DAY;
+    const dayEnd = dayStart + MS_PER_DAY;
+    return {
+      start: dayStart,
+      volume: sessions
+        .filter((s) => s.completedAt >= dayStart && s.completedAt < dayEnd)
+        .reduce((sum, session) => sum + sessionVolume(session), 0),
+    };
+  });
 }
 
 function liftsInPeriod(
@@ -365,6 +413,12 @@ export async function getOverview(
     0,
   );
   const totalVolume = inPeriod.reduce((sum, s) => sum + sessionVolume(s), 0);
+  const priorPeriod = sessionsInPriorPeriod(all, days, now);
+  const priorTotalVolume = priorPeriod.reduce(
+    (sum, s) => sum + sessionVolume(s),
+    0,
+  );
+  const volumeTrend = volumeTrendForPeriod(inPeriod, days, now);
 
   const volumeBySlug = Array.from(slugVolumeInSessions(inPeriod).entries())
     .map(([slug, volume]) => ({ slug, volume }))
@@ -382,8 +436,10 @@ export async function getOverview(
       workoutCount: inPeriod.length,
       totalDurationMs,
       totalVolume,
+      priorTotalVolume,
       weekStreak,
     },
+    volumeTrend,
     volumeBySlug,
     topLifts,
     recentSessions,
