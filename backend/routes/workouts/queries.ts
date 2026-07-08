@@ -7,6 +7,7 @@ import {
   getRecentWorkouts,
   getWorkout,
   getWorkoutHistory,
+  getWorkoutRecap,
 } from "../../lib/workouts";
 
 /** Recent completed workouts across all templates, plus a total count, for the dashboard. */
@@ -46,5 +47,15 @@ export const get = query({
     const user = await getUser(ctx);
     if (!user) return null;
     return getWorkout(ctx, user._id, sessionId);
+  },
+});
+
+/** Data for the post-workout story recap. */
+export const recap = query({
+  args: { sessionId: v.id("workoutSessions") },
+  handler: async (ctx, { sessionId }) => {
+    const user = await getUser(ctx);
+    if (!user) return null;
+    return getWorkoutRecap(ctx, user._id, sessionId);
   },
 });

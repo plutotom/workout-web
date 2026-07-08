@@ -1,8 +1,10 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
+import { computeWeekStreak, estimate1RM, startOfWeekMonday } from "./insights";
 import { getNotesBySlugs } from "./exercise_notes";
 
 const clampWhole = (n: number) => Math.max(0, Math.round(n));
+const DEFAULT_REST_SECONDS = 75;
 
 async function lastSetForExercise(
   ctx: MutationCtx,
@@ -109,12 +111,15 @@ export async function startWorkout(
       sessionId,
       exerciseSlug: te.exerciseSlug,
       orderIndex: te.orderIndex,
+      restSeconds: DEFAULT_REST_SECONDS,
     });
     for (let i = 0; i < te.sets.length; i++) {
       const preset = te.sets[i];
       await ctx.db.insert("sets", {
         sessionExerciseId,
         orderIndex: i,
+        targetWeight: preset.weight,
+        targetReps: preset.reps,
         weight: preset.weight,
         reps: preset.reps,
         completed: false,
@@ -145,7 +150,10 @@ export async function updateSet(
   const patch: Partial<Doc<"sets">> = {};
   if (weight !== undefined) patch.weight = clampWhole(weight);
   if (reps !== undefined) patch.reps = clampWhole(reps);
-  if (completed !== undefined) patch.completed = completed;
+  if (completed !== undefined) {
+    patch.completed = completed;
+    patch.completedAt = completed ? Date.now() : undefined;
+  }
   await ctx.db.patch(setId, patch);
 }
 
@@ -199,6 +207,8 @@ export async function addSet(
   return await ctx.db.insert("sets", {
     sessionExerciseId,
     orderIndex: (last?.orderIndex ?? -1) + 1,
+    targetWeight: last?.targetWeight ?? last?.weight ?? fallback?.weight ?? 0,
+    targetReps: last?.targetReps ?? last?.reps ?? fallback?.reps ?? 0,
     weight: last?.weight ?? fallback?.weight ?? 0,
     reps: last?.reps ?? fallback?.reps ?? 0,
     completed: false,
@@ -281,6 +291,7 @@ export async function addSessionExercise(
     sessionId,
     exerciseSlug,
     orderIndex,
+    restSeconds: DEFAULT_REST_SECONDS,
   });
 
   const fallback = await lastSetForExercise(ctx, userId, exerciseSlug);
@@ -290,6 +301,8 @@ export async function addSessionExercise(
       ctx.db.insert("sets", {
         sessionExerciseId,
         orderIndex: i,
+        targetWeight: seed.weight,
+        targetReps: seed.reps,
         weight: seed.weight,
         reps: seed.reps,
         completed: false,
@@ -496,8 +509,14 @@ export async function getWorkout(
       return {
         _id: e._id,
         slug: e.exerciseSlug,
+        restSeconds: e.restSeconds ?? DEFAULT_REST_SECONDS,
         notes: notesBySlug[e.exerciseSlug],
-        sets,
+        sets: sets.map((set) => ({
+          ...set,
+          targetWeight: set.targetWeight ?? set.weight,
+          targetReps: set.targetReps ?? set.reps,
+          completedAt: set.completedAt,
+        })),
       };
     }),
   );
@@ -508,6 +527,136 @@ export async function getWorkout(
     templateId: session.templateId,
     templateName: template?.name ?? "Workout",
     startedAt: session.startedAt,
+    completedAt: session.completedAt,
     exercises: withSets,
+  };
+}
+
+type RecapSet = {
+  slug: string;
+  weight: number;
+  reps: number;
+  completed: boolean;
+};
+
+function validDoneSets(exercises: { slug: string; sets: Doc<"sets">[] }[]) {
+  const sets: RecapSet[] = [];
+  for (const exercise of exercises) {
+    for (const set of exercise.sets) {
+      if (set.completed && set.weight > 0 && set.reps > 0) {
+        sets.push({
+          slug: exercise.slug,
+          weight: set.weight,
+          reps: set.reps,
+          completed: set.completed,
+        });
+      }
+    }
+  }
+  return sets;
+}
+
+async function completedSessionsForUser(ctx: QueryCtx, userId: Id<"users">) {
+  const sessions = await ctx.db
+    .query("workoutSessions")
+    .withIndex("by_user_status", (q) =>
+      q.eq("userId", userId).eq("status", "completed"),
+    )
+    .collect();
+  sessions.sort(
+    (a, b) => (a.completedAt ?? a.startedAt) - (b.completedAt ?? b.startedAt),
+  );
+  return sessions;
+}
+
+export async function getWorkoutRecap(
+  ctx: QueryCtx,
+  userId: Id<"users">,
+  sessionId: Id<"workoutSessions">,
+) {
+  const session = await getWorkout(ctx, userId, sessionId);
+  if (!session) return null;
+
+  const completedAt = session.completedAt ?? session.startedAt;
+  const doneSets = validDoneSets(session.exercises);
+  const totalVolume = doneSets.reduce(
+    (sum, set) => sum + set.weight * set.reps,
+    0,
+  );
+  const standout =
+    doneSets
+      .map((set) => ({ ...set, est1RM: estimate1RM(set.weight, set.reps) }))
+      .sort((a, b) => b.est1RM - a.est1RM)[0] ?? null;
+
+  const completedSessions = await completedSessionsForUser(ctx, userId);
+  const completedAts = completedSessions.map(
+    (s) => s.completedAt ?? s.startedAt,
+  );
+  const weekStart = startOfWeekMonday(completedAt);
+  const sessionsThisWeek = completedAts.filter(
+    (ts) => ts >= weekStart && ts < weekStart + 7 * 24 * 60 * 60 * 1000,
+  ).length;
+
+  const progression: { completedAt: number; est1RM: number }[] = [];
+  let priorBest = 0;
+  if (standout) {
+    for (const s of completedSessions) {
+      const exercises = await ctx.db
+        .query("sessionExercises")
+        .withIndex("by_session", (q) => q.eq("sessionId", s._id))
+        .collect();
+      const match = exercises.find((e) => e.exerciseSlug === standout.slug);
+      if (!match) continue;
+      const sets = await ctx.db
+        .query("sets")
+        .withIndex("by_session_exercise", (q) =>
+          q.eq("sessionExerciseId", match._id),
+        )
+        .collect();
+      let bestForSession = 0;
+      for (const set of sets) {
+        if (!set.completed || set.weight <= 0 || set.reps <= 0) continue;
+        bestForSession = Math.max(
+          bestForSession,
+          estimate1RM(set.weight, set.reps),
+        );
+      }
+      if (bestForSession <= 0) continue;
+      const ts = s.completedAt ?? s.startedAt;
+      if (s._id !== sessionId && ts < completedAt) {
+        priorBest = Math.max(priorBest, bestForSession);
+      }
+      progression.push({ completedAt: ts, est1RM: bestForSession });
+    }
+  }
+
+  return {
+    session,
+    totals: {
+      volume: totalVolume,
+      durationMs: Math.max(0, completedAt - session.startedAt),
+      completedSets: doneSets.length,
+      exerciseCount: session.exercises.length,
+    },
+    standout: standout
+      ? {
+          slug: standout.slug,
+          weight: standout.weight,
+          reps: standout.reps,
+          est1RM: standout.est1RM,
+          isPr: standout.est1RM > priorBest,
+          priorBest,
+        }
+      : null,
+    muscleSets: session.exercises.map((exercise) => ({
+      slug: exercise.slug,
+      sets: exercise.sets.filter((set) => set.completed).length,
+    })),
+    progression: progression.slice(-7),
+    consistency: {
+      sessionsThisWeek,
+      weeklyGoal: 4,
+      weekStreak: computeWeekStreak(completedAts),
+    },
   };
 }
