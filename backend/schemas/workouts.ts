@@ -24,6 +24,7 @@ export const workoutTables = {
     sessionId: v.id("workoutSessions"),
     exerciseSlug: exerciseSlugValidator,
     orderIndex: v.number(),
+    restSeconds: v.optional(v.number()),
     // Schema-ready; per-exercise notes UI is deferred past V1.
     notes: v.optional(v.string()),
   }).index("by_session", ["sessionId"]),
@@ -31,8 +32,11 @@ export const workoutTables = {
   sets: defineTable({
     sessionExerciseId: v.id("sessionExercises"),
     orderIndex: v.number(),
+    targetReps: v.optional(v.number()),
+    targetWeight: v.optional(v.number()),
     reps: v.number(),
     weight: v.number(),
     completed: v.boolean(),
+    completedAt: v.optional(v.number()),
   }).index("by_session_exercise", ["sessionExerciseId"]),
 };

@@ -12,14 +12,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useExerciseCatalog } from "@/components/app/exercise-catalog-provider";
 
-function summarize(
-  exercises: { slug: string; setCount: number }[],
-  short: (slug: string) => string,
-): string {
-  if (exercises.length === 0) return "No exercises";
-  return exercises.map((e) => `${short(e.slug)} ${e.setCount}`).join(" · ");
-}
-
 function formatLast(ts: number | null): string {
   if (!ts) return "No sessions yet";
   return `Last: ${new Date(ts).toLocaleDateString(undefined, {
@@ -65,12 +57,24 @@ export function TemplatesList() {
       ) : (
         <div className="flex flex-col gap-3">
           {templates.map((t) => (
-            <Card key={t._id}>
+            <Card key={t._id} className="overflow-hidden bg-[var(--surface)]">
               <CardHeader>
                 <CardTitle className="text-base">{t.name}</CardTitle>
-                <p className="text-muted-foreground text-sm">
-                  {summarize(t.exercises, catalog.short)}
-                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {t.exercises.slice(0, 4).map((exercise) => (
+                    <span
+                      key={exercise.slug}
+                      className="rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground"
+                    >
+                      {catalog.short(exercise.slug)}
+                    </span>
+                  ))}
+                  {t.exercises.length > 4 ? (
+                    <span className="rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground">
+                      +{t.exercises.length - 4} more
+                    </span>
+                  ) : null}
+                </div>
                 <p className="text-muted-foreground text-xs">
                   {formatLast(t.lastSessionAt)}
                 </p>
