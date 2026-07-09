@@ -26,21 +26,48 @@ function formatDate(ts: number) {
   });
 }
 
-function progressionPath(points: { est1RM: number }[]) {
+type ProgressionPoint = {
+  completedAt: number;
+  weight: number;
+  reps: number;
+};
+
+function progressionPath(points: ProgressionPoint[]) {
   if (points.length === 0) return "";
   if (points.length === 1) return "M 8 92 L 292 92";
 
-  const values = points.map((p) => p.est1RM);
+  const values = points.map((p) => p.weight);
   const min = Math.min(...values);
   const max = Math.max(...values);
   const range = Math.max(1, max - min);
   return points
     .map((point, index) => {
       const x = 8 + (index / (points.length - 1)) * 284;
-      const y = 92 - ((point.est1RM - min) / range) * 72;
+      const y = 92 - ((point.weight - min) / range) * 72;
       return `${index === 0 ? "M" : "L"} ${x.toFixed(1)} ${y.toFixed(1)}`;
     })
     .join(" ");
+}
+
+function formatBestSet(weight: number, reps: number) {
+  return `${weight} lb × ${reps}`;
+}
+
+function progressionBody(delta: number, points: ProgressionPoint[]) {
+  if (points.length < 2) {
+    return "Best working weight across recent sessions.";
+  }
+  if (delta > 0) return "This is the proof the work is accumulating.";
+  if (delta < 0) return "A lighter day — the trend still tells the story.";
+  const first = points[0];
+  const latest = points[points.length - 1];
+  if (latest.reps > first.reps) {
+    return "Same weight, more reps. The work is accumulating.";
+  }
+  if (latest.reps < first.reps) {
+    return "Same weight, fewer reps this time.";
+  }
+  return "Held the same working weight. Consistency counts.";
 }
 
 function WeekGrid({ count, goal }: { count: number; goal: number }) {
@@ -65,11 +92,7 @@ function WeekGrid({ count, goal }: { count: number; goal: number }) {
   );
 }
 
-function ProgressionChart({
-  points,
-}: {
-  points: { completedAt: number; est1RM: number }[];
-}) {
+function ProgressionChart({ points }: { points: ProgressionPoint[] }) {
   const path = progressionPath(points);
   const latest = points[points.length - 1];
 
@@ -94,13 +117,13 @@ function ProgressionChart({
           />
         ) : null}
         {points.map((point, index) => {
-          const values = points.map((p) => p.est1RM);
+          const values = points.map((p) => p.weight);
           const min = Math.min(...values);
           const max = Math.max(...values);
           const range = Math.max(1, max - min);
           const x =
             points.length === 1 ? 292 : 8 + (index / (points.length - 1)) * 284;
-          const y = 92 - ((point.est1RM - min) / range) * 72;
+          const y = 92 - ((point.weight - min) / range) * 72;
           return (
             <circle
               key={`${point.completedAt}-${index}`}
@@ -115,14 +138,14 @@ function ProgressionChart({
       <div className="flex items-end justify-between gap-3">
         <div>
           <p className="text-xs font-medium text-muted-foreground">
-            Estimated 1RM trend
+            Best working weight
           </p>
           <p className="text-xs text-muted-foreground">
-            Epley: weight × (1 + reps / 30)
+            Heaviest completed set per session
           </p>
         </div>
         <p className="text-right text-2xl font-semibold">
-          {latest ? `${latest.est1RM} lb` : "—"}
+          {latest ? formatBestSet(latest.weight, latest.reps) : "—"}
         </p>
       </div>
     </div>
@@ -166,8 +189,8 @@ export function WorkoutRecap({ sessionId }: { sessionId: string }) {
     : "Progress";
   const progressionDelta =
     data.progression.length > 1
-      ? data.progression[data.progression.length - 1].est1RM -
-        data.progression[0].est1RM
+      ? data.progression[data.progression.length - 1].weight -
+        data.progression[0].weight
       : 0;
 
   const beats = [
@@ -206,7 +229,7 @@ export function WorkoutRecap({ sessionId }: { sessionId: string }) {
       kicker: "Standout lift",
       title: standoutName,
       body: data.standout
-        ? `${data.standout.weight} lb × ${data.standout.reps} · est. ${data.standout.est1RM} lb 1RM`
+        ? formatBestSet(data.standout.weight, data.standout.reps)
         : "Check off sets during a workout to build records.",
       extra: data.standout ? (
         <div className="mt-8 rounded-xl border bg-[var(--surface)] p-4">
@@ -223,7 +246,10 @@ export function WorkoutRecap({ sessionId }: { sessionId: string }) {
               <p className="text-sm text-muted-foreground">
                 Previous best{" "}
                 {data.standout.priorBest
-                  ? `${data.standout.priorBest} lb`
+                  ? formatBestSet(
+                      data.standout.priorBest.weight,
+                      data.standout.priorBest.reps,
+                    )
                   : "not set"}
               </p>
             </div>
@@ -247,7 +273,7 @@ export function WorkoutRecap({ sessionId }: { sessionId: string }) {
         progressionDelta > 0
           ? `${standoutShort} +${progressionDelta} lb`
           : `${standoutShort} trend`,
-      body: "This is the proof the work is accumulating.",
+      body: progressionBody(progressionDelta, data.progression),
       extra: <ProgressionChart points={data.progression} />,
     },
     {

@@ -572,6 +572,19 @@ type RecapSet = {
   completed: boolean;
 };
 
+type BestSet = { weight: number; reps: number };
+
+/** Prefer heavier weight; at equal weight, prefer more reps. */
+function compareBestSets(a: BestSet, b: BestSet): number {
+  if (a.weight !== b.weight) return a.weight - b.weight;
+  return a.reps - b.reps;
+}
+
+function betterBestSet(a: BestSet | null, b: BestSet): BestSet {
+  if (!a || compareBestSets(b, a) > 0) return b;
+  return a;
+}
+
 function validDoneSets(exercises: { slug: string; sets: Doc<"sets">[] }[]) {
   const sets: RecapSet[] = [];
   for (const exercise of exercises) {
@@ -617,9 +630,7 @@ export async function getWorkoutRecap(
     0,
   );
   const standout =
-    doneSets
-      .map((set) => ({ ...set, est1RM: estimate1RM(set.weight, set.reps) }))
-      .sort((a, b) => b.est1RM - a.est1RM)[0] ?? null;
+    [...doneSets].sort((a, b) => compareBestSets(b, a))[0] ?? null;
 
   const completedSessions = await completedSessionsForUser(ctx, userId);
   const completedAts = completedSessions.map(
@@ -630,8 +641,12 @@ export async function getWorkoutRecap(
     (ts) => ts >= weekStart && ts < weekStart + 7 * 24 * 60 * 60 * 1000,
   ).length;
 
-  const progression: { completedAt: number; est1RM: number }[] = [];
-  let priorBest = 0;
+  const progression: {
+    completedAt: number;
+    weight: number;
+    reps: number;
+  }[] = [];
+  let priorBest: BestSet | null = null;
   if (standout) {
     for (const s of completedSessions) {
       const exercises = await ctx.db
@@ -646,20 +661,24 @@ export async function getWorkoutRecap(
           q.eq("sessionExerciseId", match._id),
         )
         .collect();
-      let bestForSession = 0;
+      let bestForSession: BestSet | null = null;
       for (const set of sets) {
         if (!set.completed || set.weight <= 0 || set.reps <= 0) continue;
-        bestForSession = Math.max(
-          bestForSession,
-          estimate1RM(set.weight, set.reps),
-        );
+        bestForSession = betterBestSet(bestForSession, {
+          weight: set.weight,
+          reps: set.reps,
+        });
       }
-      if (bestForSession <= 0) continue;
+      if (!bestForSession) continue;
       const ts = s.completedAt ?? s.startedAt;
       if (s._id !== sessionId && ts < completedAt) {
-        priorBest = Math.max(priorBest, bestForSession);
+        priorBest = betterBestSet(priorBest, bestForSession);
       }
-      progression.push({ completedAt: ts, est1RM: bestForSession });
+      progression.push({
+        completedAt: ts,
+        weight: bestForSession.weight,
+        reps: bestForSession.reps,
+      });
     }
   }
 
@@ -676,8 +695,8 @@ export async function getWorkoutRecap(
           slug: standout.slug,
           weight: standout.weight,
           reps: standout.reps,
-          est1RM: standout.est1RM,
-          isPr: standout.est1RM > priorBest,
+          est1RM: estimate1RM(standout.weight, standout.reps),
+          isPr: priorBest ? compareBestSets(standout, priorBest) > 0 : true,
           priorBest,
         }
       : null,
