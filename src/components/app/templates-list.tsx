@@ -29,12 +29,20 @@ export function TemplatesList() {
       <PageHeader
         title="Templates"
         action={
-          <Button asChild size="sm">
-            <Link href="/templates/new">
-              <Plus className="size-4" />
-              New
-            </Link>
-          </Button>
+          <div className="flex items-center gap-2">
+            <StartWorkoutButton
+              mode="blank"
+              variant="outline"
+              label="Quick start"
+              className="w-auto"
+            />
+            <Button asChild size="sm">
+              <Link href="/templates/new">
+                <Plus className="size-4" />
+                New
+              </Link>
+            </Button>
+          </div>
         }
       />
 
@@ -43,15 +51,22 @@ export function TemplatesList() {
       ) : templates.length === 0 ? (
         <EmptyState
           icon={Dumbbell}
-          title="Create your first template"
-          description="Build a multi-exercise routine, then start a workout from it."
+          title="No templates yet"
+          description="Quick start a workout and save it when you're done, or build a template first."
           action={
-            <Button asChild>
-              <Link href="/templates/new">
-                <Plus className="size-4" />
-                New template
-              </Link>
-            </Button>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <StartWorkoutButton
+                mode="blank"
+                label="Quick start"
+                className="w-auto"
+              />
+              <Button asChild variant="outline">
+                <Link href="/templates/new">
+                  <Plus className="size-4" />
+                  New template
+                </Link>
+              </Button>
+            </div>
           }
         />
       ) : (

@@ -131,6 +131,55 @@ export async function removeTemplate(
   await ctx.db.delete(templateId);
 }
 
+export async function createTemplateFromSession(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  {
+    sessionId,
+    name,
+  }: {
+    sessionId: Id<"workoutSessions">;
+    name: string;
+  },
+) {
+  const session = await ctx.db.get(sessionId);
+  if (!session || session.userId !== userId)
+    throw new Error("Session not found");
+  if (session.status !== "completed")
+    throw new Error("Only completed workouts can be saved as templates");
+  if (session.templateId) throw new Error("Workout already has a template");
+
+  const sessionExercises = await ctx.db
+    .query("sessionExercises")
+    .withIndex("by_session", (q) => q.eq("sessionId", sessionId))
+    .collect();
+  sessionExercises.sort((a, b) => a.orderIndex - b.orderIndex);
+  if (sessionExercises.length === 0)
+    throw new Error("Add at least one exercise before saving a template");
+
+  const exercises: ExerciseInput[] = [];
+  for (const se of sessionExercises) {
+    const sets = await ctx.db
+      .query("sets")
+      .withIndex("by_session_exercise", (q) =>
+        q.eq("sessionExerciseId", se._id),
+      )
+      .collect();
+    exercises.push({
+      slug: se.exerciseSlug,
+      sets: normalizeTemplateSets(
+        sets
+          .sort((a, b) => a.orderIndex - b.orderIndex)
+          .map((s) => ({ weight: s.weight, reps: s.reps })),
+      ),
+    });
+  }
+
+  const templateId = await createTemplate(ctx, userId, { name, exercises });
+  await ctx.db.patch(sessionId, { templateId });
+  return templateId;
+}
+
 export async function listTemplates(ctx: QueryCtx, userId: Id<"users">) {
   const templates = await ctx.db
     .query("workoutTemplates")
@@ -153,7 +202,7 @@ export async function listTemplates(ctx: QueryCtx, userId: Id<"users">) {
       exercises.sort((a, b) => a.orderIndex - b.orderIndex);
 
       const times = completedSessions
-        .filter((s) => s.templateId === t._id)
+        .filter((s) => s.templateId !== undefined && s.templateId === t._id)
         .map((s) => s.completedAt ?? s.startedAt);
       const lastSessionAt = times.length ? Math.max(...times) : null;
 
