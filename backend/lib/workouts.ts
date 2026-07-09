@@ -347,7 +347,16 @@ export async function finishWorkout(
   userId: Id<"users">,
   sessionId: Id<"workoutSessions">,
 ) {
-  await ownedSession(ctx, userId, sessionId);
+  const session = await ownedSession(ctx, userId, sessionId);
+  if (session.status !== "in_progress") {
+    throw new Error("Workout is no longer active");
+  }
+
+  const exercises = await sessionExercisesFor(ctx, sessionId);
+  if (exercises.length === 0) {
+    throw new Error("Add at least one exercise before finishing");
+  }
+
   await ctx.db.patch(sessionId, {
     status: "completed",
     completedAt: Date.now(),
