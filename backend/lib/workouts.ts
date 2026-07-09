@@ -649,6 +649,9 @@ export async function getWorkoutRecap(
   let priorBest: BestSet | null = null;
   if (standout) {
     for (const s of completedSessions) {
+      // Current session is appended from standout below so the chart always
+      // includes today's set even if history re-query misses it.
+      if (s._id === sessionId) continue;
       const exercises = await ctx.db
         .query("sessionExercises")
         .withIndex("by_session", (q) => q.eq("sessionId", s._id))
@@ -671,7 +674,7 @@ export async function getWorkoutRecap(
       }
       if (!bestForSession) continue;
       const ts = s.completedAt ?? s.startedAt;
-      if (s._id !== sessionId && ts < completedAt) {
+      if (ts < completedAt) {
         priorBest = betterBestSet(priorBest, bestForSession);
       }
       progression.push({
@@ -680,6 +683,12 @@ export async function getWorkoutRecap(
         reps: bestForSession.reps,
       });
     }
+    progression.push({
+      completedAt,
+      weight: standout.weight,
+      reps: standout.reps,
+    });
+    progression.sort((a, b) => a.completedAt - b.completedAt);
   }
 
   return {

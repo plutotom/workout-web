@@ -54,8 +54,11 @@ function formatBestSet(weight: number, reps: number) {
 }
 
 function progressionBody(delta: number, points: ProgressionPoint[]) {
-  if (points.length < 2) {
-    return "Best working weight across recent sessions.";
+  if (points.length === 0) {
+    return "Check off sets during a workout to build your trend.";
+  }
+  if (points.length === 1) {
+    return "First logged set for this lift — your baseline.";
   }
   if (delta > 0) return "This is the proof the work is accumulating.";
   if (delta < 0) return "A lighter day — the trend still tells the story.";
@@ -95,6 +98,16 @@ function WeekGrid({ count, goal }: { count: number; goal: number }) {
 function ProgressionChart({ points }: { points: ProgressionPoint[] }) {
   const path = progressionPath(points);
   const latest = points[points.length - 1];
+
+  if (points.length === 0) {
+    return (
+      <div className="mt-8 rounded-lg border bg-[var(--surface)] p-4">
+        <p className="text-sm text-muted-foreground">
+          No completed sets yet for this lift.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="mt-8 rounded-lg border bg-[var(--surface)] p-4">
@@ -141,7 +154,9 @@ function ProgressionChart({ points }: { points: ProgressionPoint[] }) {
             Best working weight
           </p>
           <p className="text-xs text-muted-foreground">
-            Heaviest completed set per session
+            {points.length === 1
+              ? "Today’s best set"
+              : "Heaviest completed set per session"}
           </p>
         </div>
         <p className="text-right text-2xl font-semibold">
@@ -192,6 +207,14 @@ export function WorkoutRecap({ sessionId }: { sessionId: string }) {
       ? data.progression[data.progression.length - 1].weight -
         data.progression[0].weight
       : 0;
+  const progressionTitle =
+    data.progression.length === 0
+      ? "No trend yet"
+      : progressionDelta > 0
+        ? `${standoutShort} +${progressionDelta} lb`
+        : data.progression.length === 1
+          ? `${standoutShort} baseline`
+          : `${standoutShort} trend`;
 
   const beats = [
     {
@@ -267,15 +290,16 @@ export function WorkoutRecap({ sessionId }: { sessionId: string }) {
         </div>
       ),
     },
-    {
-      kicker: "Progression",
-      title:
-        progressionDelta > 0
-          ? `${standoutShort} +${progressionDelta} lb`
-          : `${standoutShort} trend`,
-      body: progressionBody(progressionDelta, data.progression),
-      extra: <ProgressionChart points={data.progression} />,
-    },
+    ...(data.progression.length > 0
+      ? [
+          {
+            kicker: "Progression",
+            title: progressionTitle,
+            body: progressionBody(progressionDelta, data.progression),
+            extra: <ProgressionChart points={data.progression} />,
+          },
+        ]
+      : []),
     {
       kicker: "Consistency",
       title: `${data.consistency.sessionsThisWeek}/${data.consistency.weeklyGoal} this week`,
@@ -310,7 +334,8 @@ export function WorkoutRecap({ sessionId }: { sessionId: string }) {
       ),
     },
   ];
-  const beat = beats[step];
+  const safeStep = Math.min(step, beats.length - 1);
+  const beat = beats[safeStep];
 
   async function share() {
     const text = `${data.session.templateName}: ${formatLb(data.totals.volume)}, ${data.totals.completedSets} sets`;
@@ -321,13 +346,18 @@ export function WorkoutRecap({ sessionId }: { sessionId: string }) {
 
   return (
     <div className="flex min-h-[calc(100vh-9rem)] flex-col">
-      <div className="mb-6 grid grid-cols-7 gap-1">
+      <div
+        className="mb-6 grid gap-1"
+        style={{
+          gridTemplateColumns: `repeat(${beats.length}, minmax(0, 1fr))`,
+        }}
+      >
         {beats.map((_, i) => (
           <span
             key={i}
             className={cn(
               "h-1 rounded-full transition-colors",
-              i <= step ? "bg-foreground" : "bg-muted",
+              i <= safeStep ? "bg-foreground" : "bg-muted",
             )}
           />
         ))}
@@ -338,11 +368,12 @@ export function WorkoutRecap({ sessionId }: { sessionId: string }) {
         className="grid flex-1 place-items-center text-left"
         onClick={(event) => {
           const x = event.clientX;
-          if (x < window.innerWidth * 0.35) setStep((v) => Math.max(0, v - 1));
+          if (x < window.innerWidth * 0.35)
+            setStep((v) => Math.max(0, Math.min(v, beats.length - 1) - 1));
           else setStep((v) => Math.min(beats.length - 1, v + 1));
         }}
       >
-        <div key={step} className="w-full animate-rise-in">
+        <div key={safeStep} className="w-full animate-rise-in">
           <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
             {beat.kicker}
           </p>
@@ -357,7 +388,7 @@ export function WorkoutRecap({ sessionId }: { sessionId: string }) {
       </button>
 
       <div className="grid gap-2 pt-6">
-        {step === beats.length - 1 ? (
+        {safeStep === beats.length - 1 ? (
           <Button type="button" onClick={() => void share()}>
             <Share2 className="size-4" />
             Share
@@ -365,7 +396,7 @@ export function WorkoutRecap({ sessionId }: { sessionId: string }) {
         ) : null}
         <Button
           asChild
-          variant={step === beats.length - 1 ? "outline" : "ghost"}
+          variant={safeStep === beats.length - 1 ? "outline" : "ghost"}
         >
           <Link href="/dashboard">Done</Link>
         </Button>
