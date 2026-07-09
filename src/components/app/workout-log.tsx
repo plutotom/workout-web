@@ -109,6 +109,7 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
   );
   const [finishing, setFinishing] = useState(false);
   const [incompleteOpen, setIncompleteOpen] = useState(false);
+  const [emptyOpen, setEmptyOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
   const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
   const [saveTemplateName, setSaveTemplateName] = useState("");
@@ -186,9 +187,10 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
   );
 
   useEffect(() => {
+    if (session?.status !== "in_progress") return;
     const id = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(id);
-  }, []);
+  }, [session?.status]);
 
   useEffect(() => {
     if (!rest) return;
@@ -259,11 +261,18 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
   const editable = session.status === "in_progress";
   const isBlankSession = session.templateId === null;
   const exerciseCountAtFinish = session.exercises.length;
+  const hasLoggedWork = session.exercises.some((ex) =>
+    ex.sets.some((s) => s.completed && s.reps > 0),
+  );
   const historyHref = session.templateId
     ? `/templates/${session.templateId}/history`
     : "/dashboard";
+  // undefined = template still loading; null = blank / missing; object = ready
+  const templateReady = isBlankSession || template !== undefined;
   const templateDiffers =
-    !isBlankSession && templateDiffersFromSession(session.exercises, template);
+    !isBlankSession &&
+    template !== undefined &&
+    templateDiffersFromSession(session.exercises, template);
   const hasUncheckedSets = session.exercises.some((ex) =>
     ex.sets.some((s) => !s.completed),
   );
@@ -283,9 +292,16 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
     }
   }
 
-  // The Finish button: if some sets are unchecked, ask save-or-discard first;
-  // otherwise complete the workout directly.
+  // Finish: empty / no logged work → discard; wait for template; unchecked confirm.
   function handleFinish() {
+    if (exerciseCountAtFinish === 0 || !hasLoggedWork) {
+      setEmptyOpen(true);
+      return;
+    }
+    if (!templateReady) {
+      toast.message("Still loading template…");
+      return;
+    }
     if (hasUncheckedSets) {
       setIncompleteOpen(true);
       return;
@@ -331,6 +347,7 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
 
   async function discardWorkout() {
     setIncompleteOpen(false);
+    setEmptyOpen(false);
     setFinishing(true);
     try {
       await abandon({ sessionId: sessionId as Id<"workoutSessions"> });
@@ -343,19 +360,21 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
   }
 
   async function handleSync(update: boolean) {
-    setSyncOpen(false);
     if (update) {
       try {
         await syncFromSession({
           sessionId: sessionId as Id<"workoutSessions">,
         });
+        setSyncOpen(false);
         toast.success("Template updated");
+        router.push(`/workout/${sessionId}/recap`);
       } catch {
         toast.error("Couldn't update template");
       }
-    } else {
-      toast.success("Workout finished");
+      return;
     }
+    setSyncOpen(false);
+    toast.success("Workout finished");
     router.push(`/workout/${sessionId}/recap`);
   }
 
@@ -418,9 +437,13 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
     }
     return null;
   })();
+  const elapsedEnd =
+    session.status === "in_progress"
+      ? now
+      : (session.completedAt ?? session.startedAt);
   const elapsedSeconds = Math.max(
     0,
-    Math.floor((now - session.startedAt) / 1000),
+    Math.floor((elapsedEnd - session.startedAt) / 1000),
   );
   const restRemaining = rest
     ? Math.max(0, rest.seconds - Math.floor((now - rest.startedAt) / 1000))
@@ -453,7 +476,7 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
         <div className="mb-2 flex items-end justify-between gap-3">
           <div>
             <p className="text-xs font-semibold tracking-[0.16em] text-muted-foreground uppercase">
-              Active session
+              {editable ? "Active session" : "Session"}
             </p>
             <p className="text-sm font-medium">{session.templateName}</p>
           </div>
@@ -708,6 +731,36 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
               onClick={() => void discardWorkout()}
             >
               Discard
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={emptyOpen} onOpenChange={setEmptyOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Nothing logged</DialogTitle>
+            <DialogDescription>
+              {exerciseCountAtFinish === 0
+                ? "This workout has no exercises. Discard it so it doesn&apos;t count toward your week?"
+                : "No sets are checked off with reps. Discard it so it doesn&apos;t count toward your week?"}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="sm:flex-col sm:gap-2">
+            <Button
+              variant="outline"
+              className="text-destructive hover:text-destructive"
+              disabled={finishing}
+              onClick={() => void discardWorkout()}
+            >
+              Discard
+            </Button>
+            <Button
+              variant="ghost"
+              disabled={finishing}
+              onClick={() => setEmptyOpen(false)}
+            >
+              Keep going
             </Button>
           </DialogFooter>
         </DialogContent>

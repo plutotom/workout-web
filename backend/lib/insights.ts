@@ -105,44 +105,57 @@ async function loadCompletedSessions(
     (a, b) => (b.completedAt ?? b.startedAt) - (a.completedAt ?? a.startedAt),
   );
 
-  return Promise.all(
-    sessions.map(async (s) => {
-      const template = s.templateId ? await ctx.db.get(s.templateId) : null;
-      const exercises = await ctx.db
-        .query("sessionExercises")
-        .withIndex("by_session", (q) => q.eq("sessionId", s._id))
-        .collect();
-      exercises.sort((a, b) => a.orderIndex - b.orderIndex);
+  return (
+    await Promise.all(
+      sessions.map(async (s) => {
+        const template = s.templateId ? await ctx.db.get(s.templateId) : null;
+        const exercises = await ctx.db
+          .query("sessionExercises")
+          .withIndex("by_session", (q) => q.eq("sessionId", s._id))
+          .collect();
+        exercises.sort((a, b) => a.orderIndex - b.orderIndex);
 
-      const withSets = await Promise.all(
-        exercises.map(async (e) => {
-          const sets = await ctx.db
-            .query("sets")
-            .withIndex("by_session_exercise", (q) =>
-              q.eq("sessionExerciseId", e._id),
-            )
-            .collect();
-          sets.sort((a, b) => a.orderIndex - b.orderIndex);
-          return {
-            slug: e.exerciseSlug,
-            sets: sets.map((set) => ({
-              orderIndex: set.orderIndex,
-              weight: set.weight,
-              reps: set.reps,
-              completed: set.completed,
-            })),
-          };
-        }),
-      );
+        const withSets = await Promise.all(
+          exercises.map(async (e) => {
+            const sets = await ctx.db
+              .query("sets")
+              .withIndex("by_session_exercise", (q) =>
+                q.eq("sessionExerciseId", e._id),
+              )
+              .collect();
+            sets.sort((a, b) => a.orderIndex - b.orderIndex);
+            return {
+              slug: e.exerciseSlug,
+              sets: sets.map((set) => ({
+                orderIndex: set.orderIndex,
+                weight: set.weight,
+                reps: set.reps,
+                completed: set.completed,
+              })),
+            };
+          }),
+        );
 
-      return {
-        sessionId: s._id,
-        templateName: template?.name ?? "Quick start",
-        startedAt: s.startedAt,
-        completedAt: s.completedAt ?? s.startedAt,
-        exercises: withSets,
-      };
-    }),
+        return {
+          sessionId: s._id,
+          templateName: (() => {
+            const name = template?.name ?? s.templateName?.trim();
+            return name && name.length > 0 ? name : "Quick start";
+          })(),
+          startedAt: s.startedAt,
+          completedAt: s.completedAt ?? s.startedAt,
+          exercises: withSets,
+        };
+      }),
+    )
+  ).filter(sessionHasLoggedWork);
+}
+
+/** Session counts toward weekly goals if it has at least one checked set
+ * with reps (bodyweight / 0 lb is fine). */
+function sessionHasLoggedWork(session: LoadedSession): boolean {
+  return session.exercises.some((ex) =>
+    ex.sets.some((set) => set.completed && set.reps > 0),
   );
 }
 
