@@ -106,18 +106,25 @@ export default function DashboardPage() {
           <CardContent className="grid gap-4">
             <MuscleBand segments={muscleSegments} />
             <StartWorkoutButton templateId={today._id} />
+            <StartWorkoutButton
+              mode="blank"
+              variant="outline"
+              label="Quick start"
+            />
           </CardContent>
         </Card>
       ) : (
         <Card className="animate-rise-in border-dashed">
           <CardHeader>
-            <CardTitle>Create your first template</CardTitle>
+            <CardTitle>Start your first workout</CardTitle>
             <CardDescription>
-              Build a routine once, then start it from here.
+              Jump in empty and add exercises as you go — or build a template
+              first.
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <Button asChild className="w-full">
+          <CardContent className="grid gap-2">
+            <StartWorkoutButton mode="blank" label="Quick start" />
+            <Button asChild variant="outline" className="w-full">
               <Link href="/templates/new">
                 <Dumbbell className="size-4" />
                 New template
@@ -178,7 +185,15 @@ export default function DashboardPage() {
         ) : !hasTemplates ? (
           <EmptyState
             title="No templates yet"
-            description="Create a workout template and it will show up here."
+            description="Finish a quick start and save it as a template, or create one from scratch."
+            action={
+              <StartWorkoutButton
+                mode="blank"
+                variant="outline"
+                label="Quick start"
+                className="w-auto"
+              />
+            }
           />
         ) : (
           <div className="-mx-4 flex snap-x gap-3 overflow-x-auto px-4 pb-1">

@@ -107,7 +107,7 @@ async function loadCompletedSessions(
 
   return Promise.all(
     sessions.map(async (s) => {
-      const template = await ctx.db.get(s.templateId);
+      const template = s.templateId ? await ctx.db.get(s.templateId) : null;
       const exercises = await ctx.db
         .query("sessionExercises")
         .withIndex("by_session", (q) => q.eq("sessionId", s._id))
@@ -137,7 +137,7 @@ async function loadCompletedSessions(
 
       return {
         sessionId: s._id,
-        templateName: template?.name ?? "Workout",
+        templateName: template?.name ?? "Quick start",
         startedAt: s.startedAt,
         completedAt: s.completedAt ?? s.startedAt,
         exercises: withSets,

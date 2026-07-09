@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation } from "convex/react";
 import { useQuery } from "convex-helpers/react/cache/hooks";
-import { Play } from "lucide-react";
+import { Play, Zap } from "lucide-react";
 import { toast } from "sonner";
 
 import { api } from "@backend/api";
@@ -19,14 +19,36 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-export function StartWorkoutButton({
-  templateId,
-}: {
-  templateId: Id<"workoutTemplates">;
-}) {
+type StartWorkoutButtonProps =
+  | {
+      mode?: "template";
+      templateId: Id<"workoutTemplates">;
+      variant?: "default" | "outline" | "ghost" | "secondary";
+      label?: string;
+      className?: string;
+    }
+  | {
+      mode: "blank";
+      templateId?: never;
+      variant?: "default" | "outline" | "ghost" | "secondary";
+      label?: string;
+      className?: string;
+    };
+
+export function StartWorkoutButton(props: StartWorkoutButtonProps) {
+  const {
+    mode = "template",
+    variant = "default",
+    label,
+    className = "w-full",
+  } = props;
+  const isBlank = mode === "blank";
+  const templateId = !isBlank ? props.templateId : undefined;
+
   const router = useRouter();
   const active = useQuery(api.routes.workouts.queries.active);
   const start = useMutation(api.routes.workouts.mutations.start);
+  const startBlank = useMutation(api.routes.workouts.mutations.startBlank);
 
   const [conflictOpen, setConflictOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -34,7 +56,12 @@ export function StartWorkoutButton({
   async function begin(abandonExisting?: boolean) {
     setBusy(true);
     try {
-      const sessionId = await start({ templateId, abandonExisting });
+      const sessionId = isBlank
+        ? await startBlank({ abandonExisting })
+        : await start({
+            templateId: templateId!,
+            abandonExisting,
+          });
       router.push(`/workout/${sessionId}`);
     } catch {
       setBusy(false);
@@ -51,15 +78,19 @@ export function StartWorkoutButton({
     void begin();
   }
 
+  const buttonLabel = label ?? (isBlank ? "Quick start" : "Start workout");
+  const Icon = isBlank ? Zap : Play;
+
   return (
     <>
       <Button
-        className="w-full"
+        className={className}
+        variant={variant}
         disabled={active === undefined || busy}
         onClick={handleClick}
       >
-        <Play className="size-4" />
-        Start workout
+        <Icon className="size-4" />
+        {buttonLabel}
       </Button>
 
       <Dialog open={conflictOpen} onOpenChange={setConflictOpen}>

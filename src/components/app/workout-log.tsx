@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation } from "convex/react";
 import { useQuery } from "convex-helpers/react/cache/hooks";
@@ -93,7 +93,7 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
   });
   const template = useQuery(
     api.routes.templates.queries.get,
-    session ? { templateId: session.templateId } : "skip",
+    session?.templateId ? { templateId: session.templateId } : "skip",
   );
   const addSet = useMutation(api.routes.workouts.mutations.addSet);
   const deleteSet = useMutation(api.routes.workouts.mutations.deleteSet);
@@ -104,9 +104,15 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
   const syncFromSession = useMutation(
     api.routes.templates.mutations.syncFromSession,
   );
+  const createFromSession = useMutation(
+    api.routes.templates.mutations.createFromSession,
+  );
   const [finishing, setFinishing] = useState(false);
   const [incompleteOpen, setIncompleteOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
+  const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
+  const [saveTemplateName, setSaveTemplateName] = useState("");
+  const [savingTemplate, setSavingTemplate] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerKey, setPickerKey] = useState(0);
   const [now, setNow] = useState(Date.now());
@@ -116,6 +122,7 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
     label: string;
   } | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
+  const savePromptResolved = useRef(false);
 
   const exerciseCount = session?.exercises.length ?? 0;
   const dragOverFromPoint = useCallback(
@@ -250,11 +257,13 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
   }
 
   const editable = session.status === "in_progress";
-  const historyHref = `/templates/${session.templateId}/history`;
-  const templateDiffers = templateDiffersFromSession(
-    session.exercises,
-    template,
-  );
+  const isBlankSession = session.templateId === null;
+  const exerciseCountAtFinish = session.exercises.length;
+  const historyHref = session.templateId
+    ? `/templates/${session.templateId}/history`
+    : "/dashboard";
+  const templateDiffers =
+    !isBlankSession && templateDiffersFromSession(session.exercises, template);
   const hasUncheckedSets = session.exercises.some((ex) =>
     ex.sets.some((s) => !s.completed),
   );
@@ -284,12 +293,27 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
     void finishWorkout();
   }
 
+  function defaultTemplateName() {
+    return new Date().toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  }
+
   async function finishWorkout() {
     setIncompleteOpen(false);
     setFinishing(true);
     try {
       await finish({ sessionId: sessionId as Id<"workoutSessions"> });
       hapticSuccess();
+      if (isBlankSession && exerciseCountAtFinish > 0) {
+        savePromptResolved.current = false;
+        setSaveTemplateName(defaultTemplateName());
+        setFinishing(false);
+        setSaveTemplateOpen(true);
+        return;
+      }
       // Offer to push today's numbers back to the template, but only if they
       // actually differ.
       if (templateDiffers) {
@@ -333,6 +357,40 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
       toast.success("Workout finished");
     }
     router.push(`/workout/${sessionId}/recap`);
+  }
+
+  async function handleSaveTemplate(save: boolean) {
+    if (savePromptResolved.current) return;
+    savePromptResolved.current = true;
+
+    if (!save) {
+      setSaveTemplateOpen(false);
+      toast.success("Workout finished");
+      router.push(`/workout/${sessionId}/recap`);
+      return;
+    }
+
+    const name = saveTemplateName.trim();
+    if (!name) {
+      savePromptResolved.current = false;
+      toast.error("Give your template a name");
+      return;
+    }
+
+    setSavingTemplate(true);
+    try {
+      await createFromSession({
+        sessionId: sessionId as Id<"workoutSessions">,
+        name,
+      });
+      toast.success("Template saved");
+      setSaveTemplateOpen(false);
+      router.push(`/workout/${sessionId}/recap`);
+    } catch {
+      savePromptResolved.current = false;
+      setSavingTemplate(false);
+      toast.error("Couldn't save template");
+    }
   }
 
   const totalSets = session.exercises.reduce(
@@ -417,6 +475,25 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
           />
         </div>
       </div>
+
+      {editable && session.exercises.length === 0 ? (
+        <EmptyState
+          title="Add your first exercise"
+          description="Build this workout as you go — pick a lift and start logging sets."
+          action={
+            <Button
+              type="button"
+              onClick={() => {
+                setPickerKey((k) => k + 1);
+                setPickerOpen(true);
+              }}
+            >
+              <Plus className="size-4" />
+              Add exercise
+            </Button>
+          }
+        />
+      ) : null}
 
       {session.exercises.map((exercise, exIndex) => {
         const reorderOffset = getReorderOffset(exIndex, drag);
@@ -585,7 +662,7 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
         </div>
       ) : null}
 
-      {editable ? (
+      {editable && session.exercises.length > 0 ? (
         <Button
           type="button"
           variant="outline"
@@ -649,6 +726,54 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
             <Button onClick={() => handleSync(true)}>Update template</Button>
             <Button variant="outline" onClick={() => handleSync(false)}>
               Keep as is
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={saveTemplateOpen}
+        onOpenChange={(open) => {
+          if (!open && !savingTemplate) {
+            void handleSaveTemplate(false);
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Save as template?</DialogTitle>
+            <DialogDescription>
+              Keep this workout so you can start it again next time.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2 py-2">
+            <label htmlFor="save-template-name" className="text-sm font-medium">
+              Template name
+            </label>
+            <Input
+              id="save-template-name"
+              value={saveTemplateName}
+              onChange={(e) => setSaveTemplateName(e.target.value)}
+              placeholder="e.g. Push day"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void handleSaveTemplate(true);
+              }}
+            />
+          </div>
+          <DialogFooter className="sm:flex-col sm:gap-2">
+            <Button
+              disabled={savingTemplate || !saveTemplateName.trim()}
+              onClick={() => void handleSaveTemplate(true)}
+            >
+              {savingTemplate ? "Saving…" : "Save template"}
+            </Button>
+            <Button
+              variant="outline"
+              disabled={savingTemplate}
+              onClick={() => void handleSaveTemplate(false)}
+            >
+              No thanks
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -67,6 +67,23 @@ async function ownedSetContext(
   return set;
 }
 
+async function abandonActiveIfNeeded(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  abandonExisting?: boolean,
+) {
+  const active = await ctx.db
+    .query("workoutSessions")
+    .withIndex("by_user_status", (q) =>
+      q.eq("userId", userId).eq("status", "in_progress"),
+    )
+    .first();
+  if (active) {
+    if (!abandonExisting) throw new Error("ACTIVE_SESSION_EXISTS");
+    await ctx.db.patch(active._id, { status: "abandoned" });
+  }
+}
+
 export async function startWorkout(
   ctx: MutationCtx,
   userId: Id<"users">,
@@ -82,16 +99,7 @@ export async function startWorkout(
   if (!template || template.userId !== userId)
     throw new Error("Template not found");
 
-  const active = await ctx.db
-    .query("workoutSessions")
-    .withIndex("by_user_status", (q) =>
-      q.eq("userId", userId).eq("status", "in_progress"),
-    )
-    .first();
-  if (active) {
-    if (!abandonExisting) throw new Error("ACTIVE_SESSION_EXISTS");
-    await ctx.db.patch(active._id, { status: "abandoned" });
-  }
+  await abandonActiveIfNeeded(ctx, userId, abandonExisting);
 
   const templateExercises = await ctx.db
     .query("templateExercises")
@@ -128,6 +136,27 @@ export async function startWorkout(
   }
 
   return sessionId;
+}
+
+/** Start an empty session with no template — user adds exercises as they go. */
+export async function startBlankWorkout(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  { abandonExisting }: { abandonExisting?: boolean } = {},
+) {
+  await abandonActiveIfNeeded(ctx, userId, abandonExisting);
+
+  return await ctx.db.insert("workoutSessions", {
+    userId,
+    status: "in_progress",
+    startedAt: Date.now(),
+  });
+}
+
+function sessionDisplayName(
+  template: Doc<"workoutTemplates"> | null | undefined,
+) {
+  return template?.name ?? "Quick start";
 }
 
 export async function updateSet(
@@ -374,7 +403,7 @@ export async function getRecentWorkouts(ctx: QueryCtx, userId: Id<"users">) {
 
   const sessions = await Promise.all(
     completed.slice(0, 5).map(async (s) => {
-      const template = await ctx.db.get(s.templateId);
+      const template = s.templateId ? await ctx.db.get(s.templateId) : null;
       const exercises = await ctx.db
         .query("sessionExercises")
         .withIndex("by_session", (q) => q.eq("sessionId", s._id))
@@ -400,7 +429,7 @@ export async function getRecentWorkouts(ctx: QueryCtx, userId: Id<"users">) {
       return {
         _id: s._id,
         completedAt: s.completedAt ?? s.startedAt,
-        templateName: template?.name ?? "Workout",
+        templateName: sessionDisplayName(template),
         exercises: summary,
       };
     }),
@@ -418,11 +447,13 @@ export async function getActiveWorkout(ctx: QueryCtx, userId: Id<"users">) {
     .first();
   if (!session) return null;
 
-  const template = await ctx.db.get(session.templateId);
+  const template = session.templateId
+    ? await ctx.db.get(session.templateId)
+    : null;
   return {
     _id: session._id,
-    templateId: session.templateId,
-    templateName: template?.name ?? "Workout",
+    templateId: session.templateId ?? null,
+    templateName: sessionDisplayName(template),
     startedAt: session.startedAt,
   };
 }
@@ -440,7 +471,7 @@ export async function getWorkoutHistory(
     .collect();
 
   const forTemplate = sessions
-    .filter((s) => s.templateId === templateId)
+    .filter((s) => s.templateId !== undefined && s.templateId === templateId)
     .sort(
       (a, b) => (b.completedAt ?? b.startedAt) - (a.completedAt ?? a.startedAt),
     );
@@ -486,7 +517,9 @@ export async function getWorkout(
   const session = await ctx.db.get(sessionId);
   if (!session || session.userId !== userId) return null;
 
-  const template = await ctx.db.get(session.templateId);
+  const template = session.templateId
+    ? await ctx.db.get(session.templateId)
+    : null;
 
   const exercises = await ctx.db
     .query("sessionExercises")
@@ -524,8 +557,8 @@ export async function getWorkout(
   return {
     _id: session._id,
     status: session.status,
-    templateId: session.templateId,
-    templateName: template?.name ?? "Workout",
+    templateId: session.templateId ?? null,
+    templateName: sessionDisplayName(template),
     startedAt: session.startedAt,
     completedAt: session.completedAt,
     exercises: withSets,

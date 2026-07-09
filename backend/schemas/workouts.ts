@@ -12,7 +12,9 @@ export const sessionStatusValidator = v.union(
 export const workoutTables = {
   workoutSessions: defineTable({
     userId: v.id("users"),
-    templateId: v.id("workoutTemplates"),
+    // Optional: blank / quick-start sessions have no template until the user
+    // chooses "Save as template" after finishing.
+    templateId: v.optional(v.id("workoutTemplates")),
     status: sessionStatusValidator,
     startedAt: v.number(),
     completedAt: v.optional(v.number()),

@@ -4,6 +4,7 @@ import { mutation } from "../../_generated/server";
 import { requireUser } from "../../lib/auth";
 import {
   createTemplate as createTemplateLib,
+  createTemplateFromSession as createTemplateFromSessionLib,
   exerciseInputValidator,
   normalizeTemplateSets,
   removeTemplate as removeTemplateLib,
@@ -15,6 +16,17 @@ export const create = mutation({
   handler: async (ctx, args) => {
     const user = await requireUser(ctx);
     return createTemplateLib(ctx, user._id, args);
+  },
+});
+
+export const createFromSession = mutation({
+  args: {
+    sessionId: v.id("workoutSessions"),
+    name: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const user = await requireUser(ctx);
+    return createTemplateFromSessionLib(ctx, user._id, args);
   },
 });
 
@@ -52,6 +64,7 @@ export const syncFromSession = mutation({
     const session = await ctx.db.get(sessionId);
     if (!session || session.userId !== user._id)
       throw new Error("Session not found");
+    if (!session.templateId) throw new Error("Session has no template");
 
     const template = await ctx.db.get(session.templateId);
     if (!template || template.userId !== user._id)

@@ -11,6 +11,7 @@ import {
   deleteSet as deleteSetLib,
   finishWorkout,
   moveSessionExercise as moveSessionExerciseLib,
+  startBlankWorkout,
   startWorkout,
   updateSet as updateSetLib,
 } from "../../lib/workouts";
@@ -23,6 +24,17 @@ export const start = mutation({
   handler: async (ctx, args) => {
     const user = await requireUser(ctx);
     return startWorkout(ctx, user._id, args);
+  },
+});
+
+/** Start an empty workout with no template — add exercises as you go. */
+export const startBlank = mutation({
+  args: {
+    abandonExisting: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const user = await requireUser(ctx);
+    return startBlankWorkout(ctx, user._id, args);
   },
 });
 
