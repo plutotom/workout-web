@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useQuery } from "convex-helpers/react/cache/hooks";
-import { Award, Check, Share2, Trophy } from "lucide-react";
+import { ArrowRight, Award, Check, Share2, Trophy } from "lucide-react";
 
 import { api } from "@backend/api";
 import type { Id } from "@backend/dataModel";
@@ -18,12 +19,46 @@ import {
 } from "@/components/app/workout-design";
 import { cn } from "@/lib/utils";
 
+type ProgressionStoryPoint = {
+  completedAt: number;
+  weight: number;
+  reps: number;
+  est1RM: number;
+  sameTemplate: boolean;
+};
+
+type ProgressionStory = {
+  slug: string;
+  scopedToTemplate: boolean;
+  isBaseline: boolean;
+  points: ProgressionStoryPoint[];
+  today: { weight: number; reps: number; est1RM: number } | null;
+  previous: {
+    weight: number;
+    reps: number;
+    est1RM: number;
+    completedAt: number;
+  } | null;
+  vsPreviousEst1RM: number | null;
+};
+
 function formatDate(ts: number) {
   return new Date(ts).toLocaleDateString(undefined, {
     weekday: "long",
     month: "long",
     day: "numeric",
   });
+}
+
+function formatShortDate(ts: number) {
+  return new Date(ts).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function formatSet(weight: number, reps: number) {
+  return `${weight}×${reps}`;
 }
 
 function progressionPath(points: { est1RM: number }[]) {
@@ -65,72 +100,202 @@ function WeekGrid({ count, goal }: { count: number; goal: number }) {
   );
 }
 
-function ProgressionChart({
-  points,
+function progressionCopy(story: ProgressionStory, shortName: string) {
+  if (story.isBaseline || !story.today) {
+    return {
+      title: `${shortName} baseline`,
+      body: "Baseline locked in — next time you'll see the trend.",
+    };
+  }
+
+  const delta = story.vsPreviousEst1RM ?? 0;
+  const todayLabel = formatSet(story.today.weight, story.today.reps);
+  const previousLabel = story.previous
+    ? formatSet(story.previous.weight, story.previous.reps)
+    : null;
+
+  if (delta > 0) {
+    return {
+      title: `${shortName} +${delta} lb`,
+      body: previousLabel
+        ? `${todayLabel} · was ${previousLabel} last time`
+        : `${todayLabel} · stronger than last time`,
+    };
+  }
+  if (delta < 0) {
+    return {
+      title: `${shortName} ${delta} lb`,
+      body: previousLabel
+        ? `${todayLabel} · was ${previousLabel} last time`
+        : `${todayLabel} · down from last time`,
+    };
+  }
+  return {
+    title: `${shortName} holding`,
+    body: previousLabel
+      ? `${todayLabel} · same as last time`
+      : `${todayLabel} · holding steady`,
+  };
+}
+
+function ProgressionStoryCard({
+  story,
+  templateName,
+  onOpenHistory,
 }: {
-  points: { completedAt: number; est1RM: number }[];
+  story: ProgressionStory;
+  templateName: string;
+  onOpenHistory: () => void;
 }) {
+  const points = story.points;
   const path = progressionPath(points);
-  const latest = points[points.length - 1];
+  const values = points.map((p) => p.est1RM);
+  const min = values.length ? Math.min(...values) : 0;
+  const max = values.length ? Math.max(...values) : 1;
+  const range = Math.max(1, max - min);
+  const delta = story.vsPreviousEst1RM;
 
   return (
-    <div className="mt-8 rounded-lg border bg-[var(--surface)] p-4">
-      <svg viewBox="0 0 300 110" className="h-36 w-full overflow-visible">
-        <path
-          d="M 8 94 L 292 94"
-          stroke="var(--line)"
-          strokeLinecap="round"
-          strokeWidth="2"
-        />
-        {path ? (
-          <path
-            d={path}
-            fill="none"
-            stroke="var(--action)"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth="5"
-            className="animate-line-draw"
-          />
-        ) : null}
-        {points.map((point, index) => {
-          const values = points.map((p) => p.est1RM);
-          const min = Math.min(...values);
-          const max = Math.max(...values);
-          const range = Math.max(1, max - min);
-          const x =
-            points.length === 1 ? 292 : 8 + (index / (points.length - 1)) * 284;
-          const y = 92 - ((point.est1RM - min) / range) * 72;
-          return (
-            <circle
-              key={`${point.completedAt}-${index}`}
-              cx={x}
-              cy={y}
-              r={index === points.length - 1 ? 5 : 3}
-              fill="var(--action)"
-            />
-          );
-        })}
-      </svg>
-      <div className="flex items-end justify-between gap-3">
-        <div>
-          <p className="text-xs font-medium text-muted-foreground">
-            Estimated 1RM trend
+    <div className="mt-8 space-y-3">
+      {story.isBaseline ? (
+        <div className="rounded-xl border bg-[var(--surface)] p-5">
+          <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
+            First mark
           </p>
-          <p className="text-xs text-muted-foreground">
-            Epley: weight × (1 + reps / 30)
+          <p className="mt-3 text-3xl font-semibold tracking-tight">
+            {story.today
+              ? formatSet(story.today.weight, story.today.reps)
+              : "—"}
+          </p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Est. {story.today?.est1RM ?? "—"} lb 1RM. Come back after your next
+            session for the comparison.
           </p>
         </div>
-        <p className="text-right text-2xl font-semibold">
-          {latest ? `${latest.est1RM} lb` : "—"}
-        </p>
-      </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="rounded-xl border bg-[var(--surface)] p-4">
+              <p className="text-xs font-semibold tracking-[0.14em] text-muted-foreground uppercase">
+                Today
+              </p>
+              <p className="mt-2 text-2xl font-semibold tracking-tight">
+                {story.today
+                  ? formatSet(story.today.weight, story.today.reps)
+                  : "—"}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                est. {story.today?.est1RM ?? "—"} lb
+              </p>
+            </div>
+            <div className="rounded-xl border bg-[var(--surface)] p-4">
+              <p className="text-xs font-semibold tracking-[0.14em] text-muted-foreground uppercase">
+                Last time
+              </p>
+              <p className="mt-2 text-2xl font-semibold tracking-tight">
+                {story.previous
+                  ? formatSet(story.previous.weight, story.previous.reps)
+                  : "—"}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {story.previous
+                  ? formatShortDate(story.previous.completedAt)
+                  : "—"}
+              </p>
+            </div>
+          </div>
+
+          <div className="rounded-xl border bg-[var(--surface)] p-4">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <p className="text-xs font-semibold tracking-[0.14em] text-muted-foreground uppercase">
+                {story.scopedToTemplate
+                  ? `${templateName} · last ${points.length}`
+                  : `Last ${points.length} sessions`}
+              </p>
+              {delta !== null ? (
+                <p
+                  className={cn(
+                    "text-sm font-semibold",
+                    delta > 0
+                      ? "text-[var(--action)]"
+                      : delta < 0
+                        ? "text-muted-foreground"
+                        : "text-foreground",
+                  )}
+                >
+                  {delta > 0
+                    ? `↑ ${delta} lb`
+                    : delta < 0
+                      ? `↓ ${Math.abs(delta)} lb`
+                      : "→ flat"}
+                </p>
+              ) : null}
+            </div>
+            <svg viewBox="0 0 300 110" className="h-32 w-full overflow-visible">
+              <path
+                d="M 8 94 L 292 94"
+                stroke="var(--line)"
+                strokeLinecap="round"
+                strokeWidth="2"
+              />
+              {path ? (
+                <path
+                  d={path}
+                  fill="none"
+                  stroke="var(--action)"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="5"
+                  className="animate-line-draw"
+                />
+              ) : null}
+              {points.map((point, index) => {
+                const x =
+                  points.length === 1
+                    ? 292
+                    : 8 + (index / (points.length - 1)) * 284;
+                const y = 92 - ((point.est1RM - min) / range) * 72;
+                const isLatest = index === points.length - 1;
+                return (
+                  <circle
+                    key={`${point.completedAt}-${index}`}
+                    cx={x}
+                    cy={y}
+                    r={isLatest ? 6 : 3}
+                    fill="var(--action)"
+                    className={isLatest ? "animate-pop" : undefined}
+                  />
+                );
+              })}
+            </svg>
+            <div className="mt-1 flex justify-between text-[11px] text-muted-foreground">
+              <span>
+                {points[0] ? formatShortDate(points[0].completedAt) : ""}
+              </span>
+              <span>Today</span>
+            </div>
+          </div>
+        </>
+      )}
+
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          onOpenHistory();
+        }}
+        className="flex w-full items-center justify-between rounded-xl border border-dashed px-4 py-3 text-left text-sm font-medium transition-colors hover:bg-[var(--surface)]"
+      >
+        <span>See full history</span>
+        <ArrowRight className="size-4" />
+      </button>
     </div>
   );
 }
 
 export function WorkoutRecap({ sessionId }: { sessionId: string }) {
   const catalog = useExerciseCatalog();
+  const router = useRouter();
   const recap = useQuery(api.routes.workouts.queries.recap, {
     sessionId: sessionId as Id<"workoutSessions">,
   });
@@ -164,11 +329,13 @@ export function WorkoutRecap({ sessionId }: { sessionId: string }) {
   const standoutShort = data.standout
     ? catalog.short(data.standout.slug)
     : "Progress";
-  const progressionDelta =
-    data.progression.length > 1
-      ? data.progression[data.progression.length - 1].est1RM -
-        data.progression[0].est1RM
-      : 0;
+  const story: ProgressionStory | null = data.progressionStory ?? null;
+  const progressionBeat = story
+    ? progressionCopy(story, standoutShort)
+    : {
+        title: `${standoutShort} trend`,
+        body: "Check off sets during a workout to build your trend.",
+      };
 
   const beats = [
     {
@@ -243,12 +410,15 @@ export function WorkoutRecap({ sessionId }: { sessionId: string }) {
     },
     {
       kicker: "Progression",
-      title:
-        progressionDelta > 0
-          ? `${standoutShort} +${progressionDelta} lb`
-          : `${standoutShort} trend`,
-      body: "This is the proof the work is accumulating.",
-      extra: <ProgressionChart points={data.progression} />,
+      title: progressionBeat.title,
+      body: progressionBeat.body,
+      extra: story ? (
+        <ProgressionStoryCard
+          story={story}
+          templateName={data.session.templateName}
+          onOpenHistory={() => router.push(`/insights/exercise/${story.slug}`)}
+        />
+      ) : null,
     },
     {
       kicker: "Consistency",
