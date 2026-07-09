@@ -602,6 +602,44 @@ async function completedSessionsForUser(ctx: QueryCtx, userId: Id<"users">) {
   return sessions;
 }
 
+type ProgressionPoint = {
+  completedAt: number;
+  weight: number;
+  reps: number;
+  est1RM: number;
+  sameTemplate: boolean;
+};
+
+async function bestSetForSlugInSession(
+  ctx: QueryCtx,
+  sessionDoc: Doc<"workoutSessions">,
+  slug: string,
+): Promise<{ weight: number; reps: number; est1RM: number } | null> {
+  const exercises = await ctx.db
+    .query("sessionExercises")
+    .withIndex("by_session", (q) => q.eq("sessionId", sessionDoc._id))
+    .collect();
+  const match = exercises.find((e) => e.exerciseSlug === slug);
+  if (!match) return null;
+
+  const sets = await ctx.db
+    .query("sets")
+    .withIndex("by_session_exercise", (q) =>
+      q.eq("sessionExerciseId", match._id),
+    )
+    .collect();
+
+  let best: { weight: number; reps: number; est1RM: number } | null = null;
+  for (const set of sets) {
+    if (!set.completed || set.weight <= 0 || set.reps <= 0) continue;
+    const est1RM = estimate1RM(set.weight, set.reps);
+    if (!best || est1RM > best.est1RM) {
+      best = { weight: set.weight, reps: set.reps, est1RM };
+    }
+  }
+  return best;
+}
+
 export async function getWorkoutRecap(
   ctx: QueryCtx,
   userId: Id<"users">,
@@ -630,38 +668,44 @@ export async function getWorkoutRecap(
     (ts) => ts >= weekStart && ts < weekStart + 7 * 24 * 60 * 60 * 1000,
   ).length;
 
-  const progression: { completedAt: number; est1RM: number }[] = [];
+  const allPoints: ProgressionPoint[] = [];
   let priorBest = 0;
   if (standout) {
     for (const s of completedSessions) {
-      const exercises = await ctx.db
-        .query("sessionExercises")
-        .withIndex("by_session", (q) => q.eq("sessionId", s._id))
-        .collect();
-      const match = exercises.find((e) => e.exerciseSlug === standout.slug);
-      if (!match) continue;
-      const sets = await ctx.db
-        .query("sets")
-        .withIndex("by_session_exercise", (q) =>
-          q.eq("sessionExerciseId", match._id),
-        )
-        .collect();
-      let bestForSession = 0;
-      for (const set of sets) {
-        if (!set.completed || set.weight <= 0 || set.reps <= 0) continue;
-        bestForSession = Math.max(
-          bestForSession,
-          estimate1RM(set.weight, set.reps),
-        );
-      }
-      if (bestForSession <= 0) continue;
+      const best = await bestSetForSlugInSession(ctx, s, standout.slug);
+      if (!best) continue;
       const ts = s.completedAt ?? s.startedAt;
       if (s._id !== sessionId && ts < completedAt) {
-        priorBest = Math.max(priorBest, bestForSession);
+        priorBest = Math.max(priorBest, best.est1RM);
       }
-      progression.push({ completedAt: ts, est1RM: bestForSession });
+      allPoints.push({
+        completedAt: ts,
+        weight: best.weight,
+        reps: best.reps,
+        est1RM: best.est1RM,
+        sameTemplate:
+          session.templateId !== null &&
+          s.templateId !== undefined &&
+          s.templateId === session.templateId,
+      });
     }
   }
+
+  // Prefer same-template lineage when there are at least 2 points (today + prior).
+  const sameTemplatePoints = allPoints.filter((p) => p.sameTemplate);
+  const useTemplateLineage = sameTemplatePoints.length >= 2;
+  const lineagePoints = useTemplateLineage ? sameTemplatePoints : allPoints;
+  const chartPoints = lineagePoints.slice(-7);
+
+  const todayPoint = chartPoints[chartPoints.length - 1] ?? null;
+  const previousPoint =
+    chartPoints.length >= 2 ? chartPoints[chartPoints.length - 2] : null;
+  const isBaseline = chartPoints.length < 2;
+
+  const vsPreviousEst1RM =
+    todayPoint && previousPoint
+      ? todayPoint.est1RM - previousPoint.est1RM
+      : null;
 
   return {
     session,
@@ -685,7 +729,35 @@ export async function getWorkoutRecap(
       slug: exercise.slug,
       sets: exercise.sets.filter((set) => set.completed).length,
     })),
-    progression: progression.slice(-7),
+    /** @deprecated Prefer `progressionStory` — kept for older clients. */
+    progression: chartPoints.map((p) => ({
+      completedAt: p.completedAt,
+      est1RM: p.est1RM,
+    })),
+    progressionStory: standout
+      ? {
+          slug: standout.slug,
+          scopedToTemplate: useTemplateLineage,
+          isBaseline,
+          points: chartPoints,
+          today: todayPoint
+            ? {
+                weight: todayPoint.weight,
+                reps: todayPoint.reps,
+                est1RM: todayPoint.est1RM,
+              }
+            : null,
+          previous: previousPoint
+            ? {
+                weight: previousPoint.weight,
+                reps: previousPoint.reps,
+                est1RM: previousPoint.est1RM,
+                completedAt: previousPoint.completedAt,
+              }
+            : null,
+          vsPreviousEst1RM,
+        }
+      : null,
     consistency: {
       sessionsThisWeek,
       weeklyGoal: 4,
