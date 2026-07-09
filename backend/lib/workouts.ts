@@ -110,6 +110,7 @@ export async function startWorkout(
   const sessionId = await ctx.db.insert("workoutSessions", {
     userId,
     templateId,
+    templateName: template.name,
     status: "in_progress",
     startedAt: Date.now(),
   });
@@ -155,8 +156,36 @@ export async function startBlankWorkout(
 
 function sessionDisplayName(
   template: Doc<"workoutTemplates"> | null | undefined,
+  snapshotName?: string | null,
 ) {
-  return template?.name ?? "Quick start";
+  const name = template?.name ?? snapshotName?.trim();
+  return name && name.length > 0 ? name : "Quick start";
+}
+
+/** A set counts as logged work if it was checked off with at least one rep
+ * (weight may be 0 for bodyweight lifts). */
+export function isLoggedSet(set: {
+  completed: boolean;
+  reps: number;
+}): boolean {
+  return set.completed && set.reps > 0;
+}
+
+async function sessionHasLoggedWork(
+  ctx: MutationCtx | QueryCtx,
+  sessionId: Id<"workoutSessions">,
+): Promise<boolean> {
+  const exercises = await sessionExercisesFor(ctx, sessionId);
+  for (const exercise of exercises) {
+    const sets = await ctx.db
+      .query("sets")
+      .withIndex("by_session_exercise", (q) =>
+        q.eq("sessionExerciseId", exercise._id),
+      )
+      .collect();
+    if (sets.some(isLoggedSet)) return true;
+  }
+  return false;
 }
 
 export async function updateSet(
@@ -189,7 +218,7 @@ export async function updateSet(
 const DEFAULT_SET_ROWS = 3;
 
 async function sessionExercisesFor(
-  ctx: MutationCtx,
+  ctx: MutationCtx | QueryCtx,
   sessionId: Id<"workoutSessions">,
 ) {
   const exercises = await ctx.db
@@ -356,6 +385,9 @@ export async function finishWorkout(
   if (exercises.length === 0) {
     throw new Error("Add at least one exercise before finishing");
   }
+  if (!(await sessionHasLoggedWork(ctx, sessionId))) {
+    throw new Error("Check off at least one set with reps before finishing");
+  }
 
   await ctx.db.patch(sessionId, {
     status: "completed",
@@ -438,7 +470,7 @@ export async function getRecentWorkouts(ctx: QueryCtx, userId: Id<"users">) {
       return {
         _id: s._id,
         completedAt: s.completedAt ?? s.startedAt,
-        templateName: sessionDisplayName(template),
+        templateName: sessionDisplayName(template, s.templateName),
         exercises: summary,
       };
     }),
@@ -462,7 +494,7 @@ export async function getActiveWorkout(ctx: QueryCtx, userId: Id<"users">) {
   return {
     _id: session._id,
     templateId: session.templateId ?? null,
-    templateName: sessionDisplayName(template),
+    templateName: sessionDisplayName(template, session.templateName),
     startedAt: session.startedAt,
   };
 }
@@ -567,7 +599,7 @@ export async function getWorkout(
     _id: session._id,
     status: session.status,
     templateId: session.templateId ?? null,
-    templateName: sessionDisplayName(template),
+    templateName: sessionDisplayName(template, session.templateName),
     startedAt: session.startedAt,
     completedAt: session.completedAt,
     exercises: withSets,
@@ -631,11 +663,14 @@ export async function getWorkoutRecap(
       .sort((a, b) => b.est1RM - a.est1RM)[0] ?? null;
 
   const completedSessions = await completedSessionsForUser(ctx, userId);
-  const completedAts = completedSessions.map(
-    (s) => s.completedAt ?? s.startedAt,
-  );
+  const meaningfulAts: number[] = [];
+  for (const s of completedSessions) {
+    if (await sessionHasLoggedWork(ctx, s._id)) {
+      meaningfulAts.push(s.completedAt ?? s.startedAt);
+    }
+  }
   const weekStart = startOfWeekMonday(completedAt);
-  const sessionsThisWeek = completedAts.filter(
+  const sessionsThisWeek = meaningfulAts.filter(
     (ts) => ts >= weekStart && ts < weekStart + 7 * 24 * 60 * 60 * 1000,
   ).length;
 
@@ -692,13 +727,13 @@ export async function getWorkoutRecap(
       : null,
     muscleSets: session.exercises.map((exercise) => ({
       slug: exercise.slug,
-      sets: exercise.sets.filter((set) => set.completed).length,
+      sets: exercise.sets.filter((set) => isLoggedSet(set)).length,
     })),
     progression: progression.slice(-7),
     consistency: {
       sessionsThisWeek,
       weeklyGoal: 4,
-      weekStreak: computeWeekStreak(completedAts),
+      weekStreak: computeWeekStreak(meaningfulAts),
     },
   };
 }

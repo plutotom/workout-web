@@ -15,6 +15,9 @@ export const workoutTables = {
     // Optional: blank / quick-start sessions have no template until the user
     // chooses "Save as template" after finishing.
     templateId: v.optional(v.id("workoutTemplates")),
+    // Snapshot of the template name at start/save time so history survives
+    // template deletion.
+    templateName: v.optional(v.string()),
     status: sessionStatusValidator,
     startedAt: v.number(),
     completedAt: v.optional(v.number()),
