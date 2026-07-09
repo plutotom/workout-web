@@ -128,6 +128,24 @@ export async function removeTemplate(
     .withIndex("by_template", (q) => q.eq("templateId", templateId))
     .collect();
   await Promise.all(exercises.map((e) => ctx.db.delete(e._id)));
+
+  // Keep history readable: clear the FK but leave templateName snapshot on
+  // sessions that already stored one (or write the name now if missing).
+  const sessions = await ctx.db
+    .query("workoutSessions")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  await Promise.all(
+    sessions
+      .filter((s) => s.templateId === templateId)
+      .map((s) =>
+        ctx.db.patch(s._id, {
+          templateId: undefined,
+          templateName: s.templateName?.trim() || template.name,
+        }),
+      ),
+  );
+
   await ctx.db.delete(templateId);
 }
 
@@ -176,7 +194,10 @@ export async function createTemplateFromSession(
   }
 
   const templateId = await createTemplate(ctx, userId, { name, exercises });
-  await ctx.db.patch(sessionId, { templateId });
+  await ctx.db.patch(sessionId, {
+    templateId,
+    templateName: name.trim() || "Untitled",
+  });
   return templateId;
 }
 
