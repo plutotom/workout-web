@@ -17,19 +17,19 @@ See `.cursor/rules/backend-organization.mdc` for full conventions.
 
 ## Deployment
 
-Vercel runs `pnpm build`, which deploys Convex then builds Next.js:
+Vercel runs `pnpm build` → `scripts/vercel-build.mjs`:
 
-```json
-"build": "convex deploy --cmd 'sh -c \"NEXT_PUBLIC_WORKOS_REDIRECT_URI=$(node scripts/resolve-workos-redirect-uri.mjs) pnpm run build:web\"'"
-```
+- **Production** — `convex deploy`, then Next.js. Deploy injects
+  `NEXT_PUBLIC_CONVEX_URL` for the web build.
+- **Preview** — skips `convex deploy` for now (use the shared backend via
+  Preview `NEXT_PUBLIC_CONVEX_URL`). Only builds Next.js.
 
 `scripts/resolve-workos-redirect-uri.mjs` sets the redirect URI from
 `convex.json` `authKit.prod` on **Production** builds (custom domain) and from
 `VERCEL_URL` on **Preview** builds.
 
-`convex deploy --cmd` sets `NEXT_PUBLIC_CONVEX_URL` for the Next.js build step.
-Do **not** set `NEXT_PUBLIC_CONVEX_URL` for Vercel Preview — the deploy step
-injects it per preview backend.
+Set `NEXT_PUBLIC_CONVEX_URL` on Vercel **Preview** (prod or staging URL) while
+preview Convex deploy is disabled.
 
 ### Vercel deploy keys
 
