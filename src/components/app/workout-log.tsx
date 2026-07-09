@@ -109,6 +109,7 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
   );
   const [finishing, setFinishing] = useState(false);
   const [incompleteOpen, setIncompleteOpen] = useState(false);
+  const [emptyOpen, setEmptyOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
   const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
   const [saveTemplateName, setSaveTemplateName] = useState("");
@@ -186,9 +187,10 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
   );
 
   useEffect(() => {
+    if (session?.status !== "in_progress") return;
     const id = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(id);
-  }, []);
+  }, [session?.status]);
 
   useEffect(() => {
     if (!rest) return;
@@ -283,9 +285,13 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
     }
   }
 
-  // The Finish button: if some sets are unchecked, ask save-or-discard first;
-  // otherwise complete the workout directly.
+  // Finish: empty sessions discard (don't count); unchecked sets confirm;
+  // otherwise complete directly.
   function handleFinish() {
+    if (exerciseCountAtFinish === 0) {
+      setEmptyOpen(true);
+      return;
+    }
     if (hasUncheckedSets) {
       setIncompleteOpen(true);
       return;
@@ -331,6 +337,7 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
 
   async function discardWorkout() {
     setIncompleteOpen(false);
+    setEmptyOpen(false);
     setFinishing(true);
     try {
       await abandon({ sessionId: sessionId as Id<"workoutSessions"> });
@@ -418,9 +425,13 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
     }
     return null;
   })();
+  const elapsedEnd =
+    session.status === "in_progress"
+      ? now
+      : (session.completedAt ?? session.startedAt);
   const elapsedSeconds = Math.max(
     0,
-    Math.floor((now - session.startedAt) / 1000),
+    Math.floor((elapsedEnd - session.startedAt) / 1000),
   );
   const restRemaining = rest
     ? Math.max(0, rest.seconds - Math.floor((now - rest.startedAt) / 1000))
@@ -453,7 +464,7 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
         <div className="mb-2 flex items-end justify-between gap-3">
           <div>
             <p className="text-xs font-semibold tracking-[0.16em] text-muted-foreground uppercase">
-              Active session
+              {editable ? "Active session" : "Session"}
             </p>
             <p className="text-sm font-medium">{session.templateName}</p>
           </div>
@@ -708,6 +719,35 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
               onClick={() => void discardWorkout()}
             >
               Discard
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={emptyOpen} onOpenChange={setEmptyOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Nothing logged</DialogTitle>
+            <DialogDescription>
+              This workout has no exercises. Discard it so it doesn&apos;t count
+              toward your week?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="sm:flex-col sm:gap-2">
+            <Button
+              variant="outline"
+              className="text-destructive hover:text-destructive"
+              disabled={finishing}
+              onClick={() => void discardWorkout()}
+            >
+              Discard
+            </Button>
+            <Button
+              variant="ghost"
+              disabled={finishing}
+              onClick={() => setEmptyOpen(false)}
+            >
+              Keep going
             </Button>
           </DialogFooter>
         </DialogContent>
