@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation } from "convex/react";
 import { useQuery } from "convex-helpers/react/cache/hooks";
@@ -24,6 +24,7 @@ import { ExerciseNoteField } from "@/components/app/exercise-note-field";
 import { ExercisePicker } from "@/components/app/exercise-picker";
 import { PageHeader } from "@/components/app/page-header";
 import { LiftWeightInput } from "@/components/app/lift-weight-input";
+import { useWorkoutFinishFlow } from "@/components/app/workout-finish-flow";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -44,16 +45,15 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
-import { hapticSuccess, hapticTap } from "@/lib/haptics";
+import { hapticTap } from "@/lib/haptics";
+import {
+  formatClock,
+  nextSetLabel,
+  restRemaining as restRemainingAt,
+  useWorkoutRest,
+} from "@/lib/workout-rest";
 import { useExerciseCatalog } from "@/components/app/exercise-catalog-provider";
 import { formatLb } from "@/components/app/workout-design";
-
-type TemplateData =
-  | {
-      exercises: { slug: string; sets: { weight: number; reps: number }[] }[];
-    }
-  | null
-  | undefined;
 
 type DragState = {
   from: number;
@@ -70,48 +70,15 @@ type SessionExerciseForReorder = {
 
 const REORDER_ROW_STEP_PX = 85;
 
-/**
- * True when the sets logged this session differ from the template's presets,
- * for any exercise still on the template. Uses all logged rows (the checkmark
- * is a progress aid, not a gate), matching how the sync writes them back.
- */
-function templateDiffersFromSession(
-  exercises: { slug: string; sets: Doc<"sets">[] }[],
-  template: TemplateData,
-): boolean {
-  if (!template) return false;
-
-  const sessionSlugs = exercises.map((e) => e.slug);
-  const templateSlugs = template.exercises.map((e) => e.slug);
-  if (sessionSlugs.length !== templateSlugs.length) return true;
-  if (sessionSlugs.some((slug, i) => slug !== templateSlugs[i])) return true;
-
-  const bySlug = new Map(template.exercises.map((e) => [e.slug, e.sets]));
-  for (const ex of exercises) {
-    const current = bySlug.get(ex.slug);
-    if (!current) continue;
-    if (
-      ex.sets.length !== current.length ||
-      ex.sets.some(
-        (s, i) => s.weight !== current[i].weight || s.reps !== current[i].reps,
-      )
-    ) {
-      return true;
-    }
-  }
-  return false;
-}
-
 export function WorkoutLog({ sessionId }: { sessionId: string }) {
   const router = useRouter();
   const catalog = useExerciseCatalog();
   const session = useQuery(api.routes.workouts.queries.get, {
     sessionId: sessionId as Id<"workoutSessions">,
   });
-  const template = useQuery(
-    api.routes.templates.queries.get,
-    session?.templateId ? { templateId: session.templateId } : "skip",
-  );
+  const user = useQuery(api.routes.auth.users.current);
+  // Missing/loading profile keeps the timer on — the original behavior.
+  const restTimerEnabled = user?.restTimerEnabled ?? true;
   const addSet = useMutation(api.routes.workouts.mutations.addSet);
   const deleteSet = useMutation(api.routes.workouts.mutations.deleteSet);
   const moveExercise = useMutation(api.routes.workouts.mutations.moveExercise);
@@ -119,21 +86,11 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
   const removeExercise = useMutation(
     api.routes.workouts.mutations.removeExercise,
   );
-  const finish = useMutation(api.routes.workouts.mutations.finish);
-  const abandon = useMutation(api.routes.workouts.mutations.abandon);
-  const syncFromSession = useMutation(
-    api.routes.templates.mutations.syncFromSession,
-  );
-  const createFromSession = useMutation(
-    api.routes.templates.mutations.createFromSession,
-  );
-  const [finishing, setFinishing] = useState(false);
-  const [incompleteOpen, setIncompleteOpen] = useState(false);
-  const [emptyOpen, setEmptyOpen] = useState(false);
-  const [syncOpen, setSyncOpen] = useState(false);
-  const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
-  const [saveTemplateName, setSaveTemplateName] = useState("");
-  const [savingTemplate, setSavingTemplate] = useState(false);
+  const {
+    finishing,
+    handleFinish,
+    dialogs: finishDialogs,
+  } = useWorkoutFinishFlow({ sessionId, session });
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerKey, setPickerKey] = useState(0);
   const [exerciseMenu, setExerciseMenu] = useState<{
@@ -149,14 +106,9 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
   const [noteOpenSignals, setNoteOpenSignals] = useState<
     Partial<Record<Id<"sessionExercises">, number>>
   >({});
-  const [now, setNow] = useState(Date.now());
-  const [rest, setRest] = useState<{
-    startedAt: number;
-    seconds: number;
-    label: string;
-  } | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  const { rest, startRest, clearRest, addSeconds } = useWorkoutRest();
   const [drag, setDrag] = useState<DragState | null>(null);
-  const savePromptResolved = useRef(false);
 
   const exerciseCount = session?.exercises.length ?? 0;
   const dragOverFromPoint = useCallback(
@@ -226,14 +178,6 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
   }, [session?.status]);
 
   useEffect(() => {
-    if (!rest) return;
-    const elapsed = Math.floor((Date.now() - rest.startedAt) / 1000);
-    const remaining = Math.max(0, rest.seconds - elapsed);
-    const id = window.setTimeout(() => setRest(null), remaining * 1000);
-    return () => window.clearTimeout(id);
-  }, [rest]);
-
-  useEffect(() => {
     if (!drag || !session) return;
     const activeSession = session;
 
@@ -292,23 +236,9 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
   }
 
   const editable = session.status === "in_progress";
-  const isBlankSession = session.templateId === null;
-  const exerciseCountAtFinish = session.exercises.length;
-  const hasLoggedWork = session.exercises.some((ex) =>
-    ex.sets.some((s) => s.completed && s.reps > 0),
-  );
   const historyHref = session.templateId
     ? `/templates/${session.templateId}/history`
     : "/dashboard";
-  // undefined = template still loading; null = blank / missing; object = ready
-  const templateReady = isBlankSession || template !== undefined;
-  const templateDiffers =
-    !isBlankSession &&
-    template !== undefined &&
-    templateDiffersFromSession(session.exercises, template);
-  const hasUncheckedSets = session.exercises.some((ex) =>
-    ex.sets.some((s) => !s.completed),
-  );
   const usedSlugs = session.exercises.map((e) => e.slug);
 
   async function handleAddExercises(slugs: string[]) {
@@ -336,126 +266,6 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
       toast.error("Couldn't remove exercise");
     } finally {
       setRemovingExercise(false);
-    }
-  }
-
-  // Finish: empty / no logged work → discard; wait for template; unchecked confirm.
-  function handleFinish() {
-    if (exerciseCountAtFinish === 0 || !hasLoggedWork) {
-      setEmptyOpen(true);
-      return;
-    }
-    if (!templateReady) {
-      toast.message("Still loading template…");
-      return;
-    }
-    if (hasUncheckedSets) {
-      setIncompleteOpen(true);
-      return;
-    }
-    void finishWorkout();
-  }
-
-  function defaultTemplateName() {
-    return new Date().toLocaleDateString(undefined, {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-  }
-
-  async function finishWorkout() {
-    setIncompleteOpen(false);
-    setFinishing(true);
-    try {
-      await finish({ sessionId: sessionId as Id<"workoutSessions"> });
-      hapticSuccess();
-      if (isBlankSession && exerciseCountAtFinish > 0) {
-        savePromptResolved.current = false;
-        setSaveTemplateName(defaultTemplateName());
-        setFinishing(false);
-        setSaveTemplateOpen(true);
-        return;
-      }
-      // Offer to push today's numbers back to the template, but only if they
-      // actually differ.
-      if (templateDiffers) {
-        setFinishing(false);
-        setSyncOpen(true);
-        return;
-      }
-      toast.success("Workout finished");
-      router.push(`/workout/${sessionId}/recap`);
-    } catch {
-      setFinishing(false);
-      toast.error("Couldn't finish workout");
-    }
-  }
-
-  async function discardWorkout() {
-    setIncompleteOpen(false);
-    setEmptyOpen(false);
-    setFinishing(true);
-    try {
-      await abandon({ sessionId: sessionId as Id<"workoutSessions"> });
-      toast.success("Workout discarded");
-      router.push("/dashboard");
-    } catch {
-      setFinishing(false);
-      toast.error("Couldn't discard workout");
-    }
-  }
-
-  async function handleSync(update: boolean) {
-    if (update) {
-      try {
-        await syncFromSession({
-          sessionId: sessionId as Id<"workoutSessions">,
-        });
-        setSyncOpen(false);
-        toast.success("Template updated");
-        router.push(`/workout/${sessionId}/recap`);
-      } catch {
-        toast.error("Couldn't update template");
-      }
-      return;
-    }
-    setSyncOpen(false);
-    toast.success("Workout finished");
-    router.push(`/workout/${sessionId}/recap`);
-  }
-
-  async function handleSaveTemplate(save: boolean) {
-    if (savePromptResolved.current) return;
-    savePromptResolved.current = true;
-
-    if (!save) {
-      setSaveTemplateOpen(false);
-      toast.success("Workout finished");
-      router.push(`/workout/${sessionId}/recap`);
-      return;
-    }
-
-    const name = saveTemplateName.trim();
-    if (!name) {
-      savePromptResolved.current = false;
-      toast.error("Give your template a name");
-      return;
-    }
-
-    setSavingTemplate(true);
-    try {
-      await createFromSession({
-        sessionId: sessionId as Id<"workoutSessions">,
-        name,
-      });
-      toast.success("Template saved");
-      setSaveTemplateOpen(false);
-      router.push(`/workout/${sessionId}/recap`);
-    } catch {
-      savePromptResolved.current = false;
-      setSavingTemplate(false);
-      toast.error("Couldn't save template");
     }
   }
 
@@ -492,9 +302,7 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
     0,
     Math.floor((elapsedEnd - session.startedAt) / 1000),
   );
-  const restRemaining = rest
-    ? Math.max(0, rest.seconds - Math.floor((now - rest.startedAt) / 1000))
-    : 0;
+  const restRemaining = restRemainingAt(rest, now);
   const isReordering = drag !== null;
   const draggedExercise = drag ? session.exercises[drag.from] : null;
 
@@ -698,16 +506,11 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
                     onDelete={() => void deleteSet({ setId: set._id })}
                     highlighted={set._id === nextSetId}
                     onLogged={() => {
-                      const next = nextSetLabel(
-                        session.exercises,
-                        exercise._id,
-                        i,
+                      if (!restTimerEnabled) return;
+                      startRest(
+                        exercise.restSeconds ?? 75,
+                        nextSetLabel(session.exercises, exercise._id, i),
                       );
-                      setRest({
-                        startedAt: Date.now(),
-                        seconds: exercise.restSeconds ?? 75,
-                        label: next,
-                      });
                     }}
                   />
                 ))}
@@ -863,125 +666,9 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={incompleteOpen} onOpenChange={setIncompleteOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Finish this workout?</DialogTitle>
-            <DialogDescription>
-              Some sets aren&apos;t checked off. Save this workout anyway, or
-              discard it?
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="sm:flex-col sm:gap-2">
-            <Button onClick={() => void finishWorkout()}>Save workout</Button>
-            <Button
-              variant="outline"
-              className="text-destructive hover:text-destructive"
-              onClick={() => void discardWorkout()}
-            >
-              Discard
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {finishDialogs}
 
-      <Dialog open={emptyOpen} onOpenChange={setEmptyOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Nothing logged</DialogTitle>
-            <DialogDescription>
-              {exerciseCountAtFinish === 0
-                ? "This workout has no exercises. Discard it so it doesn&apos;t count toward your week?"
-                : "No sets are checked off with reps. Discard it so it doesn&apos;t count toward your week?"}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="sm:flex-col sm:gap-2">
-            <Button
-              variant="outline"
-              className="text-destructive hover:text-destructive"
-              disabled={finishing}
-              onClick={() => void discardWorkout()}
-            >
-              Discard
-            </Button>
-            <Button
-              variant="ghost"
-              disabled={finishing}
-              onClick={() => setEmptyOpen(false)}
-            >
-              Keep going
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={syncOpen} onOpenChange={setSyncOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Update template?</DialogTitle>
-            <DialogDescription>
-              Update {session.templateName} to match the exercises, order, and
-              weights you just logged?
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="sm:flex-col sm:gap-2">
-            <Button onClick={() => handleSync(true)}>Update template</Button>
-            <Button variant="outline" onClick={() => handleSync(false)}>
-              Keep as is
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={saveTemplateOpen}
-        onOpenChange={(open) => {
-          if (!open && !savingTemplate) {
-            void handleSaveTemplate(false);
-          }
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Save as template?</DialogTitle>
-            <DialogDescription>
-              Keep this workout so you can start it again next time.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-2 py-2">
-            <label htmlFor="save-template-name" className="text-sm font-medium">
-              Template name
-            </label>
-            <Input
-              id="save-template-name"
-              value={saveTemplateName}
-              onChange={(e) => setSaveTemplateName(e.target.value)}
-              placeholder="e.g. Push day"
-              autoFocus
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void handleSaveTemplate(true);
-              }}
-            />
-          </div>
-          <DialogFooter className="sm:flex-col sm:gap-2">
-            <Button
-              disabled={savingTemplate || !saveTemplateName.trim()}
-              onClick={() => void handleSaveTemplate(true)}
-            >
-              {savingTemplate ? "Saving…" : "Save template"}
-            </Button>
-            <Button
-              variant="outline"
-              disabled={savingTemplate}
-              onClick={() => void handleSaveTemplate(false)}
-            >
-              No thanks
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {rest ? (
+      {rest && restTimerEnabled ? (
         <div className="fixed inset-x-0 bottom-[calc(57px+env(safe-area-inset-bottom))] z-50 mx-auto max-w-[600px] px-4">
           <div className="animate-slide-up-bar rounded-t-xl border bg-background/95 p-3 shadow-2xl backdrop-blur">
             <div className="flex items-center justify-between gap-3">
@@ -999,11 +686,7 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() =>
-                    setRest((prev) =>
-                      prev ? { ...prev, seconds: prev.seconds + 15 } : prev,
-                    )
-                  }
+                  onClick={() => addSeconds(15)}
                 >
                   +15s
                 </Button>
@@ -1011,7 +694,7 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
                   type="button"
                   variant="ghost"
                   size="sm"
-                  onClick={() => setRest(null)}
+                  onClick={clearRest}
                 >
                   Skip
                 </Button>
@@ -1024,39 +707,12 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
   );
 }
 
-function formatClock(totalSeconds: number): string {
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
-}
-
 function summarizeReps(reps: number[]): string {
   const valid = reps.filter((r) => r > 0);
   if (valid.length === 0) return "reps";
   const min = Math.min(...valid);
   const max = Math.max(...valid);
   return min === max ? String(min) : `${min}-${max}`;
-}
-
-function nextSetLabel(
-  exercises: { _id: string; slug: string; sets: Doc<"sets">[] }[],
-  exerciseId: string,
-  setIndex: number,
-) {
-  const exIndex = exercises.findIndex((e) => e._id === exerciseId);
-  if (exIndex < 0) return "keep moving";
-
-  const sameExerciseNext = exercises[exIndex].sets[setIndex + 1];
-  if (sameExerciseNext && !sameExerciseNext.completed) {
-    return `set ${setIndex + 2}`;
-  }
-
-  for (let i = exIndex + 1; i < exercises.length; i++) {
-    const next = exercises[i].sets.findIndex((set) => !set.completed);
-    if (next >= 0) return `next exercise · set ${next + 1}`;
-  }
-
-  return "finish workout";
 }
 
 function getReorderOffset(index: number, drag: DragState | null): number {
