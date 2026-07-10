@@ -123,8 +123,8 @@ export function ExerciseHistoryTab({
                     key={session.id}
                     className="gap-0 bg-[var(--surface)] py-0"
                   >
-                    <CardHeader className="border-border/50 border-b px-4 py-3">
-                      <CardTitle className="text-sm font-medium">
+                    <CardHeader className="border-border/50 min-w-0 border-b px-4 py-3">
+                      <CardTitle className="truncate text-sm font-medium">
                         {session.workoutName}
                       </CardTitle>
                     </CardHeader>

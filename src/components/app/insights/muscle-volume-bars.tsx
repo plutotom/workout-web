@@ -31,8 +31,8 @@ export function MuscleVolumeBars({
   }
 
   return (
-    <div className="grid gap-4">
-      <div className="flex h-4 overflow-hidden rounded-full bg-muted">
+    <div className="flex min-w-0 flex-col gap-4">
+      <div className="flex h-4 min-w-0 overflow-hidden rounded-full bg-muted">
         {muscles.map((m, index) => (
           <button
             key={m.id}
@@ -49,7 +49,7 @@ export function MuscleVolumeBars({
         ))}
       </div>
 
-      <div className="grid gap-2">
+      <div className="flex min-w-0 flex-col gap-2">
         {muscles.map((m, index) => {
           const active = activeId === m.id;
           return (
@@ -58,13 +58,13 @@ export function MuscleVolumeBars({
               type="button"
               onClick={() => onSelect(active ? null : m.id)}
               className={cn(
-                "flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2.5 text-left transition-all active:scale-[0.98]",
+                "flex w-full min-w-0 items-center justify-between gap-3 overflow-hidden rounded-lg border px-3 py-2.5 text-left transition-all active:scale-[0.98]",
                 active
                   ? "border-foreground/50 bg-foreground/5"
                   : "border-border/40 bg-transparent hover:border-border/70 hover:bg-card/40",
               )}
             >
-              <span className="flex min-w-0 items-center gap-2">
+              <span className="flex min-w-0 items-center gap-2 overflow-hidden">
                 <span
                   className={cn(
                     "size-2.5 shrink-0 rounded-full",

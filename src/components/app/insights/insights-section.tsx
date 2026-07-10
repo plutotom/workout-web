@@ -35,14 +35,14 @@ export function InsightsSection({
   className?: string;
 }) {
   return (
-    <section className={cn("flex flex-col gap-2", className)}>
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
+    <section className={cn("flex min-w-0 flex-col gap-2", className)}>
+      <div className="flex min-w-0 items-center justify-between gap-2">
+        <h2 className="text-muted-foreground min-w-0 truncate text-xs font-semibold tracking-wide uppercase">
           {title}
         </h2>
-        {action}
+        {action ? <div className="shrink-0">{action}</div> : null}
       </div>
-      {children}
+      <div className="min-w-0">{children}</div>
     </section>
   );
 }

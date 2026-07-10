@@ -88,16 +88,16 @@ export function ExerciseInsights({
   }
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex min-w-0 flex-col gap-5">
       <PageHeader title={catalog.name(slug)} backHref={backHref} />
-      <div className="rounded-xl border bg-[var(--surface)] p-4">
+      <div className="min-w-0 overflow-hidden rounded-xl border bg-[var(--surface)] p-4">
         <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
           Exercise
         </p>
-        <h2 className="mt-2 text-3xl font-semibold tracking-tight">
+        <h2 className="mt-2 truncate text-3xl font-semibold tracking-tight">
           {records.est1RM} lb
         </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <p className="mt-1 truncate text-sm text-muted-foreground">
           Estimated 1RM · {sessions?.length ?? 0} logged session
           {(sessions?.length ?? 0) === 1 ? "" : "s"}
         </p>

@@ -38,7 +38,7 @@ export function InsightsSessions({ daysParam }: { daysParam?: string }) {
   const hasMore = (mappedSessions?.length ?? 0) > visibleCount;
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex min-w-0 flex-col gap-6">
       <PageHeader
         title="All workouts"
         description={INSIGHTS_DAY_OPTIONS.find((o) => o.value === days)?.label}
