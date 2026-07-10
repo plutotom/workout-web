@@ -17,22 +17,37 @@ export function ExerciseNoteField({
   initialNotes,
   editable = true,
   compact = false,
+  hideEmptyPrompt = false,
+  openSignal = 0,
 }: {
   exerciseSlug: string;
   initialNotes?: string;
   editable?: boolean;
   /** When true, hide the empty textarea until the user opts in. */
   compact?: boolean;
+  /** When true, don't render the empty "Add note" button (open via openSignal). */
+  hideEmptyPrompt?: boolean;
+  /** Increment to open/focus the note editor from a parent menu. */
+  openSignal?: number;
 }) {
   const upsertNote = useMutation(api.routes.exercises.mutations.upsertNote);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const shouldFocusRef = useRef(false);
   const initial = (initialNotes ?? "").trim();
   const [value, setValue] = useState(initialNotes ?? "");
   const [saving, setSaving] = useState(false);
   const [expanded, setExpanded] = useState(
     () => !compact || initial.length > 0,
   );
+  const [focusToken, setFocusToken] = useState(0);
+  const [prevOpenSignal, setPrevOpenSignal] = useState(openSignal);
+
+  if (openSignal !== prevOpenSignal) {
+    setPrevOpenSignal(openSignal);
+    if (editable && openSignal !== 0) {
+      setExpanded(true);
+      setFocusToken((token) => token + 1);
+    }
+  }
 
   const trimmed = value.trim();
   const hasNote = trimmed.length > 0;
@@ -53,15 +68,14 @@ export function ExerciseNoteField({
   }
 
   function openEditor() {
-    shouldFocusRef.current = true;
     setExpanded(true);
+    setFocusToken((token) => token + 1);
   }
 
   useLayoutEffect(() => {
-    if (!expanded || !shouldFocusRef.current) return;
-    shouldFocusRef.current = false;
+    if (!expanded || focusToken === 0) return;
     textareaRef.current?.focus();
-  }, [expanded]);
+  }, [expanded, focusToken]);
 
   if (!editable && !hasNote) return null;
 
@@ -84,7 +98,7 @@ export function ExerciseNoteField({
       );
     }
 
-    if (!editable) return null;
+    if (!editable || hideEmptyPrompt) return null;
 
     return (
       <Button

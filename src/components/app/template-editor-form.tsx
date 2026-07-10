@@ -274,19 +274,19 @@ export function TemplateEditorForm({
                 key={ex.slug}
                 data-ex-index={exIndex}
                 className={cn(
-                  "transition-all",
+                  "gap-0 overflow-hidden py-0 transition-all",
                   drag?.from === exIndex && "scale-[0.99] opacity-70",
                   drag?.over === exIndex &&
                     drag.from !== exIndex &&
                     "border-foreground/50 bg-foreground/5",
                 )}
               >
-                <CardHeader className="flex-row items-center justify-between gap-2 space-y-0 pb-2">
+                <CardHeader className="flex flex-row items-center gap-1 space-y-0 px-3 py-3 sm:gap-2 sm:px-4">
                   <Button
                     type="button"
                     size="icon"
                     variant="ghost"
-                    className="size-9 cursor-grab touch-none active:cursor-grabbing"
+                    className="text-muted-foreground hover:text-foreground size-10 shrink-0 cursor-grab touch-none active:cursor-grabbing sm:size-9"
                     aria-label={`Reorder ${catalog.name(ex.slug)}`}
                     onPointerDown={(event) => {
                       event.preventDefault();
@@ -309,22 +309,22 @@ export function TemplateEditorForm({
                   </Button>
                   <button
                     type="button"
-                    className="min-w-0 flex-1 text-left"
+                    className="min-w-0 flex-1 py-0.5 text-left"
                     onClick={() => setOpenIndex(isOpen ? -1 : exIndex)}
                   >
                     <CardTitle className="truncate text-base">
                       {catalog.name(ex.slug)}
                     </CardTitle>
-                    <p className="mt-1 text-xs text-muted-foreground">
+                    <p className="text-muted-foreground mt-0.5 text-xs">
                       {ex.sets.length} sets · {reps} reps · up to {maxWeight} lb
                     </p>
                   </button>
-                  <div className="flex items-center gap-1">
+                  <div className="flex shrink-0 items-center">
                     <Button
                       type="button"
                       size="icon"
                       variant="ghost"
-                      className="size-8"
+                      className="size-10 sm:size-9"
                       aria-label={
                         isOpen ? "Collapse exercise" : "Expand exercise"
                       }
@@ -340,7 +340,7 @@ export function TemplateEditorForm({
                       type="button"
                       size="icon"
                       variant="ghost"
-                      className="text-destructive hover:text-destructive size-8"
+                      className="text-destructive hover:text-destructive size-10 sm:size-9"
                       aria-label="Remove exercise"
                       onClick={() => removeExercise(exIndex)}
                     >
@@ -349,14 +349,15 @@ export function TemplateEditorForm({
                   </div>
                 </CardHeader>
                 {isOpen ? (
-                  <CardContent className="flex flex-col gap-3">
+                  <CardContent className="flex flex-col gap-2.5 px-3 pb-3 sm:px-4 sm:pb-4">
                     <ExerciseNoteField
                       key={`${ex.slug}-${ex.notes ?? notesBySlug[ex.slug] ?? ""}`}
                       exerciseSlug={ex.slug}
                       initialNotes={ex.notes ?? notesBySlug[ex.slug]}
+                      compact
                     />
-                    <div className="text-muted-foreground grid grid-cols-[2rem_1fr_1fr_2rem] gap-2 px-1 text-xs font-medium tracking-wide uppercase">
-                      <span>Set</span>
+                    <div className="text-muted-foreground grid grid-cols-[1.75rem_minmax(0,1.2fr)_minmax(0,0.85fr)_2.5rem] items-center gap-1.5 text-[11px] font-medium tracking-wide uppercase sm:gap-2">
+                      <span className="text-center">Set</span>
                       <span>Weight</span>
                       <span>Reps</span>
                       <span />
@@ -364,14 +365,14 @@ export function TemplateEditorForm({
                     {ex.sets.map((set, setIndex) => (
                       <div
                         key={setIndex}
-                        className="grid grid-cols-[2rem_1fr_1fr_2rem] items-center gap-2 px-1"
+                        className="grid grid-cols-[1.75rem_minmax(0,1.2fr)_minmax(0,0.85fr)_2.5rem] items-center gap-1.5 sm:gap-2"
                       >
-                        <span className="text-muted-foreground text-sm tabular-nums">
+                        <span className="text-muted-foreground text-center text-sm tabular-nums">
                           {setIndex + 1}
                         </span>
                         <LiftWeightInput
                           value={set.weight}
-                          inputClassName="h-9 text-center"
+                          inputClassName="h-10 text-center sm:h-9"
                           aria-label={`Set ${setIndex + 1} weight`}
                           onCommit={(weight) =>
                             setSetValue(exIndex, setIndex, "weight", weight)
@@ -389,7 +390,7 @@ export function TemplateEditorForm({
                           pattern="[0-9]*"
                           value={set.reps === 0 ? "" : String(set.reps)}
                           placeholder="0"
-                          className="h-9 text-center"
+                          className="h-10 text-center sm:h-9"
                           aria-label={`Set ${setIndex + 1} reps`}
                           onFocus={selectNumericInput}
                           onChange={(e) =>
@@ -405,7 +406,7 @@ export function TemplateEditorForm({
                           type="button"
                           size="icon"
                           variant="ghost"
-                          className="text-muted-foreground hover:text-foreground size-8 justify-self-center"
+                          className="text-muted-foreground hover:text-foreground size-10 justify-self-center sm:size-9"
                           aria-label={`Remove set ${setIndex + 1}`}
                           disabled={ex.sets.length <= 1}
                           onClick={() => removeSetRow(exIndex, setIndex)}
@@ -418,7 +419,7 @@ export function TemplateEditorForm({
                       type="button"
                       variant="ghost"
                       size="sm"
-                      className="mt-1 self-start"
+                      className="text-muted-foreground -ml-2 self-start"
                       onClick={() => addSetRow(exIndex)}
                     >
                       <Plus className="size-4" />

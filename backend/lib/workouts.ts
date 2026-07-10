@@ -371,6 +371,35 @@ export async function addSessionExercise(
   return sessionExerciseId;
 }
 
+/** Remove an exercise (and its sets) from an in-progress workout. */
+export async function removeSessionExercise(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  sessionExerciseId: Id<"sessionExercises">,
+) {
+  const sessionExercise = await ctx.db.get(sessionExerciseId);
+  if (!sessionExercise) throw new Error("Exercise not found");
+  await assertSessionEditable(ctx, userId, sessionExercise.sessionId);
+
+  const sets = await ctx.db
+    .query("sets")
+    .withIndex("by_session_exercise", (q) =>
+      q.eq("sessionExerciseId", sessionExerciseId),
+    )
+    .collect();
+  await Promise.all(sets.map((set) => ctx.db.delete(set._id)));
+  await ctx.db.delete(sessionExerciseId);
+
+  const remaining = await sessionExercisesFor(ctx, sessionExercise.sessionId);
+  await Promise.all(
+    remaining.map((exercise, i) =>
+      exercise.orderIndex === i
+        ? Promise.resolve()
+        : ctx.db.patch(exercise._id, { orderIndex: i }),
+    ),
+  );
+}
+
 export async function finishWorkout(
   ctx: MutationCtx,
   userId: Id<"users">,
@@ -708,9 +737,24 @@ export async function getWorkoutRecap(
     }
   }
   const weekStart = startOfWeekMonday(completedAt);
-  const sessionsThisWeek = meaningfulAts.filter(
-    (ts) => ts >= weekStart && ts < weekStart + 7 * 24 * 60 * 60 * 1000,
-  ).length;
+  const weekEnd = weekStart + 7 * 24 * 60 * 60 * 1000;
+  const weekAts = meaningfulAts.filter((ts) => ts >= weekStart && ts < weekEnd);
+  const sessionsThisWeek = weekAts.length;
+  // Mon–Sun flags for the week containing this session.
+  const daysWorked = [false, false, false, false, false, false, false] as [
+    boolean,
+    boolean,
+    boolean,
+    boolean,
+    boolean,
+    boolean,
+    boolean,
+  ];
+  for (const ts of weekAts) {
+    const day = new Date(ts).getDay(); // 0 = Sun
+    const monIndex = day === 0 ? 6 : day - 1;
+    daysWorked[monIndex] = true;
+  }
 
   const allPoints: ProgressionPoint[] = [];
   let priorBest = 0;
@@ -806,6 +850,8 @@ export async function getWorkoutRecap(
       sessionsThisWeek,
       weeklyGoal: 4,
       weekStreak: computeWeekStreak(meaningfulAts),
+      /** Mon–Sun: true if at least one logged workout that day. */
+      daysWorked,
     },
   };
 }
