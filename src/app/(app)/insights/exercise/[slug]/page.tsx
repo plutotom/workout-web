@@ -5,9 +5,9 @@ export default async function ExerciseInsightsPage({
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ days?: string }>;
+  searchParams: Promise<{ days?: string; from?: string }>;
 }) {
   const { slug } = await params;
-  const { days } = await searchParams;
-  return <ExerciseInsights slug={slug} daysParam={days} />;
+  const { days, from } = await searchParams;
+  return <ExerciseInsights slug={slug} daysParam={days} fromParam={from} />;
 }

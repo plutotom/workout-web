@@ -4,7 +4,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation } from "convex/react";
 import { useQuery } from "convex-helpers/react/cache/hooks";
-import { Check, Clock, GripVertical, Plus, X } from "lucide-react";
+import {
+  Check,
+  Clock,
+  GripVertical,
+  MoreHorizontal,
+  Plus,
+  StickyNote,
+  Trash2,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { api } from "@backend/api";
@@ -19,6 +28,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -26,6 +36,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { hapticSuccess, hapticTap } from "@/lib/haptics";
 import { useExerciseCatalog } from "@/components/app/exercise-catalog-provider";
@@ -99,6 +116,9 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
   const deleteSet = useMutation(api.routes.workouts.mutations.deleteSet);
   const moveExercise = useMutation(api.routes.workouts.mutations.moveExercise);
   const addExercise = useMutation(api.routes.workouts.mutations.addExercise);
+  const removeExercise = useMutation(
+    api.routes.workouts.mutations.removeExercise,
+  );
   const finish = useMutation(api.routes.workouts.mutations.finish);
   const abandon = useMutation(api.routes.workouts.mutations.abandon);
   const syncFromSession = useMutation(
@@ -116,6 +136,19 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerKey, setPickerKey] = useState(0);
+  const [exerciseMenu, setExerciseMenu] = useState<{
+    id: Id<"sessionExercises">;
+    name: string;
+    hasNote: boolean;
+  } | null>(null);
+  const [exerciseToRemove, setExerciseToRemove] = useState<{
+    id: Id<"sessionExercises">;
+    name: string;
+  } | null>(null);
+  const [removingExercise, setRemovingExercise] = useState(false);
+  const [noteOpenSignals, setNoteOpenSignals] = useState<
+    Partial<Record<Id<"sessionExercises">, number>>
+  >({});
   const [now, setNow] = useState(Date.now());
   const [rest, setRest] = useState<{
     startedAt: number;
@@ -289,6 +322,20 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
       setPickerOpen(false);
     } catch {
       toast.error("Couldn't add exercise");
+    }
+  }
+
+  async function handleRemoveExercise() {
+    if (!exerciseToRemove || removingExercise) return;
+    setRemovingExercise(true);
+    try {
+      await removeExercise({ sessionExerciseId: exerciseToRemove.id });
+      toast.success(`Removed ${exerciseToRemove.name}`);
+      setExerciseToRemove(null);
+    } catch {
+      toast.error("Couldn't remove exercise");
+    } finally {
+      setRemovingExercise(false);
     }
   }
 
@@ -571,36 +618,54 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
                 ) : null}
               </div>
               {editable ? (
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  className={cn(
-                    "text-muted-foreground hover:text-foreground -mr-2 h-11 w-11 shrink-0 cursor-grab touch-none active:cursor-grabbing sm:-mr-1 sm:size-9",
-                    isReordering && "bg-foreground/5",
-                  )}
-                  aria-label={`Reorder ${exerciseName}`}
-                  aria-pressed={drag?.from === exIndex}
-                  onPointerDown={(event) => {
-                    event.preventDefault();
-                    const row = event.currentTarget.closest<HTMLElement>(
-                      "[data-session-ex-index]",
-                    );
-                    const rect = row?.getBoundingClientRect();
-                    hapticTap();
-                    setDrag({
-                      from: exIndex,
-                      over: exIndex,
-                      pointerId: event.pointerId,
-                      pointerY: event.clientY,
-                      offsetY: rect ? event.clientY - rect.top : 32,
-                      rowLeft: rect?.left ?? 0,
-                      rowWidth: rect?.width ?? 0,
-                    });
-                  }}
-                >
-                  <GripVertical className="size-4" />
-                </Button>
+                <div className="flex shrink-0 items-center">
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="text-muted-foreground hover:text-foreground -mr-1 h-11 w-11 sm:size-9"
+                    aria-label={`${exerciseName} options`}
+                    onClick={() =>
+                      setExerciseMenu({
+                        id: exercise._id,
+                        name: exerciseName,
+                        hasNote: Boolean(exercise.notes?.trim()),
+                      })
+                    }
+                  >
+                    <MoreHorizontal className="size-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className={cn(
+                      "text-muted-foreground hover:text-foreground -mr-2 h-11 w-11 cursor-grab touch-none active:cursor-grabbing sm:-mr-1 sm:size-9",
+                      isReordering && "bg-foreground/5",
+                    )}
+                    aria-label={`Reorder ${exerciseName}`}
+                    aria-pressed={drag?.from === exIndex}
+                    onPointerDown={(event) => {
+                      event.preventDefault();
+                      const row = event.currentTarget.closest<HTMLElement>(
+                        "[data-session-ex-index]",
+                      );
+                      const rect = row?.getBoundingClientRect();
+                      hapticTap();
+                      setDrag({
+                        from: exIndex,
+                        over: exIndex,
+                        pointerId: event.pointerId,
+                        pointerY: event.clientY,
+                        offsetY: rect ? event.clientY - rect.top : 32,
+                        rowLeft: rect?.left ?? 0,
+                        rowWidth: rect?.width ?? 0,
+                      });
+                    }}
+                  >
+                    <GripVertical className="size-4" />
+                  </Button>
+                </div>
               ) : null}
             </CardHeader>
             {!isReordering ? (
@@ -611,6 +676,8 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
                   initialNotes={exercise.notes}
                   editable={editable}
                   compact
+                  hideEmptyPrompt
+                  openSignal={noteOpenSignals[exercise._id] ?? 0}
                 />
                 <div className="text-muted-foreground grid grid-cols-[2rem_1fr_auto_1fr_2.5rem_2.5rem] gap-2 px-1 text-xs font-medium tracking-wide uppercase">
                   <span>Set</span>
@@ -713,6 +780,88 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
         usedSlugs={usedSlugs}
         onAdd={handleAddExercises}
       />
+
+      <Sheet
+        open={exerciseMenu !== null}
+        onOpenChange={(open) => {
+          if (!open) setExerciseMenu(null);
+        }}
+      >
+        <SheetContent side="bottom" className="gap-0 rounded-t-2xl pb-8">
+          <SheetHeader className="pb-2">
+            <SheetTitle className="truncate">
+              {exerciseMenu?.name ?? "Exercise"}
+            </SheetTitle>
+            <SheetDescription>Exercise options</SheetDescription>
+          </SheetHeader>
+          <div className="flex flex-col gap-1 px-4">
+            <Button
+              type="button"
+              variant="ghost"
+              className="text-muted-foreground hover:text-foreground h-12 justify-start gap-3 px-3 text-base"
+              onClick={() => {
+                if (!exerciseMenu) return;
+                const id = exerciseMenu.id;
+                setNoteOpenSignals((prev) => ({
+                  ...prev,
+                  [id]: (prev[id] ?? 0) + 1,
+                }));
+                setExerciseMenu(null);
+              }}
+            >
+              <StickyNote className="size-4" />
+              {exerciseMenu?.hasNote ? "Edit note" : "Add note"}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              className="text-destructive hover:text-destructive h-12 justify-start gap-3 px-3 text-base"
+              onClick={() => {
+                if (!exerciseMenu) return;
+                setExerciseToRemove({
+                  id: exerciseMenu.id,
+                  name: exerciseMenu.name,
+                });
+                setExerciseMenu(null);
+              }}
+            >
+              <Trash2 className="size-4" />
+              Remove exercise
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <Dialog
+        open={exerciseToRemove !== null}
+        onOpenChange={(open) => {
+          if (!open && !removingExercise) setExerciseToRemove(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Remove {exerciseToRemove?.name}?</DialogTitle>
+            <DialogDescription>
+              This removes the exercise and its sets from this workout. You can
+              add it again later.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="ghost" disabled={removingExercise}>
+                Cancel
+              </Button>
+            </DialogClose>
+            <Button
+              variant="destructive"
+              disabled={removingExercise}
+              onClick={() => void handleRemoveExercise()}
+            >
+              {removingExercise ? "Removing…" : "Remove"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={incompleteOpen} onOpenChange={setIncompleteOpen}>
         <DialogContent>

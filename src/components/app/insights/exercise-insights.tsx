@@ -19,15 +19,25 @@ import type { ExerciseSession } from "@/lib/insights/types";
 import { ExerciseHistoryTab } from "./exercise-history-tab";
 import { ExerciseRecordsTab } from "./exercise-records-tab";
 
+/** Only allow same-origin relative paths (e.g. back to a recap). */
+function safeInternalHref(from: string | undefined, fallback: string) {
+  if (!from) return fallback;
+  if (!from.startsWith("/") || from.startsWith("//")) return fallback;
+  return from;
+}
+
 export function ExerciseInsights({
   slug,
   daysParam,
+  fromParam,
 }: {
   slug: string;
   daysParam?: string;
+  fromParam?: string;
 }) {
   const catalog = useExerciseCatalog();
   const days: InsightsDays = parseInsightsDaysParam(daysParam);
+  const backHref = safeInternalHref(fromParam, "/insights");
   const [tab, setTab] = useState<"history" | "records">("history");
 
   const history = useQuery(api.routes.insights.queries.exerciseHistory, {
@@ -58,7 +68,7 @@ export function ExerciseInsights({
   if (history === undefined || records === undefined) {
     return (
       <div className="flex flex-col gap-6">
-        <PageHeader title={catalog.name(slug)} backHref="/insights" />
+        <PageHeader title={catalog.name(slug)} backHref={backHref} />
         <p className="text-muted-foreground text-sm">Loading…</p>
       </div>
     );
@@ -67,7 +77,7 @@ export function ExerciseInsights({
   if (!hasHistory && !hasRecords) {
     return (
       <div className="flex flex-col gap-6">
-        <PageHeader title={catalog.name(slug)} backHref="/insights" />
+        <PageHeader title={catalog.name(slug)} backHref={backHref} />
         <EmptyState
           icon={Dumbbell}
           title="No data for this exercise"
@@ -79,7 +89,7 @@ export function ExerciseInsights({
 
   return (
     <div className="flex flex-col gap-5">
-      <PageHeader title={catalog.name(slug)} backHref="/insights" />
+      <PageHeader title={catalog.name(slug)} backHref={backHref} />
       <div className="rounded-xl border bg-[var(--surface)] p-4">
         <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
           Exercise

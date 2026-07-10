@@ -23,6 +23,7 @@ import type * as routes_insights_queries from "../routes/insights/queries.js";
 import type * as routes_mcp_keys from "../routes/mcp/keys.js";
 import type * as routes_mcp_mutations from "../routes/mcp/mutations.js";
 import type * as routes_mcp_queries from "../routes/mcp/queries.js";
+import type * as routes_migrations_sessions from "../routes/migrations/sessions.js";
 import type * as routes_templates_mutations from "../routes/templates/mutations.js";
 import type * as routes_templates_queries from "../routes/templates/queries.js";
 import type * as routes_workouts_mutations from "../routes/workouts/mutations.js";
@@ -55,6 +56,7 @@ declare const fullApi: ApiFromModules<{
   "routes/mcp/keys": typeof routes_mcp_keys;
   "routes/mcp/mutations": typeof routes_mcp_mutations;
   "routes/mcp/queries": typeof routes_mcp_queries;
+  "routes/migrations/sessions": typeof routes_migrations_sessions;
   "routes/templates/mutations": typeof routes_templates_mutations;
   "routes/templates/queries": typeof routes_templates_queries;
   "routes/workouts/mutations": typeof routes_workouts_mutations;

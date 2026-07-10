@@ -9,7 +9,6 @@ import { EmptyState } from "@/components/app/empty-state";
 import { useExerciseCatalog } from "@/components/app/exercise-catalog-provider";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { MiniSparkline } from "@/components/app/workout-design";
 import { MUSCLE_GROUPS, type MuscleGroup } from "@/lib/exercises";
 import {
   formatVolume,
@@ -118,18 +117,15 @@ export function InsightsOverview() {
         <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
           Insights
         </p>
-        <div className="mt-2 flex items-end justify-between gap-4">
-          <div className="min-w-0">
-            <h1 className="text-3xl font-semibold tracking-tight">
-              {displayStats ? formatVolume(displayStats.volumeLb) : "Loading"}
-            </h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {topLift
-                ? `Top lift · ${catalog.short(topLift.slug)} ${topLift.weight} lb`
-                : "Your training signal will collect here."}
-            </p>
-          </div>
-          <MiniSparkline className="w-28 shrink-0 text-foreground" />
+        <div className="mt-2">
+          <h1 className="text-3xl font-semibold tracking-tight">
+            {displayStats ? formatVolume(displayStats.volumeLb) : "Loading"}
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {topLift
+              ? `Top lift · ${catalog.short(topLift.slug)} ${topLift.weight} lb`
+              : "Your training signal will collect here."}
+          </p>
         </div>
       </div>
 

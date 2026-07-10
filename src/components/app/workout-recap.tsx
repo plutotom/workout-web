@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useQuery } from "convex-helpers/react/cache/hooks";
 import { ArrowRight, Award, Check, Share2, Trophy } from "lucide-react";
 
@@ -78,24 +78,34 @@ function progressionPath(points: { est1RM: number }[]) {
     .join(" ");
 }
 
-function WeekGrid({ count, goal }: { count: number; goal: number }) {
+const WEEKDAY_LABELS = ["M", "T", "W", "T", "F", "S", "S"] as const;
+
+function WeekGrid({ daysWorked }: { daysWorked: boolean[] }) {
   return (
     <div className="mt-8 grid grid-cols-7 gap-2">
-      {Array.from({ length: 7 }, (_, index) => (
-        <span
-          key={index}
-          className={cn(
-            "grid aspect-square place-items-center rounded-md border text-xs font-semibold",
-            index < count
-              ? "border-foreground bg-foreground text-background"
-              : index < goal
-                ? "border-foreground/40 bg-foreground/5"
-                : "border-muted bg-muted/40 text-muted-foreground",
-          )}
-        >
-          {index < count ? <Check className="size-4" /> : index + 1}
-        </span>
-      ))}
+      {WEEKDAY_LABELS.map((label, index) => {
+        const worked = daysWorked[index] === true;
+        return (
+          <div key={`${label}-${index}`} className="grid gap-1.5">
+            <span
+              className={cn(
+                "grid aspect-square place-items-center rounded-md border text-xs font-semibold",
+                worked
+                  ? "border-foreground bg-foreground text-background"
+                  : "border-muted bg-muted/40 text-muted-foreground",
+              )}
+              aria-label={
+                worked ? `${label}: workout logged` : `${label}: no workout`
+              }
+            >
+              {worked ? <Check className="size-4" /> : null}
+            </span>
+            <span className="text-center text-[11px] font-medium text-muted-foreground">
+              {label}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -141,11 +151,11 @@ function progressionCopy(story: ProgressionStory, shortName: string) {
 function ProgressionStoryCard({
   story,
   templateName,
-  onOpenHistory,
+  historyHref,
 }: {
   story: ProgressionStory;
   templateName: string;
-  onOpenHistory: () => void;
+  historyHref: string;
 }) {
   const points = story.points;
   const path = progressionPath(points);
@@ -246,6 +256,7 @@ function ProgressionStoryCard({
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   strokeWidth="5"
+                  pathLength={160}
                   className="animate-line-draw"
                 />
               ) : null}
@@ -278,28 +289,41 @@ function ProgressionStoryCard({
         </>
       )}
 
-      <button
-        type="button"
-        onClick={(event) => {
-          event.stopPropagation();
-          onOpenHistory();
-        }}
+      <Link
+        href={historyHref}
+        onClick={(event) => event.stopPropagation()}
         className="flex w-full items-center justify-between rounded-xl border border-dashed px-4 py-3 text-left text-sm font-medium transition-colors hover:bg-[var(--surface)]"
       >
         <span>See full history</span>
         <ArrowRight className="size-4" />
-      </button>
+      </Link>
     </div>
   );
 }
 
-export function WorkoutRecap({ sessionId }: { sessionId: string }) {
+export function WorkoutRecap({
+  sessionId,
+  stepParam,
+}: {
+  sessionId: string;
+  stepParam?: string;
+}) {
   const catalog = useExerciseCatalog();
   const router = useRouter();
+  const pathname = usePathname();
   const recap = useQuery(api.routes.workouts.queries.recap, {
     sessionId: sessionId as Id<"workoutSessions">,
   });
-  const [step, setStep] = useState(0);
+  const parsedStep = Number.parseInt(stepParam ?? "", 10);
+  const [step, setStep] = useState(
+    Number.isFinite(parsedStep) && parsedStep >= 0 ? parsedStep : 0,
+  );
+
+  useEffect(() => {
+    const next = String(step);
+    if (stepParam === next) return;
+    router.replace(`${pathname}?step=${next}`, { scroll: false });
+  }, [pathname, router, step, stepParam]);
 
   if (recap === undefined) {
     return <p className="text-sm text-muted-foreground">Loading recap…</p>;
@@ -329,6 +353,23 @@ export function WorkoutRecap({ sessionId }: { sessionId: string }) {
   const standoutShort = data.standout
     ? catalog.short(data.standout.slug)
     : "Progress";
+  const standoutCallout = (() => {
+    if (!data.standout) return null;
+    const { isPr, priorBest, est1RM } = data.standout;
+    const gap = priorBest - est1RM;
+    if (isPr) {
+      return {
+        title: priorBest ? "New personal best" : "First logged best",
+        detail: priorBest
+          ? `Beat your previous ${standoutShort} best of ${priorBest} lb est. 1RM`
+          : `First time logging ${standoutShort} — this sets the bar`,
+      };
+    }
+    return {
+      title: gap === 0 ? "Matched your best" : `${gap} lb under your best`,
+      detail: `Your all-time ${standoutShort} best is ${priorBest} lb est. 1RM`,
+    };
+  })();
   const story: ProgressionStory | null = data.progressionStory ?? null;
   const progressionBeat = story
     ? progressionCopy(story, standoutShort)
@@ -373,30 +414,26 @@ export function WorkoutRecap({ sessionId }: { sessionId: string }) {
       kicker: "Standout lift",
       title: standoutName,
       body: data.standout
-        ? `${data.standout.weight} lb × ${data.standout.reps} · est. ${data.standout.est1RM} lb 1RM`
+        ? `Best set today: ${data.standout.weight} lb × ${data.standout.reps} · est. ${data.standout.est1RM} lb 1RM`
         : "Check off sets during a workout to build records.",
-      extra: data.standout ? (
-        <div className="mt-8 rounded-xl border bg-[var(--surface)] p-4">
-          <div className="flex items-center gap-3">
-            {data.standout.isPr ? (
-              <Trophy className="size-7" />
-            ) : (
-              <Award className="size-7" />
-            )}
-            <div>
-              <p className="font-semibold">
-                {data.standout.isPr ? "New best" : "Top set today"}
-              </p>
-              <p className="text-sm text-muted-foreground">
-                Previous best{" "}
-                {data.standout.priorBest
-                  ? `${data.standout.priorBest} lb`
-                  : "not set"}
-              </p>
+      extra:
+        data.standout && standoutCallout ? (
+          <div className="mt-8 rounded-xl border bg-[var(--surface)] p-4">
+            <div className="flex items-center gap-3">
+              {data.standout.isPr ? (
+                <Trophy className="size-7 shrink-0" />
+              ) : (
+                <Award className="size-7 shrink-0" />
+              )}
+              <div>
+                <p className="font-semibold">{standoutCallout.title}</p>
+                <p className="text-sm text-muted-foreground">
+                  {standoutCallout.detail}
+                </p>
+              </div>
             </div>
           </div>
-        </div>
-      ) : null,
+        ) : null,
     },
     {
       kicker: "Where the work went",
@@ -416,7 +453,7 @@ export function WorkoutRecap({ sessionId }: { sessionId: string }) {
         <ProgressionStoryCard
           story={story}
           templateName={data.session.templateName}
-          onOpenHistory={() => router.push(`/insights/exercise/${story.slug}`)}
+          historyHref={`/insights/exercise/${story.slug}?from=${encodeURIComponent(`/workout/${sessionId}/recap?step=${step}`)}`}
         />
       ) : null,
     },
@@ -424,12 +461,7 @@ export function WorkoutRecap({ sessionId }: { sessionId: string }) {
       kicker: "Consistency",
       title: `${data.consistency.sessionsThisWeek}/${data.consistency.weeklyGoal} this week`,
       body: `${data.consistency.weekStreak} week streak`,
-      extra: (
-        <WeekGrid
-          count={data.consistency.sessionsThisWeek}
-          goal={data.consistency.weeklyGoal}
-        />
-      ),
+      extra: <WeekGrid daysWorked={data.consistency.daysWorked} />,
     },
     {
       kicker: "Share card",
@@ -454,7 +486,8 @@ export function WorkoutRecap({ sessionId }: { sessionId: string }) {
       ),
     },
   ];
-  const beat = beats[step];
+  const safeStep = Math.min(step, beats.length - 1);
+  const beat = beats[safeStep];
 
   async function share() {
     const text = `${data.session.templateName}: ${formatLb(data.totals.volume)}, ${data.totals.completedSets} sets`;
@@ -471,22 +504,25 @@ export function WorkoutRecap({ sessionId }: { sessionId: string }) {
             key={i}
             className={cn(
               "h-1 rounded-full transition-colors",
-              i <= step ? "bg-foreground" : "bg-muted",
+              i <= safeStep ? "bg-foreground" : "bg-muted",
             )}
           />
         ))}
       </div>
 
-      <button
-        type="button"
-        className="grid flex-1 place-items-center text-left"
+      <div
+        className="grid flex-1 cursor-pointer place-items-center text-left"
         onClick={(event) => {
           const x = event.clientX;
-          if (x < window.innerWidth * 0.35) setStep((v) => Math.max(0, v - 1));
-          else setStep((v) => Math.min(beats.length - 1, v + 1));
+          if (x < window.innerWidth * 0.35)
+            setStep((v) => Math.max(0, Math.min(v, beats.length - 1) - 1));
+          else
+            setStep((v) =>
+              Math.min(beats.length - 1, Math.min(v, beats.length - 1) + 1),
+            );
         }}
       >
-        <div key={step} className="w-full animate-rise-in">
+        <div key={safeStep} className="w-full animate-rise-in">
           <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
             {beat.kicker}
           </p>
@@ -498,10 +534,10 @@ export function WorkoutRecap({ sessionId }: { sessionId: string }) {
           ) : null}
           {beat.extra ? <div>{beat.extra}</div> : null}
         </div>
-      </button>
+      </div>
 
       <div className="grid gap-2 pt-6">
-        {step === beats.length - 1 ? (
+        {safeStep === beats.length - 1 ? (
           <Button type="button" onClick={() => void share()}>
             <Share2 className="size-4" />
             Share
@@ -509,7 +545,7 @@ export function WorkoutRecap({ sessionId }: { sessionId: string }) {
         ) : null}
         <Button
           asChild
-          variant={step === beats.length - 1 ? "outline" : "ghost"}
+          variant={safeStep === beats.length - 1 ? "outline" : "ghost"}
         >
           <Link href="/dashboard">Done</Link>
         </Button>

@@ -11,6 +11,7 @@ import {
   deleteSet as deleteSetLib,
   finishWorkout,
   moveSessionExercise as moveSessionExerciseLib,
+  removeSessionExercise as removeSessionExerciseLib,
   startBlankWorkout,
   startWorkout,
   updateSet as updateSetLib,
@@ -86,6 +87,14 @@ export const addExercise = mutation({
   handler: async (ctx, args) => {
     const user = await requireUser(ctx);
     return addSessionExerciseLib(ctx, user._id, args);
+  },
+});
+
+export const removeExercise = mutation({
+  args: { sessionExerciseId: v.id("sessionExercises") },
+  handler: async (ctx, { sessionExerciseId }) => {
+    const user = await requireUser(ctx);
+    await removeSessionExerciseLib(ctx, user._id, sessionExerciseId);
   },
 });
 

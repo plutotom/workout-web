@@ -137,6 +137,7 @@ export function MiniSparkline({
         strokeLinecap="round"
         strokeLinejoin="round"
         strokeWidth="3.5"
+        pathLength={160}
         className="animate-line-draw"
       />
     </svg>
