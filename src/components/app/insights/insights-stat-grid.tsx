@@ -20,20 +20,22 @@ export function InsightsStatGrid({ stats }: { stats: OverviewStats }) {
   ] as const;
 
   return (
-    <div className="grid grid-cols-2 gap-3">
+    <div className="grid min-w-0 grid-cols-2 gap-3">
       {items.map(({ icon: Icon, ...item }, index) => (
         <div
           key={item.label}
-          className="animate-rise-in rounded-lg border bg-[var(--surface)] p-4"
+          className="animate-rise-in min-w-0 overflow-hidden rounded-lg border bg-[var(--surface)] p-4"
           style={{ animationDelay: `${index * 45}ms` }}
         >
-          <div className="mb-4 flex items-center justify-between">
-            <span className="text-xs font-semibold tracking-[0.14em] text-muted-foreground uppercase">
+          <div className="mb-4 flex items-center justify-between gap-2">
+            <span className="truncate text-xs font-semibold tracking-[0.14em] text-muted-foreground uppercase">
               {item.label}
             </span>
-            <Icon className="size-4 text-muted-foreground" />
+            <Icon className="size-4 shrink-0 text-muted-foreground" />
           </div>
-          <p className="text-2xl font-semibold tabular-nums">{item.value}</p>
+          <p className="truncate text-2xl font-semibold tabular-nums">
+            {item.value}
+          </p>
         </div>
       ))}
     </div>

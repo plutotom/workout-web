@@ -42,19 +42,19 @@ export function TopLiftsList({
   }
 
   return (
-    <div className="grid gap-2">
+    <div className="flex min-w-0 flex-col gap-2">
       {lifts.map((lift, index) => (
         <Link
           key={lift.slug}
           href={`/insights/exercise/${lift.slug}?days=${days}`}
-          className="group rounded-lg border bg-[var(--surface)] p-3 transition-all active:scale-[0.98]"
+          className="group min-w-0 overflow-hidden rounded-lg border bg-[var(--surface)] p-3 transition-all active:scale-[0.98]"
         >
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 items-center gap-3">
             <span className="grid size-8 shrink-0 place-items-center rounded-md bg-muted text-sm font-semibold tabular-nums text-muted-foreground">
               {index + 1}
             </span>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
+            <div className="min-w-0 flex-1 overflow-hidden">
+              <div className="flex min-w-0 items-center gap-2">
                 <p className="truncate text-sm font-semibold">
                   {catalog.name(lift.slug)}
                 </p>
@@ -62,7 +62,7 @@ export function TopLiftsList({
                   <TrendIcon trend={lift.trend} />
                 </span>
               </div>
-              <p className="mt-0.5 text-xs text-muted-foreground">
+              <p className="mt-0.5 truncate text-xs text-muted-foreground">
                 {lift.sessions} session{lift.sessions === 1 ? "" : "s"} · est.
                 1RM {lift.est1RM} lb
               </p>

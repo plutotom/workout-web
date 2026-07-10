@@ -112,16 +112,16 @@ export function InsightsOverview() {
   const topLift = displayStats?.lifts[0];
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="rounded-xl border bg-[var(--surface)] p-4">
+    <div className="flex min-w-0 flex-col gap-6">
+      <div className="min-w-0 overflow-hidden rounded-xl border bg-[var(--surface)] p-4">
         <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
           Insights
         </p>
-        <div className="mt-2">
-          <h1 className="text-3xl font-semibold tracking-tight">
+        <div className="mt-2 min-w-0">
+          <h1 className="truncate text-3xl font-semibold tracking-tight">
             {displayStats ? formatVolume(displayStats.volumeLb) : "Loading"}
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="mt-1 truncate text-sm text-muted-foreground">
             {topLift
               ? `Top lift · ${catalog.short(topLift.slug)} ${topLift.weight} lb`
               : "Your training signal will collect here."}

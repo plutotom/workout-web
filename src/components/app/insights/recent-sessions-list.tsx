@@ -14,25 +14,25 @@ export function RecentSessionsList({
   sessions: RecentSession[];
 }) {
   return (
-    <div className="grid gap-2">
+    <div className="flex min-w-0 flex-col gap-2">
       {sessions.map((s) => (
         <Link
           key={s.id}
           href={`/workout/${s.id}`}
-          className="group rounded-lg border bg-[var(--surface)] p-3 transition-all active:scale-[0.98]"
+          className="group min-w-0 overflow-hidden rounded-lg border bg-[var(--surface)] p-3 transition-all active:scale-[0.98]"
         >
-          <div className="flex items-center gap-3">
-            <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-start gap-3">
+            <div className="min-w-0 flex-1 overflow-hidden">
               <p className="truncate text-sm font-semibold">{s.name}</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
+              <p className="mt-0.5 truncate text-xs text-muted-foreground">
                 {formatDate(s.completedAt)} ·{" "}
                 {formatDuration(s.durationMinutes)} · {formatVolume(s.volumeLb)}
               </p>
-              <p className="mt-1 truncate text-xs text-muted-foreground/80">
+              <p className="mt-1 line-clamp-2 text-xs break-words text-muted-foreground/80">
                 {s.summary}
               </p>
             </div>
-            <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-active:translate-x-0.5" />
+            <ChevronRight className="mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform group-active:translate-x-0.5" />
           </div>
         </Link>
       ))}
