@@ -2,12 +2,14 @@ import { v } from "convex/values";
 
 import { query } from "../../_generated/server";
 import { getUser } from "../../lib/auth";
+import { exerciseSlugValidator } from "../../schemas/exercises";
 import {
   getActiveWorkout,
   getRecentWorkouts,
   getWorkout,
   getWorkoutHistory,
   getWorkoutRecap,
+  lastSetForExercise,
 } from "../../lib/workouts";
 
 /** Recent completed workouts across all templates, plus a total count, for the dashboard. */
@@ -47,6 +49,20 @@ export const get = query({
     const user = await getUser(ctx);
     if (!user) return null;
     return getWorkout(ctx, user._id, sessionId);
+  },
+});
+
+/**
+ * The most recent completed set for an exercise from a prior completed
+ * session, for the Focus view's "last time · +delta" line. Null when the
+ * exercise has no history.
+ */
+export const lastLoggedSet = query({
+  args: { exerciseSlug: exerciseSlugValidator },
+  handler: async (ctx, { exerciseSlug }) => {
+    const user = await getUser(ctx);
+    if (!user) return null;
+    return lastSetForExercise(ctx, user._id, exerciseSlug);
   },
 });
 

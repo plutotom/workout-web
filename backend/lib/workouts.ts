@@ -6,8 +6,13 @@ import { getNotesBySlugs } from "./exercise_notes";
 const clampWhole = (n: number) => Math.max(0, Math.round(n));
 const DEFAULT_REST_SECONDS = 75;
 
-async function lastSetForExercise(
-  ctx: MutationCtx,
+/**
+ * The most recent completed set (weight > 0) for an exercise across the
+ * user's completed sessions. In-progress sessions never match, so the
+ * current workout is excluded by construction.
+ */
+export async function lastSetForExercise(
+  ctx: QueryCtx,
   userId: Id<"users">,
   slug: Doc<"sessionExercises">["exerciseSlug"],
 ): Promise<{ weight: number; reps: number } | null> {

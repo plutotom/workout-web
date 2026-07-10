@@ -52,16 +52,18 @@ export function TemplateHistory({ id }: { id: string }) {
           description="Finished workouts from this template will appear here."
         />
       ) : (
-        <div className="grid gap-2">
+        <div className="flex min-w-0 flex-col gap-2">
           {sessions.map((s) => (
             <Link
               key={s._id}
               href={`/workout/${s._id}`}
-              className="group block rounded-lg"
+              className="group block min-w-0 overflow-hidden rounded-lg"
             >
-              <Card className="flex-row items-center justify-between gap-3 bg-[var(--surface)] px-4 py-3 transition-all duration-150 active:scale-[0.98]">
-                <div className="min-w-0">
-                  <p className="font-medium">{formatDate(s.completedAt)}</p>
+              <Card className="w-full min-w-0 flex-row items-center justify-between gap-3 overflow-hidden bg-[var(--surface)] px-4 py-3 transition-all duration-150 active:scale-[0.98]">
+                <div className="min-w-0 flex-1 overflow-hidden">
+                  <p className="truncate font-medium">
+                    {formatDate(s.completedAt)}
+                  </p>
                   <p className="truncate text-sm text-muted-foreground">
                     {summarize(s.exercises, catalog.short)}
                   </p>

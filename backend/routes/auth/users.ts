@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 
 import { mutation, query } from "../../_generated/server";
-import { unitValidator } from "../../schemas/users";
+import { activeWorkoutModeValidator, unitValidator } from "../../schemas/users";
 
 /** The signed-in user's profile, or null if not signed in / not yet created. */
 export const current = query({
@@ -57,6 +57,40 @@ export const setUnit = mutation({
     if (!user) throw new Error("User not found");
 
     await ctx.db.patch(user._id, { unit });
+  },
+});
+
+/** Update which active-workout view the user prefers (list | focus). */
+export const setActiveWorkoutMode = mutation({
+  args: { mode: activeWorkoutModeValidator },
+  handler: async (ctx, { mode }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_workosId", (q) => q.eq("workosId", identity.subject))
+      .unique();
+    if (!user) throw new Error("User not found");
+
+    await ctx.db.patch(user._id, { activeWorkoutMode: mode });
+  },
+});
+
+/** Enable or disable the post-set rest timer (List bar / Focus ring). */
+export const setRestTimerEnabled = mutation({
+  args: { enabled: v.boolean() },
+  handler: async (ctx, { enabled }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_workosId", (q) => q.eq("workosId", identity.subject))
+      .unique();
+    if (!user) throw new Error("User not found");
+
+    await ctx.db.patch(user._id, { restTimerEnabled: enabled });
   },
 });
 

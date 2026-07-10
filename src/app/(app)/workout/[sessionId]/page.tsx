@@ -1,4 +1,4 @@
-import { WorkoutLog } from "@/components/app/workout-log";
+import { WorkoutSessionView } from "@/components/app/workout-session-view";
 
 export default async function WorkoutLogPage({
   params,
@@ -6,5 +6,5 @@ export default async function WorkoutLogPage({
   params: Promise<{ sessionId: string }>;
 }) {
   const { sessionId } = await params;
-  return <WorkoutLog sessionId={sessionId} />;
+  return <WorkoutSessionView sessionId={sessionId} />;
 }
