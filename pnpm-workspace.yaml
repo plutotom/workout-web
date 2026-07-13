@@ -1,6 +1,10 @@
-ignoredBuiltDependencies:
-  - sharp
-  - unrs-resolver
+# Single-package app: root is the only workspace member.
+# allowBuilds is pnpm 11's replacement for onlyBuiltDependencies / ignoredBuiltDependencies.
+packages:
+  - "."
 
-onlyBuiltDependencies:
-  - esbuild
+allowBuilds:
+  "@swc/core": true
+  esbuild: true
+  sharp: false
+  unrs-resolver: false

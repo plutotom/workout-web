@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { useMutation } from "convex/react";
-import { Check, Plus, Trash2 } from "lucide-react";
+import { useQuery } from "convex-helpers/react/cache/hooks";
+import { Check, Layers, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { api } from "@backend/api";
@@ -25,6 +26,12 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { MUSCLE_GROUPS, type MuscleGroup } from "@/lib/exercises";
 import { cn } from "@/lib/utils";
 
@@ -42,6 +49,22 @@ function customExerciseId(slug: string): Id<"customExercises"> | null {
     : null;
 }
 
+/** Map exercise slug → template names that include it. */
+function templateNamesBySlug(
+  templates: { name: string; exercises: { slug: string }[] }[] | undefined,
+): Map<string, string[]> {
+  const map = new Map<string, string[]>();
+  if (!templates) return map;
+  for (const t of templates) {
+    for (const e of t.exercises) {
+      const names = map.get(e.slug);
+      if (names) names.push(t.name);
+      else map.set(e.slug, [t.name]);
+    }
+  }
+  return map;
+}
+
 export function ExercisePicker({
   open,
   onOpenChange,
@@ -50,6 +73,10 @@ export function ExercisePicker({
 }: ExercisePickerProps) {
   const catalog = useExerciseCatalog();
   const archive = useMutation(api.routes.exercises.mutations.archive);
+  const templates = useQuery(
+    api.routes.templates.queries.list,
+    open ? {} : "skip",
+  );
 
   const [query, setQuery] = useState("");
   const [group, setGroup] = useState<MuscleGroup | "all">("all");
@@ -57,6 +84,7 @@ export function ExercisePicker({
   const [createOpen, setCreateOpen] = useState(false);
 
   const usedSet = new Set(usedSlugs);
+  const inTemplates = templateNamesBySlug(templates);
   const results = catalog.search(query, group);
 
   function toggleSlug(slug: string) {
@@ -84,22 +112,40 @@ export function ExercisePicker({
   }
 
   return (
-    <>
+    <TooltipProvider>
       <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent
           side="bottom"
-          className="flex max-h-[85vh] flex-col gap-0 p-0"
+          className="flex max-h-[85dvh] flex-col gap-0 p-0"
         >
           <SheetHeader className="px-4 pt-4">
             <SheetTitle>Add exercises</SheetTitle>
           </SheetHeader>
 
-          <div className="flex flex-col gap-3 px-4 pt-2">
+          <form
+            className="flex flex-col gap-3 px-4 pt-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const input = e.currentTarget.querySelector("input");
+              input?.blur();
+            }}
+          >
             <Input
+              type="search"
+              inputMode="search"
+              enterKeyHint="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  e.currentTarget.blur();
+                }
+              }}
               placeholder="Search exercises"
               autoComplete="off"
+              autoCorrect="off"
+              spellCheck={false}
             />
 
             <div className="flex gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -125,7 +171,7 @@ export function ExercisePicker({
                 </Button>
               ))}
             </div>
-          </div>
+          </form>
 
           <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-4 py-3">
             <Button
@@ -146,6 +192,7 @@ export function ExercisePicker({
               results.map((e) => {
                 const isUsed = usedSet.has(e.slug);
                 const isSelected = selected.includes(e.slug);
+                const templateNames = inTemplates.get(e.slug);
                 return (
                   <div
                     key={e.slug}
@@ -183,6 +230,12 @@ export function ExercisePicker({
                         <Check className="text-success size-4 shrink-0" />
                       ) : null}
                     </button>
+                    {templateNames && templateNames.length > 0 ? (
+                      <TemplateUsageHint
+                        names={templateNames}
+                        className={e.custom ? undefined : "mr-1"}
+                      />
+                    ) : null}
                     {e.custom ? (
                       <Button
                         type="button"
@@ -229,7 +282,53 @@ export function ExercisePicker({
           setCreateOpen(false);
         }}
       />
-    </>
+    </TooltipProvider>
+  );
+}
+
+/** Layers icon + fast styled tooltip listing templates that include this exercise. */
+function TemplateUsageHint({
+  names,
+  className,
+}: {
+  names: string[];
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const label = `Used in ${names.join(", ")}`;
+
+  return (
+    <Tooltip open={open} onOpenChange={setOpen}>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            "text-muted-foreground hover:text-foreground inline-flex size-8 shrink-0 items-center justify-center rounded-md transition-colors",
+            className,
+          )}
+          aria-label={label}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setOpen((prev) => !prev);
+          }}
+        >
+          <Layers className="size-3.5" aria-hidden />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top" align="end" className="max-w-52">
+        <p className="text-muted-foreground mb-1 text-[10px] font-semibold tracking-[0.16em] uppercase">
+          Used in
+        </p>
+        <ul className="flex flex-col gap-0.5">
+          {names.map((name) => (
+            <li key={name} className="text-foreground truncate text-xs">
+              {name}
+            </li>
+          ))}
+        </ul>
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
