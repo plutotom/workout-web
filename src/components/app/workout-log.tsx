@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation } from "convex/react";
 import { useQuery } from "convex-helpers/react/cache/hooks";
@@ -315,6 +316,10 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
           editable ? (
             <Button size="sm" onClick={handleFinish} disabled={finishing}>
               {finishing ? "Finishing…" : "Finish"}
+            </Button>
+          ) : session.status === "completed" ? (
+            <Button asChild size="sm" variant="outline">
+              <Link href={`/workout/${sessionId}/recap`}>View recap</Link>
             </Button>
           ) : undefined
         }

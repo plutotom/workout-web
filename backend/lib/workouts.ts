@@ -746,8 +746,10 @@ export async function getWorkoutRecap(
   const completedSessions = await completedSessionsForUser(ctx, userId);
   const meaningfulAts: number[] = [];
   for (const s of completedSessions) {
+    const ts = s.completedAt ?? s.startedAt;
+    if (ts > completedAt) continue;
     if (await sessionHasLoggedWork(ctx, s._id)) {
-      meaningfulAts.push(s.completedAt ?? s.startedAt);
+      meaningfulAts.push(ts);
     }
   }
   const weekStart = startOfWeekMonday(completedAt);
@@ -774,9 +776,10 @@ export async function getWorkoutRecap(
   let priorBest: BestSet | null = null;
   if (standout) {
     for (const s of completedSessions) {
+      const ts = s.completedAt ?? s.startedAt;
+      if (ts > completedAt) continue;
       const best = await bestSetForSlugInSession(ctx, s, standout.slug);
       if (!best) continue;
-      const ts = s.completedAt ?? s.startedAt;
       if (s._id !== sessionId && ts < completedAt) {
         priorBest = betterBestSet(priorBest, best);
       }
@@ -864,7 +867,7 @@ export async function getWorkoutRecap(
     consistency: {
       sessionsThisWeek,
       weeklyGoal: 4,
-      weekStreak: computeWeekStreak(meaningfulAts),
+      weekStreak: computeWeekStreak(meaningfulAts, completedAt),
       /** Mon–Sun: true if at least one logged workout that day. */
       daysWorked,
     },
