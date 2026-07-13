@@ -38,13 +38,16 @@ export function startOfWeekMonday(ts: number): number {
 
 /**
  * Consecutive ISO weeks (Mon–Sun) with ≥1 completed workout, ending at the
- * current week. If the current week has no workout yet, counting starts from
- * the previous week (one-week grace so early-week streaks still show).
+ * week of `asOf` (defaults to now). If that week has no workout yet, counting
+ * starts from the previous week (one-week grace so early-week streaks still show).
  */
-export function computeWeekStreak(completedAts: number[]): number {
+export function computeWeekStreak(
+  completedAts: number[],
+  asOf: number = Date.now(),
+): number {
   if (completedAts.length === 0) return 0;
   const weeks = new Set(completedAts.map(startOfWeekMonday));
-  let cursor = startOfWeekMonday(Date.now());
+  let cursor = startOfWeekMonday(asOf);
   if (!weeks.has(cursor)) {
     cursor -= MS_PER_WEEK;
   }
