@@ -39,7 +39,7 @@ type ProgressionStory = {
     est1RM: number;
     completedAt: number;
   } | null;
-  vsPreviousEst1RM: number | null;
+  vsPreviousWeight: number | null;
 };
 
 function formatDate(ts: number) {
@@ -61,18 +61,18 @@ function formatSet(weight: number, reps: number) {
   return `${weight}×${reps}`;
 }
 
-function progressionPath(points: { est1RM: number }[]) {
+function progressionPath(points: { weight: number }[]) {
   if (points.length === 0) return "";
   if (points.length === 1) return "M 8 92 L 292 92";
 
-  const values = points.map((p) => p.est1RM);
+  const values = points.map((p) => p.weight);
   const min = Math.min(...values);
   const max = Math.max(...values);
   const range = Math.max(1, max - min);
   return points
     .map((point, index) => {
       const x = 8 + (index / (points.length - 1)) * 284;
-      const y = 92 - ((point.est1RM - min) / range) * 72;
+      const y = 92 - ((point.weight - min) / range) * 72;
       return `${index === 0 ? "M" : "L"} ${x.toFixed(1)} ${y.toFixed(1)}`;
     })
     .join(" ");
@@ -118,11 +118,13 @@ function progressionCopy(story: ProgressionStory, shortName: string) {
     };
   }
 
-  const delta = story.vsPreviousEst1RM ?? 0;
+  const delta = story.vsPreviousWeight ?? 0;
   const todayLabel = formatSet(story.today.weight, story.today.reps);
   const previousLabel = story.previous
     ? formatSet(story.previous.weight, story.previous.reps)
     : null;
+  const repDelta =
+    story.previous != null ? story.today.reps - story.previous.reps : 0;
 
   if (delta > 0) {
     return {
@@ -138,6 +140,22 @@ function progressionCopy(story: ProgressionStory, shortName: string) {
       body: previousLabel
         ? `${todayLabel} · was ${previousLabel} last time`
         : `${todayLabel} · down from last time`,
+    };
+  }
+  if (repDelta > 0) {
+    return {
+      title: `${shortName} +${repDelta} reps`,
+      body: previousLabel
+        ? `${todayLabel} · was ${previousLabel} last time`
+        : `${todayLabel} · more reps at the same weight`,
+    };
+  }
+  if (repDelta < 0) {
+    return {
+      title: `${shortName} ${repDelta} reps`,
+      body: previousLabel
+        ? `${todayLabel} · was ${previousLabel} last time`
+        : `${todayLabel} · fewer reps at the same weight`,
     };
   }
   return {
@@ -159,11 +177,15 @@ function ProgressionStoryCard({
 }) {
   const points = story.points;
   const path = progressionPath(points);
-  const values = points.map((p) => p.est1RM);
+  const values = points.map((p) => p.weight);
   const min = values.length ? Math.min(...values) : 0;
   const max = values.length ? Math.max(...values) : 1;
   const range = Math.max(1, max - min);
-  const delta = story.vsPreviousEst1RM;
+  const delta = story.vsPreviousWeight;
+  const repDelta =
+    story.today && story.previous
+      ? story.today.reps - story.previous.reps
+      : null;
 
   return (
     <div className="mt-8 space-y-3">
@@ -178,8 +200,8 @@ function ProgressionStoryCard({
               : "—"}
           </p>
           <p className="mt-2 text-sm text-muted-foreground">
-            Est. {story.today?.est1RM ?? "—"} lb 1RM. Come back after your next
-            session for the comparison.
+            Baseline locked in. Come back after your next session for the
+            comparison.
           </p>
         </div>
       ) : (
@@ -194,9 +216,7 @@ function ProgressionStoryCard({
                   ? formatSet(story.today.weight, story.today.reps)
                   : "—"}
               </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                est. {story.today?.est1RM ?? "—"} lb
-              </p>
+              <p className="mt-1 text-xs text-muted-foreground">best set</p>
             </div>
             <div className="rounded-xl border bg-[var(--surface)] p-4">
               <p className="text-xs font-semibold tracking-[0.14em] text-muted-foreground uppercase">
@@ -226,9 +246,9 @@ function ProgressionStoryCard({
                 <p
                   className={cn(
                     "text-sm font-semibold",
-                    delta > 0
+                    delta > 0 || (delta === 0 && (repDelta ?? 0) > 0)
                       ? "text-[var(--action)]"
-                      : delta < 0
+                      : delta < 0 || (delta === 0 && (repDelta ?? 0) < 0)
                         ? "text-muted-foreground"
                         : "text-foreground",
                   )}
@@ -237,7 +257,11 @@ function ProgressionStoryCard({
                     ? `↑ ${delta} lb`
                     : delta < 0
                       ? `↓ ${Math.abs(delta)} lb`
-                      : "→ flat"}
+                      : (repDelta ?? 0) > 0
+                        ? `↑ ${repDelta} reps`
+                        : (repDelta ?? 0) < 0
+                          ? `↓ ${Math.abs(repDelta ?? 0)} reps`
+                          : "→ flat"}
                 </p>
               ) : null}
             </div>
@@ -265,7 +289,7 @@ function ProgressionStoryCard({
                   points.length === 1
                     ? 292
                     : 8 + (index / (points.length - 1)) * 284;
-                const y = 92 - ((point.est1RM - min) / range) * 72;
+                const y = 92 - ((point.weight - min) / range) * 72;
                 const isLatest = index === points.length - 1;
                 return (
                   <circle
@@ -355,28 +379,29 @@ export function WorkoutRecap({
     : "Progress";
   const standoutCallout = (() => {
     if (!data.standout) return null;
-    const { isPr, priorBest, est1RM } = data.standout;
-    const gap = priorBest - est1RM;
+    const { isPr, priorBest, weight, reps } = data.standout;
     if (isPr) {
       return {
         title: priorBest ? "New personal best" : "First logged best",
         detail: priorBest
-          ? `Beat your previous ${standoutShort} best of ${priorBest} lb est. 1RM`
+          ? `Beat your previous ${standoutShort} best of ${formatSet(priorBest.weight, priorBest.reps)}`
           : `First time logging ${standoutShort} — this sets the bar`,
       };
     }
+    if (!priorBest) return null;
+    const matched = priorBest.weight === weight && priorBest.reps === reps;
+    const underByWeight = priorBest.weight - weight;
     return {
-      title: gap === 0 ? "Matched your best" : `${gap} lb under your best`,
-      detail: `Your all-time ${standoutShort} best is ${priorBest} lb est. 1RM`,
+      title: matched
+        ? "Matched your best"
+        : underByWeight > 0
+          ? `${underByWeight} lb under your best`
+          : `${priorBest.reps - reps} reps under your best`,
+      detail: `Your all-time ${standoutShort} best is ${formatSet(priorBest.weight, priorBest.reps)}`,
     };
   })();
   const story: ProgressionStory | null = data.progressionStory ?? null;
-  const progressionBeat = story
-    ? progressionCopy(story, standoutShort)
-    : {
-        title: `${standoutShort} trend`,
-        body: "Check off sets during a workout to build your trend.",
-      };
+  const progressionBeat = story ? progressionCopy(story, standoutShort) : null;
 
   const beats = [
     {
@@ -414,7 +439,7 @@ export function WorkoutRecap({
       kicker: "Standout lift",
       title: standoutName,
       body: data.standout
-        ? `Best set today: ${data.standout.weight} lb × ${data.standout.reps} · est. ${data.standout.est1RM} lb 1RM`
+        ? `Best set today: ${formatSet(data.standout.weight, data.standout.reps)}`
         : "Check off sets during a workout to build records.",
       extra:
         data.standout && standoutCallout ? (
@@ -445,18 +470,22 @@ export function WorkoutRecap({
         </div>
       ),
     },
-    {
-      kicker: "Progression",
-      title: progressionBeat.title,
-      body: progressionBeat.body,
-      extra: story ? (
-        <ProgressionStoryCard
-          story={story}
-          templateName={data.session.templateName}
-          historyHref={`/insights/exercise/${story.slug}?from=${encodeURIComponent(`/workout/${sessionId}/recap?step=${step}`)}`}
-        />
-      ) : null,
-    },
+    ...(story && progressionBeat
+      ? [
+          {
+            kicker: "Progression",
+            title: progressionBeat.title,
+            body: progressionBeat.body,
+            extra: (
+              <ProgressionStoryCard
+                story={story}
+                templateName={data.session.templateName}
+                historyHref={`/insights/exercise/${story.slug}?from=${encodeURIComponent(`/workout/${sessionId}/recap?step=${step}`)}`}
+              />
+            ),
+          },
+        ]
+      : []),
     {
       kicker: "Consistency",
       title: `${data.consistency.sessionsThisWeek}/${data.consistency.weeklyGoal} this week`,
@@ -498,7 +527,12 @@ export function WorkoutRecap({
 
   return (
     <div className="flex min-h-[calc(100vh-9rem)] flex-col">
-      <div className="mb-6 grid grid-cols-7 gap-1">
+      <div
+        className="mb-6 grid gap-1"
+        style={{
+          gridTemplateColumns: `repeat(${beats.length}, minmax(0, 1fr))`,
+        }}
+      >
         {beats.map((_, i) => (
           <span
             key={i}
