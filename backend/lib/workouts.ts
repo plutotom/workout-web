@@ -647,6 +647,19 @@ type RecapSet = {
   completed: boolean;
 };
 
+type BestSet = { weight: number; reps: number };
+
+/** Prefer heavier weight; at equal weight, prefer more reps. */
+function compareBestSets(a: BestSet, b: BestSet): number {
+  if (a.weight !== b.weight) return a.weight - b.weight;
+  return a.reps - b.reps;
+}
+
+function betterBestSet(a: BestSet | null, b: BestSet): BestSet {
+  if (!a || compareBestSets(b, a) > 0) return b;
+  return a;
+}
+
 function validDoneSets(exercises: { slug: string; sets: Doc<"sets">[] }[]) {
   const sets: RecapSet[] = [];
   for (const exercise of exercises) {
@@ -689,7 +702,7 @@ async function bestSetForSlugInSession(
   ctx: QueryCtx,
   sessionDoc: Doc<"workoutSessions">,
   slug: string,
-): Promise<{ weight: number; reps: number; est1RM: number } | null> {
+): Promise<(BestSet & { est1RM: number }) | null> {
   const exercises = await ctx.db
     .query("sessionExercises")
     .withIndex("by_session", (q) => q.eq("sessionId", sessionDoc._id))
@@ -704,15 +717,13 @@ async function bestSetForSlugInSession(
     )
     .collect();
 
-  let best: { weight: number; reps: number; est1RM: number } | null = null;
+  let best: BestSet | null = null;
   for (const set of sets) {
     if (!set.completed || set.weight <= 0 || set.reps <= 0) continue;
-    const est1RM = estimate1RM(set.weight, set.reps);
-    if (!best || est1RM > best.est1RM) {
-      best = { weight: set.weight, reps: set.reps, est1RM };
-    }
+    best = betterBestSet(best, { weight: set.weight, reps: set.reps });
   }
-  return best;
+  if (!best) return null;
+  return { ...best, est1RM: estimate1RM(best.weight, best.reps) };
 }
 
 export async function getWorkoutRecap(
@@ -730,9 +741,7 @@ export async function getWorkoutRecap(
     0,
   );
   const standout =
-    doneSets
-      .map((set) => ({ ...set, est1RM: estimate1RM(set.weight, set.reps) }))
-      .sort((a, b) => b.est1RM - a.est1RM)[0] ?? null;
+    [...doneSets].sort((a, b) => compareBestSets(b, a))[0] ?? null;
 
   const completedSessions = await completedSessionsForUser(ctx, userId);
   const meaningfulAts: number[] = [];
@@ -762,14 +771,14 @@ export async function getWorkoutRecap(
   }
 
   const allPoints: ProgressionPoint[] = [];
-  let priorBest = 0;
+  let priorBest: BestSet | null = null;
   if (standout) {
     for (const s of completedSessions) {
       const best = await bestSetForSlugInSession(ctx, s, standout.slug);
       if (!best) continue;
       const ts = s.completedAt ?? s.startedAt;
       if (s._id !== sessionId && ts < completedAt) {
-        priorBest = Math.max(priorBest, best.est1RM);
+        priorBest = betterBestSet(priorBest, best);
       }
       allPoints.push({
         completedAt: ts,
@@ -795,9 +804,9 @@ export async function getWorkoutRecap(
     chartPoints.length >= 2 ? chartPoints[chartPoints.length - 2] : null;
   const isBaseline = chartPoints.length < 2;
 
-  const vsPreviousEst1RM =
+  const vsPreviousWeight =
     todayPoint && previousPoint
-      ? todayPoint.est1RM - previousPoint.est1RM
+      ? todayPoint.weight - previousPoint.weight
       : null;
 
   return {
@@ -813,8 +822,8 @@ export async function getWorkoutRecap(
           slug: standout.slug,
           weight: standout.weight,
           reps: standout.reps,
-          est1RM: standout.est1RM,
-          isPr: standout.est1RM > priorBest,
+          est1RM: estimate1RM(standout.weight, standout.reps),
+          isPr: priorBest ? compareBestSets(standout, priorBest) > 0 : true,
           priorBest,
         }
       : null,
@@ -827,30 +836,31 @@ export async function getWorkoutRecap(
       completedAt: p.completedAt,
       est1RM: p.est1RM,
     })),
-    progressionStory: standout
-      ? {
-          slug: standout.slug,
-          scopedToTemplate: useTemplateLineage,
-          isBaseline,
-          points: chartPoints,
-          today: todayPoint
-            ? {
-                weight: todayPoint.weight,
-                reps: todayPoint.reps,
-                est1RM: todayPoint.est1RM,
-              }
-            : null,
-          previous: previousPoint
-            ? {
-                weight: previousPoint.weight,
-                reps: previousPoint.reps,
-                est1RM: previousPoint.est1RM,
-                completedAt: previousPoint.completedAt,
-              }
-            : null,
-          vsPreviousEst1RM,
-        }
-      : null,
+    progressionStory:
+      standout && chartPoints.length > 0
+        ? {
+            slug: standout.slug,
+            scopedToTemplate: useTemplateLineage,
+            isBaseline,
+            points: chartPoints,
+            today: todayPoint
+              ? {
+                  weight: todayPoint.weight,
+                  reps: todayPoint.reps,
+                  est1RM: todayPoint.est1RM,
+                }
+              : null,
+            previous: previousPoint
+              ? {
+                  weight: previousPoint.weight,
+                  reps: previousPoint.reps,
+                  est1RM: previousPoint.est1RM,
+                  completedAt: previousPoint.completedAt,
+                }
+              : null,
+            vsPreviousWeight,
+          }
+        : null,
     consistency: {
       sessionsThisWeek,
       weeklyGoal: 4,
