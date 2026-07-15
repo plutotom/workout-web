@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { formatVolume } from "@/lib/insights/format";
+import { formatSets } from "@/lib/insights/format";
 import type { MuscleVolume } from "@/lib/insights/types";
 
 const shades = [
@@ -25,7 +25,7 @@ export function MuscleVolumeBars({
   if (muscles.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
-        Muscle balance will appear after completed weighted sets.
+        Muscle balance will appear after completed sets.
       </p>
     );
   }
@@ -78,7 +78,7 @@ export function MuscleVolumeBars({
                   {m.pct}%
                 </span>
                 <span className="block text-xs text-muted-foreground">
-                  {formatVolume(m.volumeLb)}
+                  {formatSets(m.sets)}
                 </span>
               </span>
             </button>

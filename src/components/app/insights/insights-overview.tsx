@@ -29,23 +29,23 @@ import { MuscleVolumeBars } from "./muscle-volume-bars";
 import { RecentSessionsList } from "./recent-sessions-list";
 import { TopLiftsList } from "./top-lifts-list";
 
-function groupVolumeByMuscle(
-  volumeBySlug: { slug: string; volume: number }[],
+function groupSetsByMuscle(
+  setsBySlug: { slug: string; sets: number }[],
   category: (slug: string) => MuscleGroup | undefined,
 ): MuscleVolume[] {
   const byGroup = new Map<MuscleGroup, number>();
-  for (const { slug, volume } of volumeBySlug) {
+  for (const { slug, sets } of setsBySlug) {
     const cat = category(slug);
     if (!cat) continue;
-    byGroup.set(cat, (byGroup.get(cat) ?? 0) + volume);
+    byGroup.set(cat, (byGroup.get(cat) ?? 0) + sets);
   }
   const total = Array.from(byGroup.values()).reduce((sum, v) => sum + v, 0);
   return MUSCLE_GROUPS.map((g) => ({
     id: g.id,
     label: g.label,
-    volumeLb: byGroup.get(g.id) ?? 0,
+    sets: byGroup.get(g.id) ?? 0,
     pct: total > 0 ? Math.round(((byGroup.get(g.id) ?? 0) / total) * 100) : 0,
-  })).filter((m) => m.volumeLb > 0);
+  })).filter((m) => m.sets > 0);
 }
 
 const EMPTY_STATS: OverviewStats = {
@@ -81,7 +81,7 @@ export function InsightsOverview() {
       durationMinutes: Math.round(overview.stats.totalDurationMs / 60_000),
       volumeLb: overview.stats.totalVolume,
       streakWeeks: overview.stats.weekStreak,
-      muscles: groupVolumeByMuscle(overview.volumeBySlug, catalog.category),
+      muscles: groupSetsByMuscle(overview.setsBySlug, catalog.category),
       lifts: mapQueryLifts(overview.topLifts, catalog.category),
       sessions: mapQuerySessions(overview.recentSessions, catalog.short),
     };
@@ -162,7 +162,7 @@ export function InsightsOverview() {
         <>
           <InsightsStatGrid stats={displayStats} />
 
-          <InsightsSection title="Volume by muscle group">
+          <InsightsSection title="Sets by muscle group">
             <MuscleVolumeBars
               muscles={displayStats.muscles}
               activeId={muscleFilter}

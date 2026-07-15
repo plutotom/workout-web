@@ -5,7 +5,7 @@ import { estimate1RM } from "./format";
 export type MuscleVolume = {
   id: MuscleGroup;
   label: string;
-  volumeLb: number;
+  sets: number;
   pct: number;
 };
 
@@ -72,12 +72,12 @@ export type ExerciseInsightsData = {
 };
 
 function muscleVolumes(
-  entries: { id: MuscleGroup; label: string; volumeLb: number }[],
+  entries: { id: MuscleGroup; label: string; sets: number }[],
 ): MuscleVolume[] {
-  const total = entries.reduce((sum, e) => sum + e.volumeLb, 0);
+  const total = entries.reduce((sum, e) => sum + e.sets, 0);
   return entries.map((e) => ({
     ...e,
-    pct: total > 0 ? Math.round((e.volumeLb / total) * 100) : 0,
+    pct: total > 0 ? Math.round((e.sets / total) * 100) : 0,
   }));
 }
 
@@ -95,11 +95,11 @@ export const MOCK_OVERVIEW_BY_DAYS: Record<InsightsDays, OverviewStats> = {
     volumeLb: 41400,
     streakWeeks: 2,
     muscles: muscleVolumes([
-      { id: "legs", label: "Legs", volumeLb: 18200 },
-      { id: "chest", label: "Chest", volumeLb: 12400 },
-      { id: "back", label: "Back", volumeLb: 6800 },
-      { id: "shoulders", label: "Shoulders", volumeLb: 2400 },
-      { id: "arms", label: "Arms", volumeLb: 1600 },
+      { id: "legs", label: "Legs", sets: 24 },
+      { id: "chest", label: "Chest", sets: 18 },
+      { id: "back", label: "Back", sets: 15 },
+      { id: "shoulders", label: "Shoulders", sets: 9 },
+      { id: "arms", label: "Arms", sets: 9 },
     ]),
     lifts: [
       {
@@ -160,11 +160,11 @@ export const MOCK_OVERVIEW_BY_DAYS: Record<InsightsDays, OverviewStats> = {
     volumeLb: 48200,
     streakWeeks: 3,
     muscles: muscleVolumes([
-      { id: "legs", label: "Legs", volumeLb: 20200 },
-      { id: "chest", label: "Chest", volumeLb: 11600 },
-      { id: "back", label: "Back", volumeLb: 9200 },
-      { id: "shoulders", label: "Shoulders", volumeLb: 4800 },
-      { id: "arms", label: "Arms", volumeLb: 2400 },
+      { id: "legs", label: "Legs", sets: 48 },
+      { id: "chest", label: "Chest", sets: 36 },
+      { id: "back", label: "Back", sets: 33 },
+      { id: "shoulders", label: "Shoulders", sets: 18 },
+      { id: "arms", label: "Arms", sets: 18 },
     ]),
     lifts: [
       {
@@ -257,11 +257,11 @@ export const MOCK_OVERVIEW_BY_DAYS: Record<InsightsDays, OverviewStats> = {
     volumeLb: 142800,
     streakWeeks: 3,
     muscles: muscleVolumes([
-      { id: "legs", label: "Legs", volumeLb: 56500 },
-      { id: "chest", label: "Chest", volumeLb: 34300 },
-      { id: "back", label: "Back", volumeLb: 27100 },
-      { id: "shoulders", label: "Shoulders", volumeLb: 14300 },
-      { id: "arms", label: "Arms", volumeLb: 7100 },
+      { id: "legs", label: "Legs", sets: 120 },
+      { id: "chest", label: "Chest", sets: 96 },
+      { id: "back", label: "Back", sets: 90 },
+      { id: "shoulders", label: "Shoulders", sets: 48 },
+      { id: "arms", label: "Arms", sets: 48 },
     ]),
     lifts: [
       {
@@ -314,11 +314,11 @@ export const MOCK_OVERVIEW_BY_DAYS: Record<InsightsDays, OverviewStats> = {
     volumeLb: 284500,
     streakWeeks: 3,
     muscles: muscleVolumes([
-      { id: "legs", label: "Legs", volumeLb: 119500 },
-      { id: "chest", label: "Chest", volumeLb: 68300 },
-      { id: "back", label: "Back", volumeLb: 54100 },
-      { id: "shoulders", label: "Shoulders", volumeLb: 28500 },
-      { id: "arms", label: "Arms", volumeLb: 14100 },
+      { id: "legs", label: "Legs", sets: 220 },
+      { id: "chest", label: "Chest", sets: 176 },
+      { id: "back", label: "Back", sets: 165 },
+      { id: "shoulders", label: "Shoulders", sets: 88 },
+      { id: "arms", label: "Arms", sets: 88 },
     ]),
     lifts: [
       {

@@ -174,18 +174,16 @@ function sessionVolume(session: LoadedSession): number {
   return vol;
 }
 
-function slugVolumeInSessions(sessions: LoadedSession[]): Map<string, number> {
+/** Completed sets with reps (bodyweight / 0 lb included) per exercise slug. */
+function slugSetsInSessions(sessions: LoadedSession[]): Map<string, number> {
   const map = new Map<string, number>();
   for (const session of sessions) {
     for (const ex of session.exercises) {
-      let vol = 0;
-      for (const set of ex.sets) {
-        if (set.completed && isValidSet(set.weight, set.reps)) {
-          vol += set.weight * set.reps;
-        }
-      }
-      if (vol > 0) {
-        map.set(ex.slug, (map.get(ex.slug) ?? 0) + vol);
+      const sets = ex.sets.filter(
+        (set) => set.completed && set.reps > 0,
+      ).length;
+      if (sets > 0) {
+        map.set(ex.slug, (map.get(ex.slug) ?? 0) + sets);
       }
     }
   }
@@ -436,9 +434,9 @@ export async function getOverview(
   );
   const volumeTrend = volumeTrendForPeriod(inPeriod, days, now);
 
-  const volumeBySlug = Array.from(slugVolumeInSessions(inPeriod).entries())
-    .map(([slug, volume]) => ({ slug, volume }))
-    .sort((a, b) => b.volume - a.volume);
+  const setsBySlug = Array.from(slugSetsInSessions(inPeriod).entries())
+    .map(([slug, sets]) => ({ slug, sets }))
+    .sort((a, b) => b.sets - a.sets);
 
   const priorStats = priorStatsForPeriod(all, days, now);
   const topLifts = liftsInPeriod(inPeriod, priorStats, days);
@@ -456,7 +454,7 @@ export async function getOverview(
       weekStreak,
     },
     volumeTrend,
-    volumeBySlug,
+    setsBySlug,
     topLifts,
     recentSessions,
   };

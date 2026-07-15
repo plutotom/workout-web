@@ -45,6 +45,12 @@ export function formatVolume(lb: number): string {
   return `${Math.round(lb).toLocaleString()} lb`;
 }
 
+/** Format completed set counts for muscle balance. */
+export function formatSets(sets: number): string {
+  const n = Math.round(sets);
+  return n === 1 ? "1 set" : `${n.toLocaleString()} sets`;
+}
+
 /** Format duration from total minutes. */
 export function formatDuration(totalMinutes: number): string {
   const h = Math.floor(totalMinutes / 60);
