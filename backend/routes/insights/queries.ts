@@ -26,7 +26,7 @@ const emptyOverview = {
     weekStreak: 0,
   },
   volumeTrend: [] as { start: number; volume: number }[],
-  volumeBySlug: [] as { slug: string; volume: number }[],
+  setsBySlug: [] as { slug: string; sets: number }[],
   topLifts: [] as {
     slug: string;
     sessionCount: number;

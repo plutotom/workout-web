@@ -3,7 +3,7 @@ import type { MuscleGroup } from "@/lib/exercises";
 export type MuscleVolume = {
   id: MuscleGroup;
   label: string;
-  volumeLb: number;
+  sets: number;
   pct: number;
 };
 
