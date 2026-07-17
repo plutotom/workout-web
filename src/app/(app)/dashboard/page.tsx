@@ -196,7 +196,7 @@ export default function DashboardPage() {
             }
           />
         ) : (
-          <div className="-mx-4 flex snap-x gap-3 overflow-x-auto px-4 pb-1">
+          <div className="-mx-3 flex snap-x gap-3 overflow-x-auto px-3 pb-1">
             {templates.slice(0, 6).map((template, index) => (
               <div
                 key={template._id}

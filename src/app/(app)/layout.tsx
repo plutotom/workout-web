@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { withAuth } from "@workos-inc/authkit-nextjs";
 
 import { BottomNav } from "@/components/app/bottom-nav";
@@ -17,15 +16,7 @@ export default async function AppLayout({
   return (
     <ExerciseCatalogProvider>
       <div className="flex min-h-full flex-col">
-        <header className="bg-background/95 sticky top-0 z-30 border-b backdrop-blur supports-[backdrop-filter]:bg-background/80">
-          <div className="mx-auto flex h-14 w-full max-w-[600px] items-center justify-center px-4">
-            <Link href="/dashboard" className="font-semibold tracking-tight">
-              Workout
-            </Link>
-          </div>
-        </header>
-
-        <main className="mx-auto w-full min-w-0 max-w-[600px] flex-1 px-4 pt-5 pb-24">
+        <main className="mx-auto w-full min-w-0 max-w-[600px] flex-1 px-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[calc(4.25rem+env(safe-area-inset-bottom))]">
           {children}
         </main>
 

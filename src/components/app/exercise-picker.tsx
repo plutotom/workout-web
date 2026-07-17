@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import { useMutation } from "convex/react";
 import { useQuery } from "convex-helpers/react/cache/hooks";
 import { Check, Layers, Plus, Trash2 } from "lucide-react";
@@ -32,6 +32,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useVisualViewportFrame } from "@/hooks/use-visual-viewport-frame";
 import { MUSCLE_GROUPS, type MuscleGroup } from "@/lib/exercises";
 import { cn } from "@/lib/utils";
 
@@ -82,6 +83,9 @@ export function ExercisePicker({
   const [group, setGroup] = useState<MuscleGroup | "all">("all");
   const [selected, setSelected] = useState<string[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
+  const { style: viewportStyle, keyboardOpen } = useVisualViewportFrame(
+    open && !createOpen,
+  );
 
   const usedSet = new Set(usedSlugs);
   const inTemplates = templateNamesBySlug(templates);
@@ -116,14 +120,18 @@ export function ExercisePicker({
       <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent
           side="bottom"
-          className="flex max-h-[85dvh] flex-col gap-0 p-0"
+          style={viewportStyle}
+          className={cn(
+            "flex flex-col gap-0 rounded-none border-0 p-0",
+            !viewportStyle && "h-dvh max-h-dvh",
+          )}
         >
-          <SheetHeader className="px-4 pt-4">
-            <SheetTitle>Add exercises</SheetTitle>
+          <SheetHeader className="shrink-0 px-3 pt-[max(0.75rem,env(safe-area-inset-top))] pr-12 pb-0">
+            <SheetTitle className="text-lg">Add exercises</SheetTitle>
           </SheetHeader>
 
           <form
-            className="flex flex-col gap-3 px-4 pt-2"
+            className="flex shrink-0 flex-col gap-3 px-3 pt-3"
             onSubmit={(e) => {
               e.preventDefault();
               const input = e.currentTarget.querySelector("input");
@@ -146,14 +154,14 @@ export function ExercisePicker({
               autoComplete="off"
               autoCorrect="off"
               spellCheck={false}
+              className="h-11"
             />
 
             <div className="flex gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               <Button
                 type="button"
-                size="sm"
                 variant={group === "all" ? "default" : "outline"}
-                className="shrink-0"
+                className="h-9 shrink-0"
                 onClick={() => setGroup("all")}
               >
                 All
@@ -162,9 +170,8 @@ export function ExercisePicker({
                 <Button
                   key={g.id}
                   type="button"
-                  size="sm"
                   variant={group === g.id ? "default" : "outline"}
-                  className="shrink-0"
+                  className="h-9 shrink-0"
                   onClick={() => setGroup(g.id)}
                 >
                   {g.label}
@@ -173,11 +180,11 @@ export function ExercisePicker({
             </div>
           </form>
 
-          <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-4 py-3">
+          <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-contain px-3 py-3">
             <Button
               type="button"
               variant="outline"
-              className="border-dashed"
+              className="h-11 border-dashed text-base"
               onClick={() => setCreateOpen(true)}
             >
               <Plus className="size-4" />
@@ -185,7 +192,7 @@ export function ExercisePicker({
             </Button>
 
             {results.length === 0 ? (
-              <p className="text-muted-foreground py-6 text-center text-sm">
+              <p className="text-muted-foreground py-8 text-center text-base">
                 No matches
               </p>
             ) : (
@@ -197,7 +204,7 @@ export function ExercisePicker({
                   <div
                     key={e.slug}
                     className={cn(
-                      "flex items-center gap-2 rounded-md border text-sm transition-colors",
+                      "flex min-h-12 items-center gap-1 rounded-lg border text-base transition-colors",
                       isUsed && "text-muted-foreground opacity-60",
                       !isUsed &&
                         isSelected &&
@@ -210,24 +217,24 @@ export function ExercisePicker({
                       disabled={isUsed}
                       onClick={() => toggleSlug(e.slug)}
                       className={cn(
-                        "flex flex-1 items-center gap-2 px-3 py-2.5 text-left",
+                        "flex min-h-12 flex-1 items-center gap-2 px-3 py-3 text-left",
                         isUsed
                           ? "cursor-not-allowed"
-                          : !isSelected && "hover:bg-accent rounded-md",
+                          : !isSelected && "hover:bg-accent rounded-lg",
                       )}
                     >
-                      <span className="flex-1">{e.name}</span>
+                      <span className="flex-1 font-medium">{e.name}</span>
                       {e.custom ? (
                         <span className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-xs">
                           Custom
                         </span>
                       ) : null}
                       {isUsed ? (
-                        <span className="text-muted-foreground text-xs">
+                        <span className="text-muted-foreground text-sm">
                           Added
                         </span>
                       ) : isSelected ? (
-                        <Check className="text-success size-4 shrink-0" />
+                        <Check className="text-success size-5 shrink-0" />
                       ) : null}
                     </button>
                     {templateNames && templateNames.length > 0 ? (
@@ -241,7 +248,7 @@ export function ExercisePicker({
                         type="button"
                         size="icon"
                         variant="ghost"
-                        className="text-muted-foreground hover:text-destructive mr-1 size-8 shrink-0"
+                        className="text-muted-foreground hover:text-destructive mr-1 size-10 shrink-0"
                         aria-label={`Remove ${e.name}`}
                         onClick={() => handleArchive(e.slug)}
                       >
@@ -254,16 +261,27 @@ export function ExercisePicker({
             )}
           </div>
 
-          <SheetFooter className="flex-row border-t px-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          <SheetFooter
+            className={cn(
+              "mt-0 shrink-0 flex-row gap-2 border-t px-3 pt-3",
+              keyboardOpen
+                ? "pb-3"
+                : "pb-[max(0.75rem,env(safe-area-inset-bottom))]",
+            )}
+          >
             <Button
               type="button"
               variant="ghost"
+              size="lg"
+              className="flex-1"
               onClick={() => onOpenChange(false)}
             >
               Cancel
             </Button>
             <Button
               type="button"
+              size="lg"
+              className="flex-1"
               disabled={selected.length === 0}
               onClick={handleAdd}
             >
@@ -303,7 +321,7 @@ function TemplateUsageHint({
         <button
           type="button"
           className={cn(
-            "text-muted-foreground hover:text-foreground inline-flex size-8 shrink-0 items-center justify-center rounded-md transition-colors",
+            "text-muted-foreground hover:text-foreground inline-flex size-10 shrink-0 items-center justify-center rounded-md transition-colors",
             className,
           )}
           aria-label={label}
@@ -349,6 +367,19 @@ function CreateExerciseDialog({
   const [category, setCategory] = useState<MuscleGroup>(defaultGroup);
   const [usesBar, setUsesBar] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [compact, setCompact] = useState(false);
+  const { style: viewportStyle, keyboardOpen } = useVisualViewportFrame(
+    open && compact,
+    { mode: "dock" },
+  );
+
+  useLayoutEffect(() => {
+    const mq = window.matchMedia("(max-width: 639px)");
+    const sync = () => setCompact(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
 
   function reset() {
     setName("");
@@ -380,7 +411,10 @@ function CreateExerciseDialog({
         onOpenChange(o);
       }}
     >
-      <DialogContent>
+      <DialogContent
+        style={viewportStyle}
+        className={cn(keyboardOpen && "pb-3")}
+      >
         <DialogHeader>
           <DialogTitle>New custom exercise</DialogTitle>
         </DialogHeader>

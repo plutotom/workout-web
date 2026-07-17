@@ -16,7 +16,7 @@ export function WorkoutSessionView({ sessionId }: { sessionId: string }) {
 
   if (user === undefined) {
     return (
-      <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-4">
         <PageHeader title="Log Workout" backHref="/dashboard" />
         <p className="text-muted-foreground text-sm">Loading…</p>
       </div>

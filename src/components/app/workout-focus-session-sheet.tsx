@@ -26,6 +26,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { useVisualViewportFrame } from "@/hooks/use-visual-viewport-frame";
 import { cn } from "@/lib/utils";
 
 type SheetSet = {
@@ -75,6 +76,7 @@ export function WorkoutFocusSessionSheet({
     name: string;
   } | null>(null);
   const [removingExercise, setRemovingExercise] = useState(false);
+  const { style: viewportStyle, keyboardOpen } = useVisualViewportFrame(open);
 
   async function handleMove(id: Id<"sessionExercises">, delta: number) {
     try {
@@ -103,16 +105,27 @@ export function WorkoutFocusSessionSheet({
       <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent
           side="bottom"
-          className="max-h-[85dvh] gap-0 overflow-y-auto rounded-t-2xl pb-8"
+          style={viewportStyle}
+          className={cn(
+            "flex flex-col gap-0 overflow-hidden rounded-none border-0 p-0",
+            !viewportStyle && "h-dvh max-h-dvh",
+          )}
         >
-          <SheetHeader className="pb-2">
-            <SheetTitle>Session</SheetTitle>
+          <SheetHeader className="shrink-0 px-3 pt-[max(0.75rem,env(safe-area-inset-top))] pr-12 pb-2">
+            <SheetTitle className="text-lg">Session</SheetTitle>
             <SheetDescription>
               Jump to a set, reorder, or edit this workout.
             </SheetDescription>
           </SheetHeader>
 
-          <div className="flex flex-col gap-4 px-4">
+          <div
+            className={cn(
+              "flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain px-3",
+              keyboardOpen
+                ? "pb-3"
+                : "pb-[max(0.75rem,env(safe-area-inset-bottom))]",
+            )}
+          >
             {exercises.map((exercise, exIndex) => {
               const name = catalog.name(exercise.slug);
               return (
@@ -121,15 +134,15 @@ export function WorkoutFocusSessionSheet({
                   className="rounded-lg border border-[var(--line)] bg-[var(--surface)] p-3"
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <p className="min-w-0 flex-1 truncate text-sm font-semibold">
+                    <p className="min-w-0 flex-1 truncate text-base font-semibold">
                       {name}
                     </p>
-                    <div className="flex shrink-0 items-center gap-1">
+                    <div className="flex shrink-0 items-center gap-0.5">
                       <Button
                         type="button"
                         size="icon"
                         variant="ghost"
-                        className="text-muted-foreground hover:text-foreground size-8"
+                        className="text-muted-foreground hover:text-foreground size-10"
                         aria-label={`Move ${name} up`}
                         disabled={exIndex === 0}
                         onClick={() => void handleMove(exercise._id, -1)}
@@ -140,7 +153,7 @@ export function WorkoutFocusSessionSheet({
                         type="button"
                         size="icon"
                         variant="ghost"
-                        className="text-muted-foreground hover:text-foreground size-8"
+                        className="text-muted-foreground hover:text-foreground size-10"
                         aria-label={`Move ${name} down`}
                         disabled={exIndex === exercises.length - 1}
                         onClick={() => void handleMove(exercise._id, 1)}
@@ -151,7 +164,7 @@ export function WorkoutFocusSessionSheet({
                         type="button"
                         size="icon"
                         variant="ghost"
-                        className="text-destructive hover:text-destructive size-8"
+                        className="text-destructive hover:text-destructive size-10"
                         aria-label={`Remove ${name}`}
                         onClick={() =>
                           setExerciseToRemove({ id: exercise._id, name })
@@ -162,7 +175,7 @@ export function WorkoutFocusSessionSheet({
                     </div>
                   </div>
 
-                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
                     {exercise.sets.map((set, setIndex) => (
                       <button
                         key={set._id}
@@ -173,7 +186,7 @@ export function WorkoutFocusSessionSheet({
                           onOpenChange(false);
                         }}
                         className={cn(
-                          "flex size-9 items-center justify-center rounded-md border text-sm font-medium tabular-nums transition-colors",
+                          "flex size-10 items-center justify-center rounded-md border text-sm font-medium tabular-nums transition-colors",
                           set.completed
                             ? "border-transparent bg-success/15 text-success"
                             : "border-[var(--line)] text-muted-foreground",
@@ -188,7 +201,7 @@ export function WorkoutFocusSessionSheet({
                       type="button"
                       size="icon"
                       variant="outline"
-                      className="size-9"
+                      className="size-10"
                       aria-label={`Add set to ${name}`}
                       onClick={() =>
                         void addSet({ sessionExerciseId: exercise._id }).catch(
@@ -202,7 +215,7 @@ export function WorkoutFocusSessionSheet({
                       type="button"
                       size="icon"
                       variant="outline"
-                      className="size-9"
+                      className="size-10"
                       aria-label={`Remove last set from ${name}`}
                       disabled={exercise.sets.length <= 1}
                       onClick={() => {
@@ -232,7 +245,8 @@ export function WorkoutFocusSessionSheet({
             <Button
               type="button"
               variant="outline"
-              className="w-full"
+              size="lg"
+              className="w-full text-base"
               onClick={() => {
                 onOpenChange(false);
                 onAddExercise();

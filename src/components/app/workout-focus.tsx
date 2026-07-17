@@ -111,7 +111,7 @@ export function WorkoutFocus({ sessionId }: { sessionId: string }) {
 
   if (session === undefined) {
     return (
-      <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-4">
         <PageHeader title="Log Workout" backHref="/dashboard" />
         <p className="text-muted-foreground text-sm">Loading…</p>
       </div>
@@ -120,7 +120,7 @@ export function WorkoutFocus({ sessionId }: { sessionId: string }) {
 
   if (session === null) {
     return (
-      <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-4">
         <PageHeader title="Log Workout" backHref="/dashboard" />
         <EmptyState
           title="Workout not found"
@@ -138,7 +138,7 @@ export function WorkoutFocus({ sessionId }: { sessionId: string }) {
   if (session.status !== "in_progress") {
     if (finishing || awaitingPostFinish) {
       return (
-        <div className="flex flex-col gap-5">
+        <div className="flex flex-col gap-4">
           <PageHeader title={session.templateName} backHref="/dashboard" />
           <p className="text-muted-foreground text-sm">Wrapping up…</p>
           {finishDialogs}
@@ -236,7 +236,7 @@ export function WorkoutFocus({ sessionId }: { sessionId: string }) {
     lastTime && current ? current.set.weight - lastTime.weight : 0;
 
   return (
-    <div className="relative flex flex-col gap-5 pb-24">
+    <div className="relative flex flex-col gap-4">
       <PageHeader
         title={session.templateName}
         backHref="/dashboard"
@@ -251,7 +251,7 @@ export function WorkoutFocus({ sessionId }: { sessionId: string }) {
         }
       />
 
-      <div className="sticky top-16 z-20 -mx-4 border-y bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+      <div className="sticky top-12 z-20 -mx-3 border-y bg-background/95 px-3 py-2.5 backdrop-blur supports-[backdrop-filter]:bg-background/80">
         <div className="mb-2 flex items-end justify-between gap-3">
           <p className="text-xs font-semibold tracking-[0.16em] text-muted-foreground uppercase">
             Focus session
@@ -351,7 +351,7 @@ export function WorkoutFocus({ sessionId }: { sessionId: string }) {
             }
           }}
         >
-          <CardContent className="flex flex-col gap-5">
+          <CardContent className="flex flex-col gap-4">
             <div className="flex items-center justify-between gap-2">
               <Button
                 type="button"

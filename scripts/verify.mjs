@@ -121,15 +121,8 @@ async function checkHttp(path, expectedStatus, description) {
   }
 }
 
-await checkHttp("/", 200, `GET ${baseUrl}/ returns 200`);
+await checkHttp("/", 307, `GET ${baseUrl}/ redirects to the app`);
 await checkHttp("/sign-in", 307, `GET ${baseUrl}/sign-in redirects to WorkOS`);
-
-const homeHtml = await fetch(`${baseUrl}/`).then((response) => response.text());
-if (homeHtml.includes("Hello, world.")) {
-  pass("home page renders Hello, world.");
-} else {
-  fail("home page is missing Hello, world.");
-}
 
 if (!failed) {
   console.log("\nAll foundation checks passed.");

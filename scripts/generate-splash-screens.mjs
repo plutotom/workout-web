@@ -36,4 +36,6 @@ for (const screen of splashScreens) {
   console.log(`✓ ${filename}`);
 }
 
-console.log(`Generated ${splashScreens.length} splash screens in public/splash/`);
+console.log(
+  `Generated ${splashScreens.length} splash screens in public/splash/`,
+);
