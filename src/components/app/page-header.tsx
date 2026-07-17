@@ -26,7 +26,7 @@ export function PageHeader({
         <Link
           href={backHref}
           aria-label="Back"
-          className="text-muted-foreground hover:text-foreground -ml-2 mt-0.5 inline-flex size-9 shrink-0 items-center justify-center rounded-md transition-colors"
+          className="text-muted-foreground hover:text-foreground -ml-1.5 mt-0.5 inline-flex size-10 shrink-0 items-center justify-center rounded-md transition-colors"
         >
           <ChevronLeft className="size-5" />
         </Link>

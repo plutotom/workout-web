@@ -435,7 +435,8 @@ export function TemplateEditorForm({
         <Button
           type="button"
           variant="outline"
-          className="w-full"
+          size="lg"
+          className="w-full text-base"
           disabled={usedSlugs.size >= catalog.all.length}
           onClick={() => {
             setPickerKey((k) => k + 1);

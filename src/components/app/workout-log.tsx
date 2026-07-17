@@ -217,7 +217,7 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
 
   if (session === undefined) {
     return (
-      <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-4">
         <PageHeader title="Log Workout" backHref="/dashboard" />
         <p className="text-muted-foreground text-sm">Loading…</p>
       </div>
@@ -226,7 +226,7 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
 
   if (session === null) {
     return (
-      <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-4">
         <PageHeader title="Log Workout" backHref="/dashboard" />
         <EmptyState
           title="Workout not found"
@@ -308,7 +308,7 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
   const draggedExercise = drag ? session.exercises[drag.from] : null;
 
   return (
-    <div className="relative flex flex-col gap-5 pb-24">
+    <div className="relative flex flex-col gap-4">
       <PageHeader
         title={session.templateName}
         backHref={editable ? "/dashboard" : historyHref}
@@ -332,7 +332,7 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
         </p>
       ) : null}
 
-      <div className="sticky top-16 z-20 -mx-4 border-y bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+      <div className="sticky top-12 z-20 -mx-3 border-y bg-background/95 px-3 py-2.5 backdrop-blur supports-[backdrop-filter]:bg-background/80">
         <div className="mb-2 flex items-end justify-between gap-3">
           <div>
             <p className="text-xs font-semibold tracking-[0.16em] text-muted-foreground uppercase">
@@ -417,7 +417,7 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
             <CardHeader
               className={cn(
                 "flex flex-row items-start justify-between gap-3 space-y-0",
-                isReordering ? "px-4 py-3" : "pb-2",
+                isReordering ? "px-3 py-3" : "pb-2",
               )}
             >
               <div className="min-w-0 flex-1">
@@ -547,7 +547,7 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
             width: drag.rowWidth,
           }}
         >
-          <div className="flex items-center justify-between gap-3 px-4 py-3">
+          <div className="flex items-center justify-between gap-3 px-3 py-3">
             <div className="min-w-0 flex-1">
               <p className="truncate text-base font-semibold">
                 {catalog.name(draggedExercise.slug)}
@@ -564,7 +564,8 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
         <Button
           type="button"
           variant="outline"
-          className="w-full"
+          size="lg"
+          className="w-full text-base"
           disabled={usedSlugs.length >= catalog.all.length}
           onClick={() => {
             setPickerKey((k) => k + 1);
@@ -595,14 +596,17 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
           if (!open) setExerciseMenu(null);
         }}
       >
-        <SheetContent side="bottom" className="gap-0 rounded-t-2xl pb-8">
-          <SheetHeader className="pb-2">
-            <SheetTitle className="truncate">
+        <SheetContent
+          side="bottom"
+          className="gap-0 rounded-t-2xl pb-[max(1rem,env(safe-area-inset-bottom))]"
+        >
+          <SheetHeader className="px-3 pb-2">
+            <SheetTitle className="truncate text-lg">
               {exerciseMenu?.name ?? "Exercise"}
             </SheetTitle>
             <SheetDescription>Exercise options</SheetDescription>
           </SheetHeader>
-          <div className="flex flex-col gap-1 px-4">
+          <div className="flex flex-col gap-1 px-3 pb-2">
             <Button
               type="button"
               variant="ghost"
@@ -674,7 +678,7 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
       {finishDialogs}
 
       {rest && restTimerEnabled ? (
-        <div className="fixed inset-x-0 bottom-[calc(57px+env(safe-area-inset-bottom))] z-50 mx-auto max-w-[600px] px-4">
+        <div className="fixed inset-x-0 bottom-[calc(57px+env(safe-area-inset-bottom))] z-50 mx-auto max-w-[600px] px-3">
           <div className="animate-slide-up-bar rounded-t-xl border bg-background/95 p-3 shadow-2xl backdrop-blur">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
