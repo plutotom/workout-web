@@ -15,8 +15,9 @@ export function parseProEmails(raw: string | undefined): Set<string> {
 }
 
 /**
- * Pro entitlement until billing ships.
- * - `user.plan === "pro"` (set by payments later, or manual testing mutation)
+ * Pro entitlement.
+ * - Active Polar subscription (checked live in entitlement query)
+ * - `user.plan === "pro"` (synced from Polar webhooks, or manual testing)
  * - OR email listed in `PRO_EMAILS` env (comma-separated)
  */
 export function isProUser(

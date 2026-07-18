@@ -165,16 +165,11 @@ export function AiTemplateButton({
           ) : (
             <p className="text-muted-foreground text-sm">
               Upgrade to Pro to generate or edit templates from a description.
-              {entitlement?.allowManualPro ? (
-                <>
-                  {" "}
-                  For testing before billing ships, enable Pro under{" "}
-                  <Link href="/settings" className="text-foreground underline">
-                    Settings
-                  </Link>
-                  .
-                </>
-              ) : null}
+              You can upgrade under{" "}
+              <Link href="/settings" className="text-foreground underline">
+                Settings
+              </Link>
+              .
             </p>
           )}
 

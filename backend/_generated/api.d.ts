@@ -9,14 +9,19 @@
  */
 
 import type * as hello from "../hello.js";
+import type * as http from "../http.js";
 import type * as lib_apiKeys from "../lib/apiKeys.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_exercise_notes from "../lib/exercise_notes.js";
 import type * as lib_exercises from "../lib/exercises.js";
 import type * as lib_insights from "../lib/insights.js";
+import type * as lib_plan from "../lib/plan.js";
 import type * as lib_templates from "../lib/templates.js";
 import type * as lib_workouts from "../lib/workouts.js";
 import type * as routes_auth_users from "../routes/auth/users.js";
+import type * as routes_billing_polar from "../routes/billing/polar.js";
+import type * as routes_billing_syncPlan from "../routes/billing/syncPlan.js";
+import type * as routes_billing_userInfo from "../routes/billing/userInfo.js";
 import type * as routes_exercises_mutations from "../routes/exercises/mutations.js";
 import type * as routes_exercises_queries from "../routes/exercises/queries.js";
 import type * as routes_insights_queries from "../routes/insights/queries.js";
@@ -42,14 +47,19 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   hello: typeof hello;
+  http: typeof http;
   "lib/apiKeys": typeof lib_apiKeys;
   "lib/auth": typeof lib_auth;
   "lib/exercise_notes": typeof lib_exercise_notes;
   "lib/exercises": typeof lib_exercises;
   "lib/insights": typeof lib_insights;
+  "lib/plan": typeof lib_plan;
   "lib/templates": typeof lib_templates;
   "lib/workouts": typeof lib_workouts;
   "routes/auth/users": typeof routes_auth_users;
+  "routes/billing/polar": typeof routes_billing_polar;
+  "routes/billing/syncPlan": typeof routes_billing_syncPlan;
+  "routes/billing/userInfo": typeof routes_billing_userInfo;
   "routes/exercises/mutations": typeof routes_exercises_mutations;
   "routes/exercises/queries": typeof routes_exercises_queries;
   "routes/insights/queries": typeof routes_insights_queries;
@@ -94,4 +104,6 @@ export declare const internal: FilterApi<
   FunctionReference<any, "internal">
 >;
 
-export declare const components: {};
+export declare const components: {
+  polar: import("@convex-dev/polar/_generated/component.js").ComponentApi<"polar">;
+};
