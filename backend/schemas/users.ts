@@ -8,10 +8,15 @@ export const activeWorkoutModeValidator = v.union(
   v.literal("focus"),
 );
 
+/** Account tier. Missing / "free" = free; "pro" unlocks AI features. */
+export const planValidator = v.union(v.literal("free"), v.literal("pro"));
+
 export const userTables = {
   users: defineTable({
     workosId: v.string(),
     email: v.string(),
+    // Billing tier. Missing means free until payments land.
+    plan: v.optional(planValidator),
     // Preferred weight unit. New users default to "lb" (V1 locked decision).
     unit: unitValidator,
     // Default bar weight per unit for the plate calculator; falls back to the

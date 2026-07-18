@@ -1,7 +1,13 @@
 import { v } from "convex/values";
 
 import { mutation, query } from "../../_generated/server";
-import { activeWorkoutModeValidator, unitValidator } from "../../schemas/users";
+import { requireUser } from "../../lib/auth";
+import { allowManualPro, isProUser } from "../../lib/plan";
+import {
+  activeWorkoutModeValidator,
+  planValidator,
+  unitValidator,
+} from "../../schemas/users";
 
 /** The signed-in user's profile, or null if not signed in / not yet created. */
 export const current = query({
@@ -14,6 +20,38 @@ export const current = query({
       .query("users")
       .withIndex("by_workosId", (q) => q.eq("workosId", identity.subject))
       .unique();
+  },
+});
+
+/**
+ * Entitlements for gated features (AI template generation, etc.).
+ * Pro = `plan === "pro"` or email in Convex env `PRO_EMAILS`.
+ */
+export const entitlement = query({
+  args: {},
+  returns: v.union(
+    v.null(),
+    v.object({
+      isPro: v.boolean(),
+      plan: v.union(planValidator, v.literal("free")),
+      allowManualPro: v.boolean(),
+    }),
+  ),
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return null;
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_workosId", (q) => q.eq("workosId", identity.subject))
+      .unique();
+    if (!user) return null;
+
+    return {
+      isPro: isProUser(user),
+      plan: user.plan === "pro" ? ("pro" as const) : ("free" as const),
+      allowManualPro: allowManualPro(),
+    };
   },
 });
 
@@ -112,5 +150,22 @@ export const setBar = mutation({
       user._id,
       unit === "lb" ? { barWeightLb: value } : { barWeightKg: value },
     );
+  },
+});
+
+/**
+ * Temporary plan toggle for testing AI / Pro gates before billing exists.
+ * Only available when Convex env `ALLOW_MANUAL_PRO=true`.
+ */
+export const setPlanForTesting = mutation({
+  args: { plan: planValidator },
+  returns: v.null(),
+  handler: async (ctx, { plan }) => {
+    if (!allowManualPro()) {
+      throw new Error("Manual Pro changes are disabled");
+    }
+    const user = await requireUser(ctx);
+    await ctx.db.patch(user._id, { plan });
+    return null;
   },
 });
