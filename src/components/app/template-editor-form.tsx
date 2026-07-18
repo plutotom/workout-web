@@ -16,10 +16,12 @@ import { toast } from "sonner";
 
 import { api } from "@backend/api";
 import type { Id } from "@backend/dataModel";
+import { AiTemplateButton } from "@/components/app/ai-template-button";
 import { PageHeader } from "@/components/app/page-header";
 import { ExerciseNoteField } from "@/components/app/exercise-note-field";
 import { ExercisePicker } from "@/components/app/exercise-picker";
 import { LiftWeightInput } from "@/components/app/lift-weight-input";
+import type { TemplateDraft } from "@/lib/ai/template-draft";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -215,6 +217,17 @@ export function TemplateEditorForm({
     }
   }
 
+  function applyAiDraft(draft: TemplateDraft) {
+    setName(draft.name);
+    setExercises(
+      draft.exercises.map((ex) => ({
+        slug: ex.slug,
+        sets: ex.sets.map((s) => ({ weight: s.weight, reps: s.reps })),
+      })),
+    );
+    setOpenIndex(draft.exercises.length ? 0 : -1);
+  }
+
   return (
     <div className="flex flex-col gap-5">
       <PageHeader
@@ -226,6 +239,19 @@ export function TemplateEditorForm({
           </Button>
         }
       />
+
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-muted-foreground text-sm">
+          {templateId
+            ? "Tweak exercises manually or with AI."
+            : "Build manually or describe the workout."}
+        </p>
+        <AiTemplateButton
+          mode={templateId ? "edit" : "create"}
+          current={{ name, exercises }}
+          onApply={applyAiDraft}
+        />
+      </div>
 
       <div className="grid gap-2">
         <Label htmlFor="template-name">Template name</Label>

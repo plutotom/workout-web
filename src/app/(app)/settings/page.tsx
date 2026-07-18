@@ -4,6 +4,7 @@ import { LogOut, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { GeneralSettings } from "./general-settings";
 import { McpSettings } from "./mcp-settings";
+import { PlanSettings } from "./plan-settings";
 
 export default function SettingsPage() {
   return (
@@ -19,11 +20,13 @@ export default function SettingsPage() {
           App controls
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Units, bar defaults, and external access.
+          Units, bar defaults, plan, and external access.
         </p>
       </div>
 
       <GeneralSettings />
+
+      <PlanSettings />
 
       <McpSettings />
 
