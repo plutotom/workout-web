@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { mutation, query } from "../../_generated/server";
 import { requireUser } from "../../lib/auth";
 import { allowManualPro, isProUser } from "../../lib/plan";
+import { isBillingConfigured, polar } from "../billing/polar";
 import {
   activeWorkoutModeValidator,
   planValidator,
@@ -25,7 +26,7 @@ export const current = query({
 
 /**
  * Entitlements for gated features (AI template generation, etc.).
- * Pro = `plan === "pro"` or email in Convex env `PRO_EMAILS`.
+ * Pro = active Polar subscription, `plan === "pro"`, or `PRO_EMAILS` allowlist.
  */
 export const entitlement = query({
   args: {},
@@ -35,6 +36,17 @@ export const entitlement = query({
       isPro: v.boolean(),
       plan: v.union(planValidator, v.literal("free")),
       allowManualPro: v.boolean(),
+      billingConfigured: v.boolean(),
+      subscription: v.union(
+        v.null(),
+        v.object({
+          status: v.string(),
+          productKey: v.union(v.string(), v.null()),
+          productName: v.union(v.string(), v.null()),
+          currentPeriodEnd: v.union(v.string(), v.null()),
+          cancelAtPeriodEnd: v.boolean(),
+        }),
+      ),
     }),
   ),
   handler: async (ctx) => {
@@ -47,10 +59,45 @@ export const entitlement = query({
       .unique();
     if (!user) return null;
 
+    let subscription: {
+      status: string;
+      productKey: string | null;
+      productName: string | null;
+      currentPeriodEnd: string | null;
+      cancelAtPeriodEnd: boolean;
+    } | null = null;
+    let hasPaidSubscription = false;
+
+    try {
+      const currentSub = await polar.getCurrentSubscription(ctx, {
+        userId: user._id,
+      });
+      if (currentSub) {
+        hasPaidSubscription = true;
+        const key =
+          typeof currentSub.productKey === "string"
+            ? currentSub.productKey
+            : null;
+        subscription = {
+          status: currentSub.status,
+          productKey: key,
+          productName: currentSub.product?.name ?? null,
+          currentPeriodEnd: currentSub.currentPeriodEnd ?? null,
+          cancelAtPeriodEnd: currentSub.cancelAtPeriodEnd,
+        };
+      }
+    } catch {
+      // Polar component may not be synced yet.
+    }
+
+    const isPro = hasPaidSubscription || isProUser(user);
+
     return {
-      isPro: isProUser(user),
-      plan: user.plan === "pro" ? ("pro" as const) : ("free" as const),
+      isPro,
+      plan: isPro ? ("pro" as const) : ("free" as const),
       allowManualPro: allowManualPro(),
+      billingConfigured: isBillingConfigured(),
+      subscription,
     };
   },
 });
