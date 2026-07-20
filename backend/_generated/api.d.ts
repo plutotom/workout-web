@@ -14,6 +14,7 @@ import type * as lib_auth from "../lib/auth.js";
 import type * as lib_exercise_notes from "../lib/exercise_notes.js";
 import type * as lib_exercises from "../lib/exercises.js";
 import type * as lib_insights from "../lib/insights.js";
+import type * as lib_plan from "../lib/plan.js";
 import type * as lib_templates from "../lib/templates.js";
 import type * as lib_workouts from "../lib/workouts.js";
 import type * as routes_auth_users from "../routes/auth/users.js";
@@ -47,6 +48,7 @@ declare const fullApi: ApiFromModules<{
   "lib/exercise_notes": typeof lib_exercise_notes;
   "lib/exercises": typeof lib_exercises;
   "lib/insights": typeof lib_insights;
+  "lib/plan": typeof lib_plan;
   "lib/templates": typeof lib_templates;
   "lib/workouts": typeof lib_workouts;
   "routes/auth/users": typeof routes_auth_users;
