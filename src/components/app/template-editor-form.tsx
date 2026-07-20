@@ -140,6 +140,11 @@ export function TemplateEditorForm({
 
   function removeExercise(index: number) {
     setExercises((prev) => prev.filter((_, i) => i !== index));
+    setOpenIndex((current) => {
+      if (current === index) return -1;
+      if (current > index) return current - 1;
+      return current;
+    });
   }
 
   function addExercises(slugs: string[]) {
@@ -240,45 +245,48 @@ export function TemplateEditorForm({
         }
       />
 
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-muted-foreground text-sm">
-          {templateId
-            ? "Tweak exercises manually or with AI."
-            : "Build manually or describe the workout."}
-        </p>
+      <div className="grid gap-3">
+        <div className="grid gap-2">
+          <Label htmlFor="template-name">Template name</Label>
+          <Input
+            id="template-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Push Day"
+            autoComplete="off"
+            className="h-12 text-base"
+          />
+        </div>
+
         <AiTemplateButton
           mode={templateId ? "edit" : "create"}
           current={{ name, exercises }}
           onApply={applyAiDraft}
         />
+        <p className="text-muted-foreground -mt-1 text-center text-xs">
+          {templateId
+            ? "Tweak sets by hand, or ask AI to reshape the draft."
+            : "Build by hand, or describe the workout for AI."}
+        </p>
       </div>
 
-      <div className="grid gap-2">
-        <Label htmlFor="template-name">Template name</Label>
-        <Input
-          id="template-name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Push Day"
-          autoComplete="off"
-        />
-      </div>
-
-      <div className="grid gap-3 rounded-lg border bg-[var(--surface)] p-3">
+      <div className="grid gap-3 rounded-xl border bg-[var(--surface)] px-3 py-3.5">
         <div className="grid grid-cols-3 gap-2 text-center">
           <div>
-            <p className="text-lg font-semibold">{exercises.length}</p>
-            <p className="text-xs text-muted-foreground">exercises</p>
+            <p className="text-xl font-semibold tabular-nums">
+              {exercises.length}
+            </p>
+            <p className="text-muted-foreground text-xs">exercises</p>
           </div>
           <div>
-            <p className="text-lg font-semibold">{setCount}</p>
-            <p className="text-xs text-muted-foreground">sets</p>
+            <p className="text-xl font-semibold tabular-nums">{setCount}</p>
+            <p className="text-muted-foreground text-xs">sets</p>
           </div>
           <div>
-            <p className="text-lg font-semibold">
+            <p className="text-xl font-semibold tabular-nums">
               ~{estimateWorkoutMinutes(exercises.length, setCount)}
             </p>
-            <p className="text-xs text-muted-foreground">min</p>
+            <p className="text-muted-foreground text-xs">min</p>
           </div>
         </div>
         <MuscleBand segments={muscleSegments} showLegend />
@@ -287,7 +295,7 @@ export function TemplateEditorForm({
       <div className="flex flex-col gap-3">
         <Label>Exercises</Label>
         {exercises.length === 0 ? (
-          <div className="text-muted-foreground rounded-md border border-dashed px-3 py-6 text-center text-sm">
+          <div className="text-muted-foreground rounded-xl border border-dashed px-4 py-10 text-center text-sm">
             No exercises yet. Add one below.
           </div>
         ) : (
@@ -300,19 +308,19 @@ export function TemplateEditorForm({
                 key={ex.slug}
                 data-ex-index={exIndex}
                 className={cn(
-                  "gap-0 overflow-hidden py-0 transition-all",
+                  "gap-0 overflow-hidden rounded-xl py-0 transition-all",
                   drag?.from === exIndex && "scale-[0.99] opacity-70",
                   drag?.over === exIndex &&
                     drag.from !== exIndex &&
                     "border-foreground/50 bg-foreground/5",
                 )}
               >
-                <CardHeader className="flex flex-row items-center gap-1 space-y-0 px-3 py-3 sm:gap-2 sm:px-4">
+                <CardHeader className="flex flex-row items-stretch gap-0 space-y-0 p-0">
                   <Button
                     type="button"
                     size="icon"
                     variant="ghost"
-                    className="text-muted-foreground hover:text-foreground size-10 shrink-0 cursor-grab touch-none active:cursor-grabbing sm:size-9"
+                    className="text-muted-foreground hover:text-foreground h-auto w-11 shrink-0 cursor-grab touch-none rounded-none active:cursor-grabbing"
                     aria-label={`Reorder ${catalog.name(ex.slug)}`}
                     onPointerDown={(event) => {
                       event.preventDefault();
@@ -331,126 +339,132 @@ export function TemplateEditorForm({
                     }}
                     onPointerCancel={() => setDrag(null)}
                   >
-                    <GripVertical className="size-4" />
+                    <GripVertical className="size-5" />
                   </Button>
                   <button
                     type="button"
-                    className="min-w-0 flex-1 py-0.5 text-left"
+                    className="min-w-0 flex-1 px-1 py-3.5 text-left"
                     onClick={() => setOpenIndex(isOpen ? -1 : exIndex)}
                   >
-                    <CardTitle className="truncate text-base">
+                    <CardTitle className="truncate text-base leading-tight">
                       {catalog.name(ex.slug)}
                     </CardTitle>
-                    <p className="text-muted-foreground mt-0.5 text-xs">
-                      {ex.sets.length} sets · {reps} reps · up to {maxWeight} lb
+                    <p className="text-muted-foreground mt-1 text-xs">
+                      {ex.sets.length} sets · {reps} reps
+                      {maxWeight > 0 ? ` · up to ${maxWeight} lb` : ""}
                     </p>
                   </button>
-                  <div className="flex shrink-0 items-center">
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="ghost"
-                      className="size-10 sm:size-9"
-                      aria-label={
-                        isOpen ? "Collapse exercise" : "Expand exercise"
-                      }
-                      onClick={() => setOpenIndex(isOpen ? -1 : exIndex)}
-                    >
-                      {isOpen ? (
-                        <ChevronUp className="size-4" />
-                      ) : (
-                        <ChevronDown className="size-4" />
-                      )}
-                    </Button>
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="ghost"
-                      className="text-destructive hover:text-destructive size-10 sm:size-9"
-                      aria-label="Remove exercise"
-                      onClick={() => removeExercise(exIndex)}
-                    >
-                      <Trash2 className="size-4" />
-                    </Button>
-                  </div>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="h-auto w-11 shrink-0 rounded-none"
+                    aria-label={
+                      isOpen ? "Collapse exercise" : "Expand exercise"
+                    }
+                    onClick={() => setOpenIndex(isOpen ? -1 : exIndex)}
+                  >
+                    {isOpen ? (
+                      <ChevronUp className="size-5" />
+                    ) : (
+                      <ChevronDown className="size-5" />
+                    )}
+                  </Button>
                 </CardHeader>
                 {isOpen ? (
-                  <CardContent className="flex flex-col gap-2.5 px-3 pb-3 sm:px-4 sm:pb-4">
+                  <CardContent className="flex flex-col gap-3 border-t px-3 pt-3 pb-3">
                     <ExerciseNoteField
                       key={`${ex.slug}-${ex.notes ?? notesBySlug[ex.slug] ?? ""}`}
                       exerciseSlug={ex.slug}
                       initialNotes={ex.notes ?? notesBySlug[ex.slug]}
                       compact
                     />
-                    <div className="text-muted-foreground grid grid-cols-[1.75rem_minmax(0,1.2fr)_minmax(0,0.85fr)_2.5rem] items-center gap-1.5 text-[11px] font-medium tracking-wide uppercase sm:gap-2">
-                      <span className="text-center">Set</span>
-                      <span>Weight</span>
-                      <span>Reps</span>
-                      <span />
-                    </div>
-                    {ex.sets.map((set, setIndex) => (
-                      <div
-                        key={setIndex}
-                        className="grid grid-cols-[1.75rem_minmax(0,1.2fr)_minmax(0,0.85fr)_2.5rem] items-center gap-1.5 sm:gap-2"
-                      >
-                        <span className="text-muted-foreground text-center text-sm tabular-nums">
-                          {setIndex + 1}
-                        </span>
-                        <LiftWeightInput
-                          value={set.weight}
-                          inputClassName="h-10 text-center sm:h-9"
-                          aria-label={`Set ${setIndex + 1} weight`}
-                          onCommit={(weight) =>
-                            setSetValue(exIndex, setIndex, "weight", weight)
-                          }
-                          plateCalc={{
-                            includeBar: catalog.usesBar(ex.slug),
-                            onApply: (w) =>
-                              setSetValue(exIndex, setIndex, "weight", w),
-                            buttonAriaLabel: `Plates for set ${setIndex + 1}`,
-                          }}
-                        />
-                        <Input
-                          type="text"
-                          inputMode="numeric"
-                          pattern="[0-9]*"
-                          value={set.reps === 0 ? "" : String(set.reps)}
-                          placeholder="0"
-                          className="h-10 text-center sm:h-9"
-                          aria-label={`Set ${setIndex + 1} reps`}
-                          onFocus={selectNumericInput}
-                          onChange={(e) =>
-                            setSetValue(
-                              exIndex,
-                              setIndex,
-                              "reps",
-                              toWhole(e.target.value),
-                            )
-                          }
-                        />
-                        <Button
-                          type="button"
-                          size="icon"
-                          variant="ghost"
-                          className="text-muted-foreground hover:text-foreground size-10 justify-self-center sm:size-9"
-                          aria-label={`Remove set ${setIndex + 1}`}
-                          disabled={ex.sets.length <= 1}
-                          onClick={() => removeSetRow(exIndex, setIndex)}
-                        >
-                          <X className="size-4" />
-                        </Button>
+
+                    <div className="flex flex-col gap-2">
+                      <div className="text-muted-foreground grid grid-cols-[2.25rem_minmax(0,1.15fr)_minmax(0,0.9fr)_2.75rem] items-center gap-2 px-0.5 text-[11px] font-medium tracking-wide uppercase">
+                        <span className="text-center">Set</span>
+                        <span>Weight</span>
+                        <span>Reps</span>
+                        <span className="sr-only">Remove</span>
                       </div>
-                    ))}
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="text-muted-foreground -ml-2 self-start"
-                      onClick={() => addSetRow(exIndex)}
-                    >
-                      <Plus className="size-4" />
-                      Add set
-                    </Button>
+                      {ex.sets.map((set, setIndex) => (
+                        <div
+                          key={setIndex}
+                          className="grid grid-cols-[2.25rem_minmax(0,1.15fr)_minmax(0,0.9fr)_2.75rem] items-center gap-2"
+                        >
+                          <span className="bg-muted text-muted-foreground flex size-9 items-center justify-center justify-self-center rounded-lg text-sm font-medium tabular-nums">
+                            {setIndex + 1}
+                          </span>
+                          <LiftWeightInput
+                            value={set.weight}
+                            inputClassName="h-12 text-center text-base"
+                            aria-label={`Set ${setIndex + 1} weight`}
+                            onCommit={(weight) =>
+                              setSetValue(exIndex, setIndex, "weight", weight)
+                            }
+                            plateCalc={{
+                              includeBar: catalog.usesBar(ex.slug),
+                              onApply: (w) =>
+                                setSetValue(exIndex, setIndex, "weight", w),
+                              buttonAriaLabel: `Plates for set ${setIndex + 1}`,
+                              buttonClassName: "size-9",
+                            }}
+                          />
+                          <Input
+                            type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            value={set.reps === 0 ? "" : String(set.reps)}
+                            placeholder="0"
+                            className="h-12 text-center text-base"
+                            aria-label={`Set ${setIndex + 1} reps`}
+                            onFocus={selectNumericInput}
+                            onChange={(e) =>
+                              setSetValue(
+                                exIndex,
+                                setIndex,
+                                "reps",
+                                toWhole(e.target.value),
+                              )
+                            }
+                          />
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="text-muted-foreground hover:text-foreground size-11 justify-self-center"
+                            aria-label={`Remove set ${setIndex + 1}`}
+                            disabled={ex.sets.length <= 1}
+                            onClick={() => removeSetRow(exIndex, setIndex)}
+                          >
+                            <X className="size-5" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="lg"
+                        className="h-11 w-full"
+                        onClick={() => addSetRow(exIndex)}
+                      >
+                        <Plus className="size-4" />
+                        Add set
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="lg"
+                        className="text-destructive hover:text-destructive h-11 w-full"
+                        onClick={() => removeExercise(exIndex)}
+                      >
+                        <Trash2 className="size-4" />
+                        Remove exercise
+                      </Button>
+                    </div>
                   </CardContent>
                 ) : null}
               </Card>
@@ -462,7 +476,7 @@ export function TemplateEditorForm({
           type="button"
           variant="outline"
           size="lg"
-          className="w-full text-base"
+          className="h-12 w-full text-base"
           disabled={usedSlugs.size >= catalog.all.length}
           onClick={() => {
             setPickerKey((k) => k + 1);
@@ -501,9 +515,9 @@ function DeleteTemplateButton({ onConfirm }: { onConfirm: () => void }) {
     <Dialog open={open} onOpenChange={setOpen}>
       <Button
         type="button"
-        variant="outline"
+        variant="ghost"
         size="lg"
-        className="text-destructive hover:text-destructive w-full"
+        className="text-destructive hover:text-destructive h-11 w-full"
         onClick={() => setOpen(true)}
       >
         <Trash2 className="size-4" />
@@ -517,12 +531,11 @@ function DeleteTemplateButton({ onConfirm }: { onConfirm: () => void }) {
             kept.
           </DialogDescription>
         </DialogHeader>
-        <DialogFooter>
-          <DialogClose asChild>
-            <Button variant="ghost">Cancel</Button>
-          </DialogClose>
+        <DialogFooter className="flex-col gap-2 sm:flex-col">
           <Button
             variant="destructive"
+            size="lg"
+            className="h-11 w-full"
             onClick={() => {
               setOpen(false);
               onConfirm();
@@ -530,6 +543,11 @@ function DeleteTemplateButton({ onConfirm }: { onConfirm: () => void }) {
           >
             Delete
           </Button>
+          <DialogClose asChild>
+            <Button variant="ghost" size="lg" className="h-11 w-full">
+              Cancel
+            </Button>
+          </DialogClose>
         </DialogFooter>
       </DialogContent>
     </Dialog>

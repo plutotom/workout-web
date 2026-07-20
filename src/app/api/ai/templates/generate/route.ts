@@ -48,7 +48,7 @@ function requireConvexUrl(): string {
 }
 
 function resolveModel(): string {
-  return process.env.AI_GATEWAY_MODEL?.trim() || "openai/gpt-4.1-mini";
+  return process.env.AI_GATEWAY_MODEL?.trim() || "openai/gpt-5-nano";
 }
 
 export async function POST(request: Request) {
