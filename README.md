@@ -1,5 +1,9 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Docs
+
+- [AI templates & Pro billing](./docs/ai-and-pro.md) — describe-a-workout AI, Pro entitlement, Polar setup
+
 ## Getting Started
 
 First, run the development server:

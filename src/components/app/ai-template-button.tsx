@@ -186,7 +186,9 @@ export function AiTemplateButton({
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pt-3">
             {isPro ? (
               <div className="grid gap-2">
-                <Label htmlFor="ai-template-prompt">What should change?</Label>
+                <Label htmlFor="ai-template-prompt">
+                  {mode === "edit" ? "What should change?" : "Description"}
+                </Label>
                 <Textarea
                   ref={textareaRef}
                   id="ai-template-prompt"
@@ -210,18 +212,13 @@ export function AiTemplateButton({
             ) : (
               <p className="text-muted-foreground text-sm">
                 Upgrade to Pro to generate or edit templates from a description.
+                You can upgrade under{" "}
+                <Link href="/settings" className="text-foreground underline">
+                  Settings
+                </Link>
+                .
                 {entitlement?.allowManualPro ? (
-                  <>
-                    {" "}
-                    For testing before billing ships, enable Pro under{" "}
-                    <Link
-                      href="/settings"
-                      className="text-foreground underline"
-                    >
-                      Settings
-                    </Link>
-                    .
-                  </>
+                  <> For testing, you can also enable Pro there.</>
                 ) : null}
               </p>
             )}
