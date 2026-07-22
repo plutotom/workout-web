@@ -77,3 +77,24 @@ pnpm sync:preview:all    # Also push WorkOS secrets to Vercel Preview
 For local Next.js builds without deploying Convex, use `pnpm build:web`.
 
 Manual full prod sync (Convex env vars + WorkOS redirects): `pnpm sync:prod`.
+
+## Local worktrees
+
+Use the repository commands instead of copying `.env.local` or invoking
+`git worktree` directly:
+
+```bash
+pnpm worktree:create <slug>
+pnpm worktree:list
+pnpm worktree:start <slug>
+pnpm worktree:remove <slug>
+```
+
+Each `wt/<slug>` worktree receives persisted frontend and Convex Local ports,
+an anonymous local Convex deployment, and an allowlisted projection of the
+primary checkout's WorkOS Sandbox credentials. State and ownership manifests
+live under the common Git directory. Starts remain foreground processes;
+removal refuses dirty or listening worktrees and preserves the branch.
+
+Never copy `CONVEX_DEPLOYMENT`, remote Convex URLs, Vercel OIDC tokens,
+production WorkOS keys, or arbitrary environment files into a worktree.
