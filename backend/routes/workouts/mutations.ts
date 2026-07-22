@@ -6,6 +6,7 @@ import { exerciseSlugValidator } from "../../schemas/exercises";
 import {
   abandonWorkout,
   deleteWorkout,
+  addExercisesFromDraft as addExercisesFromDraftLib,
   addSessionExercise as addSessionExerciseLib,
   addSet as addSetLib,
   deleteSet as deleteSetLib,
@@ -14,6 +15,7 @@ import {
   removeSessionExercise as removeSessionExerciseLib,
   startBlankWorkout,
   startWorkout,
+  undoAiGeneration as undoAiGenerationLib,
   updateSet as updateSetLib,
 } from "../../lib/workouts";
 
@@ -87,6 +89,58 @@ export const addExercise = mutation({
   handler: async (ctx, args) => {
     const user = await requireUser(ctx);
     return addSessionExerciseLib(ctx, user._id, args);
+  },
+});
+
+/**
+ * Apply AI session reshape: optional removals + appends. Snapshots removals
+ * for undo when aiGenerationId is set.
+ */
+export const addExercisesFromDraft = mutation({
+  args: {
+    sessionId: v.id("workoutSessions"),
+    exercises: v.array(
+      v.object({
+        slug: exerciseSlugValidator,
+        sets: v.array(
+          v.object({
+            weight: v.number(),
+            reps: v.number(),
+          }),
+        ),
+      }),
+    ),
+    removeSlugs: v.optional(v.array(exerciseSlugValidator)),
+    aiGenerationId: v.optional(v.string()),
+  },
+  returns: v.object({
+    ids: v.array(v.id("sessionExercises")),
+    generationId: v.union(v.string(), v.null()),
+    removedCount: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const user = await requireUser(ctx);
+    return addExercisesFromDraftLib(ctx, user._id, args);
+  },
+});
+
+/**
+ * Undo an AI reshape: remove batch adds (with no logged sets) and restore
+ * snapshotted removals for that generation.
+ */
+export const undoAiGeneration = mutation({
+  args: {
+    sessionId: v.id("workoutSessions"),
+    generationId: v.string(),
+  },
+  returns: v.object({
+    removed: v.number(),
+    kept: v.number(),
+    restored: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const user = await requireUser(ctx);
+    return undoAiGenerationLib(ctx, user._id, args);
   },
 });
 
