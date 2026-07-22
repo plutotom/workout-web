@@ -376,6 +376,275 @@ export async function addSessionExercise(
   return sessionExerciseId;
 }
 
+const MAX_DRAFT_EXERCISES = 20;
+const MAX_SETS_PER_EXERCISE = 20;
+
+type DraftExercise = {
+  slug: string;
+  sets: Array<{ weight: number; reps: number }>;
+};
+
+type UndoSetSnapshot = {
+  orderIndex: number;
+  weight: number;
+  reps: number;
+  targetWeight?: number;
+  targetReps?: number;
+  completed: boolean;
+  completedAt?: number;
+};
+
+type UndoExerciseSnapshot = {
+  exerciseSlug: string;
+  orderIndex: number;
+  restSeconds?: number;
+  sets: UndoSetSnapshot[];
+};
+
+/**
+ * Apply an AI session reshape: remove existing exercises (snapshotted for
+ * undo) and/or append new ones tagged with aiGenerationId.
+ */
+export async function addExercisesFromDraft(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  {
+    sessionId,
+    exercises,
+    removeSlugs = [],
+    aiGenerationId,
+  }: {
+    sessionId: Id<"workoutSessions">;
+    exercises: DraftExercise[];
+    removeSlugs?: string[];
+    aiGenerationId?: string;
+  },
+): Promise<{
+  ids: Id<"sessionExercises">[];
+  generationId: string | null;
+  removedCount: number;
+}> {
+  const session = await assertSessionEditable(ctx, userId, sessionId);
+
+  const existing = await sessionExercisesFor(ctx, sessionId);
+  const bySlug = new Map(existing.map((e) => [e.exerciseSlug, e]));
+  const generationId = aiGenerationId?.trim() || null;
+
+  const removedSnapshots: UndoExerciseSnapshot[] = [];
+  const toRemove = [
+    ...new Set(removeSlugs.map((s) => s.trim()).filter(Boolean)),
+  ];
+
+  for (const slug of toRemove) {
+    const exercise = bySlug.get(slug);
+    if (!exercise) continue;
+
+    const sets = await ctx.db
+      .query("sets")
+      .withIndex("by_session_exercise", (q) =>
+        q.eq("sessionExerciseId", exercise._id),
+      )
+      .collect();
+    sets.sort((a, b) => a.orderIndex - b.orderIndex);
+
+    removedSnapshots.push({
+      exerciseSlug: exercise.exerciseSlug,
+      orderIndex: exercise.orderIndex,
+      restSeconds: exercise.restSeconds,
+      sets: sets.map((s) => ({
+        orderIndex: s.orderIndex,
+        weight: s.weight,
+        reps: s.reps,
+        targetWeight: s.targetWeight,
+        targetReps: s.targetReps,
+        completed: s.completed,
+        completedAt: s.completedAt,
+      })),
+    });
+
+    await Promise.all(sets.map((set) => ctx.db.delete(set._id)));
+    await ctx.db.delete(exercise._id);
+    bySlug.delete(slug);
+  }
+
+  const remainingAfterRemove = await sessionExercisesFor(ctx, sessionId);
+  const usedSlugs = new Set(remainingAfterRemove.map((e) => e.exerciseSlug));
+  let nextOrder =
+    remainingAfterRemove.length > 0
+      ? remainingAfterRemove[remainingAfterRemove.length - 1].orderIndex + 1
+      : 0;
+
+  const addedIds: Id<"sessionExercises">[] = [];
+
+  for (const draft of exercises.slice(0, MAX_DRAFT_EXERCISES)) {
+    const slug = draft.slug.trim();
+    if (!slug || usedSlugs.has(slug)) continue;
+
+    const sets = draft.sets.slice(0, MAX_SETS_PER_EXERCISE).map((s) => ({
+      weight: clampWhole(s.weight),
+      reps: clampWhole(s.reps),
+    }));
+    const presets = sets.length ? sets : [{ weight: 0, reps: 0 }];
+
+    const sessionExerciseId = await ctx.db.insert("sessionExercises", {
+      sessionId,
+      exerciseSlug: slug,
+      orderIndex: nextOrder,
+      restSeconds: DEFAULT_REST_SECONDS,
+      ...(generationId ? { aiGenerationId: generationId } : {}),
+    });
+    nextOrder += 1;
+    usedSlugs.add(slug);
+
+    for (const [i, preset] of presets.entries()) {
+      await ctx.db.insert("sets", {
+        sessionExerciseId,
+        orderIndex: i,
+        targetWeight: preset.weight,
+        targetReps: preset.reps,
+        weight: preset.weight,
+        reps: preset.reps,
+        completed: false,
+      });
+    }
+
+    addedIds.push(sessionExerciseId);
+  }
+
+  if (addedIds.length === 0 && removedSnapshots.length === 0) {
+    throw new Error("No changes to apply");
+  }
+
+  // Reindex remaining + newly added in order
+  const finalExercises = await sessionExercisesFor(ctx, sessionId);
+  await Promise.all(
+    finalExercises.map((exercise, i) =>
+      exercise.orderIndex === i
+        ? Promise.resolve()
+        : ctx.db.patch(exercise._id, { orderIndex: i }),
+    ),
+  );
+
+  if (generationId) {
+    await ctx.db.patch(session._id, {
+      aiUndoBatch: {
+        generationId,
+        removed: removedSnapshots,
+      },
+    });
+  } else if (session.aiUndoBatch) {
+    await ctx.db.patch(session._id, { aiUndoBatch: undefined });
+  }
+
+  return {
+    ids: addedIds,
+    generationId,
+    removedCount: removedSnapshots.length,
+  };
+}
+
+/**
+ * Undo an AI reshape: delete batch-added exercises with no completed sets,
+ * and restore any exercises that were removed in that batch.
+ */
+export async function undoAiGeneration(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  {
+    sessionId,
+    generationId,
+  }: {
+    sessionId: Id<"workoutSessions">;
+    generationId: string;
+  },
+): Promise<{ removed: number; kept: number; restored: number }> {
+  const session = await assertSessionEditable(ctx, userId, sessionId);
+
+  const trimmed = generationId.trim();
+  if (!trimmed) throw new Error("Missing generation id");
+
+  const batch = await ctx.db
+    .query("sessionExercises")
+    .withIndex("by_session_generation", (q) =>
+      q.eq("sessionId", sessionId).eq("aiGenerationId", trimmed),
+    )
+    .collect();
+
+  let removed = 0;
+  let kept = 0;
+
+  for (const exercise of batch) {
+    const sets = await ctx.db
+      .query("sets")
+      .withIndex("by_session_exercise", (q) =>
+        q.eq("sessionExerciseId", exercise._id),
+      )
+      .collect();
+    if (sets.some((s) => s.completed)) {
+      kept += 1;
+      continue;
+    }
+    await Promise.all(sets.map((set) => ctx.db.delete(set._id)));
+    await ctx.db.delete(exercise._id);
+    removed += 1;
+  }
+
+  let restored = 0;
+  const undoBatch =
+    session.aiUndoBatch?.generationId === trimmed ? session.aiUndoBatch : null;
+
+  if (undoBatch) {
+    const existing = await sessionExercisesFor(ctx, sessionId);
+    const usedSlugs = new Set(existing.map((e) => e.exerciseSlug));
+    let nextOrder =
+      existing.length > 0 ? existing[existing.length - 1].orderIndex + 1 : 0;
+
+    for (const snap of undoBatch.removed) {
+      if (usedSlugs.has(snap.exerciseSlug)) continue;
+
+      const sessionExerciseId = await ctx.db.insert("sessionExercises", {
+        sessionId,
+        exerciseSlug: snap.exerciseSlug,
+        orderIndex: nextOrder,
+        restSeconds: snap.restSeconds ?? DEFAULT_REST_SECONDS,
+      });
+      nextOrder += 1;
+      usedSlugs.add(snap.exerciseSlug);
+
+      for (const s of snap.sets) {
+        await ctx.db.insert("sets", {
+          sessionExerciseId,
+          orderIndex: s.orderIndex,
+          targetWeight: s.targetWeight ?? s.weight,
+          targetReps: s.targetReps ?? s.reps,
+          weight: s.weight,
+          reps: s.reps,
+          completed: s.completed,
+          completedAt: s.completedAt,
+        });
+      }
+      restored += 1;
+    }
+
+    await ctx.db.patch(session._id, { aiUndoBatch: undefined });
+  }
+
+  if (removed === 0 && kept === 0 && restored === 0) {
+    throw new Error("Nothing to undo");
+  }
+
+  const remaining = await sessionExercisesFor(ctx, sessionId);
+  await Promise.all(
+    remaining.map((exercise, i) =>
+      exercise.orderIndex === i
+        ? Promise.resolve()
+        : ctx.db.patch(exercise._id, { orderIndex: i }),
+    ),
+  );
+
+  return { removed, kept, restored };
+}
+
 /** Remove an exercise (and its sets) from an in-progress workout. */
 export async function removeSessionExercise(
   ctx: MutationCtx,

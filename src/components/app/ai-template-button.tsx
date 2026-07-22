@@ -48,7 +48,9 @@ export function AiTemplateButton({
   // resize/scroll can't leave a dead gap under the sheet.
   const { style: viewportStyle, keyboardOpen: viewportKeyboard } =
     useVisualViewportFrame(open);
-  const keyboardOpen = viewportKeyboard || inputFocused;
+  // Soft-keyboard chrome only — don't hide Cancel just because the textarea is focused.
+  const keyboardOpen = viewportKeyboard;
+  const compactInput = viewportKeyboard || inputFocused;
 
   const isPro = entitlement?.isPro === true;
   const entitlementLoading = entitlement === undefined;
@@ -201,10 +203,10 @@ export function AiTemplateButton({
                       ? "e.g. Swap bench for dumbbell press and add lateral raises"
                       : "e.g. Push day: bench, OHP, dips, lateral raises — 4 sets of 8–10"
                   }
-                  rows={keyboardOpen ? 4 : 5}
+                  rows={compactInput ? 4 : 5}
                   className={cn(
                     "text-base",
-                    keyboardOpen ? "min-h-[6rem]" : "min-h-[8.5rem]",
+                    compactInput ? "min-h-[6rem]" : "min-h-[8.5rem]",
                   )}
                   disabled={generating}
                 />
@@ -227,9 +229,7 @@ export function AiTemplateButton({
           <SheetFooter
             className={cn(
               "mt-0 shrink-0 gap-2 border-t px-4 pt-3 sm:flex-col",
-              keyboardOpen
-                ? "pb-3"
-                : "pb-[max(1rem,env(safe-area-inset-bottom))]",
+              "pb-[max(1rem,env(safe-area-inset-bottom))]",
             )}
           >
             {isPro ? (
@@ -248,18 +248,16 @@ export function AiTemplateButton({
                 <Link href="/settings">Go to Settings</Link>
               </Button>
             )}
-            {!keyboardOpen ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="lg"
-                className="h-11 w-full text-base"
-                onClick={() => setOpen(false)}
-                disabled={generating}
-              >
-                Cancel
-              </Button>
-            ) : null}
+            <Button
+              type="button"
+              variant="ghost"
+              size="lg"
+              className="h-11 w-full text-base"
+              onClick={() => setOpen(false)}
+              disabled={generating}
+            >
+              Cancel
+            </Button>
           </SheetFooter>
         </SheetContent>
       </Sheet>

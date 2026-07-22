@@ -19,6 +19,7 @@ import { toast } from "sonner";
 
 import { api } from "@backend/api";
 import type { Doc, Id } from "@backend/dataModel";
+import { AiSessionButton } from "@/components/app/ai-session-button";
 import { EmptyState } from "@/components/app/empty-state";
 import { DeleteWorkoutButton } from "@/components/app/delete-workout-button";
 import { ExerciseNoteField } from "@/components/app/exercise-note-field";
@@ -332,7 +333,7 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
         </p>
       ) : null}
 
-      <div className="sticky top-12 z-20 -mx-3 border-y bg-background/95 px-3 py-2.5 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+      <div className="sticky top-0 z-20 -mx-3 border-b bg-background px-3 pt-[max(0.625rem,env(safe-area-inset-top))] pb-2.5">
         <div className="mb-2 flex items-end justify-between gap-3">
           <div>
             <p className="text-xs font-semibold tracking-[0.16em] text-muted-foreground uppercase">
@@ -362,18 +363,25 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
       {editable && session.exercises.length === 0 ? (
         <EmptyState
           title="Add your first exercise"
-          description="Build this workout as you go — pick a lift and start logging sets."
+          description="Build this workout as you go — describe it with AI, or pick lifts yourself."
           action={
-            <Button
-              type="button"
-              onClick={() => {
-                setPickerKey((k) => k + 1);
-                setPickerOpen(true);
-              }}
-            >
-              <Plus className="size-4" />
-              Add exercise
-            </Button>
+            <div className="flex w-full max-w-xs flex-col gap-2">
+              <AiSessionButton
+                sessionId={sessionId as Id<"workoutSessions">}
+                current={[]}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setPickerKey((k) => k + 1);
+                  setPickerOpen(true);
+                }}
+              >
+                <Plus className="size-4" />
+                Add exercise
+              </Button>
+            </div>
           }
         />
       ) : null}
@@ -561,20 +569,33 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
       ) : null}
 
       {editable && session.exercises.length > 0 ? (
-        <Button
-          type="button"
-          variant="outline"
-          size="lg"
-          className="w-full text-base"
-          disabled={usedSlugs.length >= catalog.all.length}
-          onClick={() => {
-            setPickerKey((k) => k + 1);
-            setPickerOpen(true);
-          }}
-        >
-          <Plus className="size-4" />
-          Add exercise
-        </Button>
+        <div className="flex flex-col gap-2">
+          <AiSessionButton
+            sessionId={sessionId as Id<"workoutSessions">}
+            current={session.exercises.map((ex) => ({
+              slug: ex.slug,
+              sets: ex.sets.map((s) => ({
+                completed: s.completed,
+                weight: s.weight,
+                reps: s.reps,
+              })),
+            }))}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="lg"
+            className="w-full text-base"
+            disabled={usedSlugs.length >= catalog.all.length}
+            onClick={() => {
+              setPickerKey((k) => k + 1);
+              setPickerOpen(true);
+            }}
+          >
+            <Plus className="size-4" />
+            Add exercise
+          </Button>
+        </div>
       ) : session.status === "completed" ? (
         <DeleteWorkoutButton
           sessionId={sessionId as Id<"workoutSessions">}

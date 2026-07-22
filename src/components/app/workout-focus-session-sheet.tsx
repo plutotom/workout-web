@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { api } from "@backend/api";
 import type { Id } from "@backend/dataModel";
+import { AiSessionButton } from "@/components/app/ai-session-button";
 import { ExerciseNoteField } from "@/components/app/exercise-note-field";
 import { useExerciseCatalog } from "@/components/app/exercise-catalog-provider";
 import { Button } from "@/components/ui/button";
@@ -51,6 +52,7 @@ type SheetExercise = {
 export function WorkoutFocusSessionSheet({
   open,
   onOpenChange,
+  sessionId,
   exercises,
   currentSetId,
   onJump,
@@ -58,6 +60,7 @@ export function WorkoutFocusSessionSheet({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  sessionId: Id<"workoutSessions">;
   exercises: SheetExercise[];
   currentSetId: Id<"sets"> | null;
   onJump: (setId: Id<"sets">) => void;
@@ -242,6 +245,17 @@ export function WorkoutFocusSessionSheet({
               );
             })}
 
+            <AiSessionButton
+              sessionId={sessionId}
+              current={exercises.map((ex) => ({
+                slug: ex.slug,
+                sets: ex.sets.map((s) => ({
+                  completed: s.completed,
+                  weight: s.weight,
+                  reps: s.reps,
+                })),
+              }))}
+            />
             <Button
               type="button"
               variant="outline"
