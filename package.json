@@ -19,6 +19,10 @@
     "sync:prod:all": "node scripts/sync-prod.mjs --vercel",
     "sync:preview": "node scripts/sync-preview.mjs",
     "sync:preview:all": "node scripts/sync-preview.mjs --vercel",
+    "worktree:create": "node scripts/worktree.mjs create",
+    "worktree:list": "node scripts/worktree.mjs list",
+    "worktree:start": "node scripts/worktree.mjs start",
+    "worktree:remove": "node scripts/worktree.mjs remove",
     "prepare": "husky"
   },
   "lint-staged": {

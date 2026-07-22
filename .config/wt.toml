@@ -1,0 +1,8 @@
+[pre-start]
+prepare = "node scripts/worktree.mjs prepare-current"
+
+[pre-remove]
+guard = "node scripts/worktree.mjs guard-current-remove"
+
+[list]
+url = "http://localhost:{{ vars.runtime.frontend | default('4271') }}"
