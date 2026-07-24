@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 
 import { mutation, query } from "../../_generated/server";
+import { isAdminUser } from "../../lib/admin";
 import { requireUser } from "../../lib/auth";
 import { allowManualPro, isProUser } from "../../lib/plan";
 import { isBillingConfigured, polar } from "../billing/polar";
@@ -34,6 +35,7 @@ export const entitlement = query({
     v.null(),
     v.object({
       isPro: v.boolean(),
+      isAdmin: v.boolean(),
       plan: v.union(planValidator, v.literal("free")),
       allowManualPro: v.boolean(),
       billingConfigured: v.boolean(),
@@ -94,6 +96,7 @@ export const entitlement = query({
 
     return {
       isPro,
+      isAdmin: isAdminUser(user),
       plan: isPro ? ("pro" as const) : ("free" as const),
       allowManualPro: allowManualPro(),
       billingConfigured: isBillingConfigured(),

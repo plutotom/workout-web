@@ -11,12 +11,17 @@ export const activeWorkoutModeValidator = v.union(
 /** Account tier. Missing / "free" = free; "pro" unlocks AI features. */
 export const planValidator = v.union(v.literal("free"), v.literal("pro"));
 
+/** App role. Missing / "user" = regular user; "admin" can grant Pro. */
+export const roleValidator = v.union(v.literal("user"), v.literal("admin"));
+
 export const userTables = {
   users: defineTable({
     workosId: v.string(),
     email: v.string(),
     // Billing tier. Missing means free until payments land.
     plan: v.optional(planValidator),
+    // App role. Missing means "user". Admins can grant Pro in Settings.
+    role: v.optional(roleValidator),
     // Preferred weight unit. New users default to "lb" (V1 locked decision).
     unit: unitValidator,
     // Default bar weight per unit for the plate calculator; falls back to the
@@ -30,5 +35,7 @@ export const userTables = {
     // Missing means enabled. The workout elapsed clock is unaffected.
     restTimerEnabled: v.optional(v.boolean()),
     createdAt: v.number(),
-  }).index("by_workosId", ["workosId"]),
+  })
+    .index("by_workosId", ["workosId"])
+    .index("by_email", ["email"]),
 };

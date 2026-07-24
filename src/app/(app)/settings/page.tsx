@@ -2,6 +2,7 @@ import Link from "next/link";
 import { LogOut, Settings2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { AdminSettings } from "./admin-settings";
 import { GeneralSettings } from "./general-settings";
 import { McpSettings } from "./mcp-settings";
 import { PlanSettings } from "./plan-settings";
@@ -27,6 +28,8 @@ export default function SettingsPage() {
       <GeneralSettings />
 
       <PlanSettings />
+
+      <AdminSettings />
 
       <McpSettings />
 

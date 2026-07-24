@@ -10,6 +10,7 @@
 
 import type * as hello from "../hello.js";
 import type * as http from "../http.js";
+import type * as lib_admin from "../lib/admin.js";
 import type * as lib_apiKeys from "../lib/apiKeys.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_exercise_notes from "../lib/exercise_notes.js";
@@ -18,6 +19,7 @@ import type * as lib_insights from "../lib/insights.js";
 import type * as lib_plan from "../lib/plan.js";
 import type * as lib_templates from "../lib/templates.js";
 import type * as lib_workouts from "../lib/workouts.js";
+import type * as routes_admin_users from "../routes/admin/users.js";
 import type * as routes_auth_users from "../routes/auth/users.js";
 import type * as routes_billing_polar from "../routes/billing/polar.js";
 import type * as routes_billing_syncPlan from "../routes/billing/syncPlan.js";
@@ -48,6 +50,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   hello: typeof hello;
   http: typeof http;
+  "lib/admin": typeof lib_admin;
   "lib/apiKeys": typeof lib_apiKeys;
   "lib/auth": typeof lib_auth;
   "lib/exercise_notes": typeof lib_exercise_notes;
@@ -56,6 +59,7 @@ declare const fullApi: ApiFromModules<{
   "lib/plan": typeof lib_plan;
   "lib/templates": typeof lib_templates;
   "lib/workouts": typeof lib_workouts;
+  "routes/admin/users": typeof routes_admin_users;
   "routes/auth/users": typeof routes_auth_users;
   "routes/billing/polar": typeof routes_billing_polar;
   "routes/billing/syncPlan": typeof routes_billing_syncPlan;
