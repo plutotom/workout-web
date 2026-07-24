@@ -1,9 +1,11 @@
 import { v } from "convex/values";
 
-import { mutation, query } from "../../_generated/server";
-import { isAdminUser } from "../../lib/admin";
-import { requireUser } from "../../lib/auth";
+import { internal } from "../../_generated/api";
+import type { Id } from "../../_generated/dataModel";
+import { action, mutation, query } from "../../_generated/server";
+import { isAdminUser, requireAdmin } from "../../lib/admin";
 import { allowManualPro, isProUser } from "../../lib/plan";
+import { fetchVerifiedWorkosEmail } from "../../lib/workos";
 import { isBillingConfigured, polar } from "../billing/polar";
 import {
   activeWorkoutModeValidator,
@@ -75,7 +77,8 @@ export const entitlement = query({
         userId: user._id,
       });
       if (currentSub) {
-        hasPaidSubscription = true;
+        hasPaidSubscription =
+          currentSub.status === "active" || currentSub.status === "trialing";
         const key =
           typeof currentSub.productKey === "string"
             ? currentSub.productKey
@@ -92,13 +95,14 @@ export const entitlement = query({
       // Polar component may not be synced yet.
     }
 
+    const isAdmin = isAdminUser(user);
     const isPro = hasPaidSubscription || isProUser(user);
 
     return {
       isPro,
-      isAdmin: isAdminUser(user),
+      isAdmin,
       plan: isPro ? ("pro" as const) : ("free" as const),
-      allowManualPro: allowManualPro(),
+      allowManualPro: allowManualPro() && isAdmin,
       billingConfigured: isBillingConfigured(),
       subscription,
     };
@@ -106,28 +110,45 @@ export const entitlement = query({
 });
 
 /**
- * Idempotently bootstrap the signed-in user's row. Called on app load.
- * Email is taken from the JWT when present, otherwise from the client (which
- * always has it from AuthKit).
+ * Idempotently bootstrap the signed-in user's row. WorkOS access tokens do not
+ * include an email claim, so the action resolves and verifies the address with
+ * WorkOS's server API. Client-provided identity attributes are never accepted.
  */
-export const getOrCreate = mutation({
-  args: { email: v.optional(v.string()) },
-  handler: async (ctx, args) => {
+export const getOrCreate = action({
+  args: {},
+  returns: v.id("users"),
+  handler: async (ctx): Promise<Id<"users">> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Not authenticated");
 
-    const existing = await ctx.db
-      .query("users")
-      .withIndex("by_workosId", (q) => q.eq("workosId", identity.subject))
-      .unique();
-    if (existing) return existing._id;
+    const now = Date.now();
+    const existingId: Id<"users"> | null = await ctx.runQuery(
+      internal.routes.auth.bootstrap.getFreshVerifiedUser,
+      {
+        workosId: identity.subject,
+        verifiedAfter: now - 15 * 60 * 1_000,
+      },
+    );
+    if (existingId) return existingId;
 
-    return await ctx.db.insert("users", {
-      workosId: identity.subject,
-      email: identity.email ?? args.email ?? "",
-      unit: "lb",
-      createdAt: Date.now(),
-    });
+    const apiKey = process.env.WORKOS_API_KEY?.trim();
+    if (!apiKey) {
+      throw new Error("User verification is unavailable");
+    }
+
+    const verifiedEmail = await fetchVerifiedWorkosEmail(
+      identity.subject,
+      apiKey,
+    );
+
+    return await ctx.runMutation(
+      internal.routes.auth.bootstrap.upsertVerifiedUser,
+      {
+        workosId: identity.subject,
+        email: verifiedEmail,
+        verifiedAt: Date.now(),
+      },
+    );
   },
 });
 
@@ -214,7 +235,7 @@ export const setPlanForTesting = mutation({
     if (!allowManualPro()) {
       throw new Error("Manual Pro changes are disabled");
     }
-    const user = await requireUser(ctx);
+    const user = await requireAdmin(ctx);
     await ctx.db.patch(user._id, { plan });
     return null;
   },

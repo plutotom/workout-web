@@ -13,17 +13,23 @@ import {
   templateDraftSchema,
   type TemplateDraft,
 } from "@/lib/ai/template-draft";
+import {
+  parseBoundedJson,
+  RequestBodyTooLargeError,
+} from "@/lib/http/parse-json";
 
 export const runtime = "nodejs";
 
 const currentExerciseSchema = z.object({
-  slug: z.string(),
-  sets: z.array(
-    z.object({
-      weight: z.number(),
-      reps: z.number(),
-    }),
-  ),
+  slug: z.string().trim().min(1).max(64),
+  sets: z
+    .array(
+      z.object({
+        weight: z.number().finite().min(0).max(10_000),
+        reps: z.number().finite().min(0).max(1_000),
+      }),
+    )
+    .max(20),
 });
 
 const bodySchema = z.object({
@@ -31,14 +37,17 @@ const bodySchema = z.object({
   mode: z.enum(["create", "edit"]).default("create"),
   current: z
     .object({
-      name: z.string(),
-      exercises: z.array(currentExerciseSchema),
+      name: z.string().max(100),
+      exercises: z.array(currentExerciseSchema).max(50),
     })
     .optional(),
 });
 
 function jsonError(status: number, error: string, code?: string) {
-  return Response.json({ error, code }, { status });
+  return Response.json(
+    { error, code },
+    { status, headers: { "Cache-Control": "no-store" } },
+  );
 }
 
 function requireConvexUrl(): string {
@@ -59,8 +68,11 @@ export async function POST(request: Request) {
 
   let body: z.infer<typeof bodySchema>;
   try {
-    body = bodySchema.parse(await request.json());
-  } catch {
+    body = bodySchema.parse(await parseBoundedJson(request, 32_768));
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) {
+      return jsonError(413, "Request body is too large");
+    }
     return jsonError(400, "Invalid request body");
   }
 
@@ -81,6 +93,15 @@ export async function POST(request: Request) {
       "AI template generation requires Pro",
       "PRO_REQUIRED",
     );
+  }
+
+  try {
+    await convex.mutation(api.routes.ai.usage.consumeGeneration, {});
+  } catch (error) {
+    if (String(error).includes("AI_RATE_LIMITED")) {
+      return jsonError(429, "Too many AI generations. Try again later.");
+    }
+    throw error;
   }
 
   const customs = await convex.query(api.routes.exercises.queries.list, {});
@@ -117,6 +138,7 @@ export async function POST(request: Request) {
       system: GENERATE_SYSTEM_PROMPT,
       prompt: userParts.join("\n\n"),
       temperature: 0.4,
+      maxOutputTokens: 1_500,
     });
     object = result.object;
   } catch (error) {
@@ -132,9 +154,12 @@ export async function POST(request: Request) {
     );
   }
 
-  return Response.json({
-    draft,
-    droppedSlugs,
-    model: resolveModel(),
-  });
+  return Response.json(
+    {
+      draft,
+      droppedSlugs,
+      model: resolveModel(),
+    },
+    { headers: { "Cache-Control": "no-store" } },
+  );
 }

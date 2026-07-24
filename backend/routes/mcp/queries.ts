@@ -77,12 +77,3 @@ export const getWorkoutHistory = query({
     return getRecentWorkouts(ctx, user._id);
   },
 });
-
-export const validateApiKey = query({
-  args: { apiKey: v.string() },
-  handler: async (ctx, { apiKey }) => {
-    const user = await getUserFromApiKey(ctx, apiKey);
-    if (!user) return null;
-    return { userId: user._id, email: user.email };
-  },
-});

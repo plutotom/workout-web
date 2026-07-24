@@ -13,29 +13,38 @@ import {
   sessionDraftSchema,
   type SessionDraft,
 } from "@/lib/ai/session-draft";
+import {
+  parseBoundedJson,
+  RequestBodyTooLargeError,
+} from "@/lib/http/parse-json";
 
 export const runtime = "nodejs";
 
 const currentSetSchema = z.object({
   completed: z.boolean(),
-  weight: z.number(),
-  reps: z.number(),
+  weight: z.number().finite().min(0).max(10_000),
+  reps: z.number().finite().min(0).max(1_000),
 });
 
 const bodySchema = z.object({
   prompt: z.string().trim().min(1).max(2000),
   current: z.object({
-    exercises: z.array(
-      z.object({
-        slug: z.string(),
-        sets: z.array(currentSetSchema),
-      }),
-    ),
+    exercises: z
+      .array(
+        z.object({
+          slug: z.string().trim().min(1).max(64),
+          sets: z.array(currentSetSchema).max(20),
+        }),
+      )
+      .max(50),
   }),
 });
 
 function jsonError(status: number, error: string, code?: string) {
-  return Response.json({ error, code }, { status });
+  return Response.json(
+    { error, code },
+    { status, headers: { "Cache-Control": "no-store" } },
+  );
 }
 
 function requireConvexUrl(): string {
@@ -70,8 +79,11 @@ export async function POST(request: Request) {
 
   let body: z.infer<typeof bodySchema>;
   try {
-    body = bodySchema.parse(await request.json());
-  } catch {
+    body = bodySchema.parse(await parseBoundedJson(request, 32_768));
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) {
+      return jsonError(413, "Request body is too large");
+    }
     return jsonError(400, "Invalid request body");
   }
 
@@ -84,6 +96,15 @@ export async function POST(request: Request) {
   }
   if (!entitlement.isPro) {
     return jsonError(403, "AI workout generation requires Pro", "PRO_REQUIRED");
+  }
+
+  try {
+    await convex.mutation(api.routes.ai.usage.consumeGeneration, {});
+  } catch (error) {
+    if (String(error).includes("AI_RATE_LIMITED")) {
+      return jsonError(429, "Too many AI generations. Try again later.");
+    }
+    throw error;
   }
 
   const customs = await convex.query(api.routes.exercises.queries.list, {});
@@ -119,6 +140,7 @@ export async function POST(request: Request) {
       system: SESSION_GENERATE_SYSTEM_PROMPT,
       prompt: userParts.join("\n\n"),
       temperature: 0.3,
+      maxOutputTokens: 1_500,
     });
     object = result.object;
   } catch (error) {
@@ -135,9 +157,12 @@ export async function POST(request: Request) {
     return jsonError(422, "No valid changes to apply. Try a clearer request.");
   }
 
-  return Response.json({
-    draft,
-    droppedSlugs,
-    model: resolveModel(),
-  });
+  return Response.json(
+    {
+      draft,
+      droppedSlugs,
+      model: resolveModel(),
+    },
+    { headers: { "Cache-Control": "no-store" } },
+  );
 }

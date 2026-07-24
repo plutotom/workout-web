@@ -18,17 +18,42 @@ describe("parseProEmails", () => {
 
 describe("isProUser", () => {
   it("treats plan=pro as Pro", () => {
-    expect(isProUser({ email: "a@b.com", plan: "pro" }, undefined)).toBe(true);
+    expect(
+      isProUser(
+        { email: "a@b.com", emailVerifiedAt: undefined, plan: "pro" },
+        undefined,
+      ),
+    ).toBe(true);
   });
 
   it("matches PRO_EMAILS allowlist", () => {
     expect(
-      isProUser({ email: "Ada@Example.com", plan: "free" }, "ada@example.com"),
+      isProUser(
+        {
+          email: "Ada@Example.com",
+          emailVerifiedAt: 1,
+          plan: "free",
+        },
+        "ada@example.com",
+      ),
     ).toBe(true);
   });
 
+  it("rejects an unverified email allowlist match", () => {
+    expect(
+      isProUser(
+        {
+          email: "Ada@Example.com",
+          emailVerifiedAt: undefined,
+          plan: "free",
+        },
+        "ada@example.com",
+      ),
+    ).toBe(false);
+  });
+
   it("defaults missing plan to free", () => {
-    expect(isProUser({ email: "a@b.com" }, "")).toBe(false);
+    expect(isProUser({ email: "a@b.com", emailVerifiedAt: 1 }, "")).toBe(false);
   });
 });
 

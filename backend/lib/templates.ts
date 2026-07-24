@@ -16,6 +16,20 @@ export type ExerciseInput = {
 };
 
 const MAX_SLUG_LENGTH = 64;
+const MAX_TEMPLATE_NAME_LENGTH = 100;
+const MAX_TEMPLATE_EXERCISES = 50;
+const MAX_SETS_PER_EXERCISE = 20;
+const MAX_TEMPLATES_PER_USER = 100;
+
+function normalizeTemplateName(name: string) {
+  const normalized = name.trim() || "Untitled";
+  if (normalized.length > MAX_TEMPLATE_NAME_LENGTH) {
+    throw new Error(
+      `Template name must be at most ${MAX_TEMPLATE_NAME_LENGTH} characters`,
+    );
+  }
+  return normalized;
+}
 
 function assertValidSlug(slug: string) {
   const trimmed = slug.trim();
@@ -27,6 +41,11 @@ function assertValidSlug(slug: string) {
 }
 
 function normalizeExercises(exercises: ExerciseInput[]) {
+  if (exercises.length > MAX_TEMPLATE_EXERCISES) {
+    throw new Error(
+      `Templates can contain at most ${MAX_TEMPLATE_EXERCISES} exercises`,
+    );
+  }
   const seen = new Set<string>();
   return exercises.flatMap((e) => {
     assertValidSlug(e.slug);
@@ -37,14 +56,28 @@ function normalizeExercises(exercises: ExerciseInput[]) {
   });
 }
 
-const clampWhole = (n: number) => Math.max(0, Math.round(n));
+const MAX_WEIGHT = 10_000;
+const MAX_REPS = 1_000;
+
+function boundedWhole(value: number, max: number, field: string) {
+  if (!Number.isFinite(value) || value < 0 || value > max) {
+    throw new Error(`${field} must be between 0 and ${max}`);
+  }
+  return Math.round(value);
+}
 
 export function normalizeTemplateSets(
   sets: { weight: number; reps: number }[],
 ) {
-  const cleaned = sets
-    .slice(0, 20)
-    .map((s) => ({ weight: clampWhole(s.weight), reps: clampWhole(s.reps) }));
+  if (sets.length > MAX_SETS_PER_EXERCISE) {
+    throw new Error(
+      `Exercises can contain at most ${MAX_SETS_PER_EXERCISE} sets`,
+    );
+  }
+  const cleaned = sets.map((s) => ({
+    weight: boundedWhole(s.weight, MAX_WEIGHT, "Weight"),
+    reps: boundedWhole(s.reps, MAX_REPS, "Reps"),
+  }));
   return cleaned.length ? cleaned : [{ weight: 0, reps: 0 }];
 }
 
@@ -53,10 +86,18 @@ export async function createTemplate(
   userId: Id<"users">,
   { name, exercises }: { name: string; exercises: ExerciseInput[] },
 ) {
+  const existing = await ctx.db
+    .query("workoutTemplates")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .take(MAX_TEMPLATES_PER_USER);
+  if (existing.length >= MAX_TEMPLATES_PER_USER) {
+    throw new Error(`At most ${MAX_TEMPLATES_PER_USER} templates are allowed`);
+  }
+
   const now = Date.now();
   const templateId = await ctx.db.insert("workoutTemplates", {
     userId,
-    name: name.trim() || "Untitled",
+    name: normalizeTemplateName(name),
     createdAt: now,
     updatedAt: now,
   });
@@ -92,7 +133,7 @@ export async function updateTemplate(
     throw new Error("Template not found");
 
   await ctx.db.patch(templateId, {
-    name: name.trim() || "Untitled",
+    name: normalizeTemplateName(name),
     updatedAt: Date.now(),
   });
 

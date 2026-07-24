@@ -14,6 +14,11 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
     "backend/_generated/**",
+    ".worktrees/**",
+    ".pnpm-store/**",
+    ".tokensave/**",
+    ".vercel/**",
+    "pet-runs/**",
   ]),
   eslintConfigPrettier,
 ]);

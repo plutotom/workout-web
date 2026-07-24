@@ -18,27 +18,52 @@ describe("parseAdminEmails", () => {
 
 describe("isAdminUser", () => {
   it("treats role=admin as admin", () => {
-    expect(isAdminUser({ email: "a@b.com", role: "admin" }, undefined)).toBe(
-      true,
-    );
+    expect(
+      isAdminUser(
+        { email: "a@b.com", role: "admin", emailVerifiedAt: undefined },
+        undefined,
+      ),
+    ).toBe(true);
   });
 
   it("matches ADMIN_EMAILS allowlist", () => {
     expect(
       isAdminUser(
-        { email: "Ada@Example.com", role: "user" },
+        {
+          email: "Ada@Example.com",
+          emailVerifiedAt: 1,
+          role: "user",
+        },
         "ada@example.com",
       ),
     ).toBe(true);
   });
 
+  it("rejects an unverified email allowlist match", () => {
+    expect(
+      isAdminUser(
+        {
+          email: "Ada@Example.com",
+          emailVerifiedAt: undefined,
+          role: "user",
+        },
+        "ada@example.com",
+      ),
+    ).toBe(false);
+  });
+
   it("defaults missing role to non-admin", () => {
-    expect(isAdminUser({ email: "a@b.com" }, "")).toBe(false);
+    expect(isAdminUser({ email: "a@b.com", emailVerifiedAt: 1 }, "")).toBe(
+      false,
+    );
   });
 
   it("does not treat role=user as admin without allowlist", () => {
-    expect(isAdminUser({ email: "a@b.com", role: "user" }, undefined)).toBe(
-      false,
-    );
+    expect(
+      isAdminUser(
+        { email: "a@b.com", emailVerifiedAt: 1, role: "user" },
+        undefined,
+      ),
+    ).toBe(false);
   });
 });

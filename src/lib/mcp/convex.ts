@@ -1,3 +1,5 @@
+import "server-only";
+
 import { ConvexHttpClient } from "convex/browser";
 
 import { api } from "@backend/api";
@@ -11,8 +13,8 @@ export function getMcpConvexClient(): ConvexHttpClient {
   return client;
 }
 
-export async function validateMcpApiKey(apiKey: string) {
-  return getMcpConvexClient().query(api.routes.mcp.queries.validateApiKey, {
+export async function authorizeMcpApiKey(apiKey: string) {
+  return getMcpConvexClient().mutation(api.routes.mcp.keys.authorize, {
     apiKey,
   });
 }

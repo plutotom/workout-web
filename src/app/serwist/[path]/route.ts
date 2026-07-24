@@ -5,4 +5,7 @@ export const { dynamic, dynamicParams, revalidate, generateStaticParams, GET } =
     swSrc: "src/app/sw.ts",
     useNativeEsbuild: true,
     globIgnores: ["public/splash/**"],
+    esbuildOptions: {
+      sourcemap: false,
+    },
   });
