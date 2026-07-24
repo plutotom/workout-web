@@ -1,6 +1,8 @@
 import { authkitProxy } from "@workos-inc/authkit-nextjs";
+import type { NextFetchEvent, NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 
-export default authkitProxy({
+const workosProxy = authkitProxy({
   middlewareAuth: {
     enabled: true,
     // `/` is intentionally omitted: the root redirects to /dashboard, which is
@@ -16,6 +18,16 @@ export default authkitProxy({
     ],
   },
 });
+
+export default async function proxy(
+  request: NextRequest,
+  event: NextFetchEvent,
+) {
+  const result = await workosProxy(request, event);
+  const response = result ?? NextResponse.next();
+  response.headers.set("Cache-Control", "private, no-store");
+  return response;
+}
 
 export const config = {
   matcher: [

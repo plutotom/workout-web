@@ -7,6 +7,7 @@ import { muscleGroupValidator } from "../schemas/exercises";
 export type MuscleGroup = Infer<typeof muscleGroupValidator>;
 
 const MAX_NAME_LENGTH = 64;
+const MAX_CUSTOM_EXERCISES_PER_USER = 200;
 
 /** Synthetic slug used to reference a custom exercise from templates/sessions. */
 export const customSlug = (id: Id<"customExercises">) => `custom:${id}`;
@@ -62,6 +63,16 @@ export async function createCustomExercise(
     usesBar: boolean;
   },
 ) {
+  const existing = await ctx.db
+    .query("customExercises")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .take(MAX_CUSTOM_EXERCISES_PER_USER);
+  if (existing.length >= MAX_CUSTOM_EXERCISES_PER_USER) {
+    throw new Error(
+      `At most ${MAX_CUSTOM_EXERCISES_PER_USER} custom exercises are allowed`,
+    );
+  }
+
   const id = await ctx.db.insert("customExercises", {
     userId,
     name: normalizeName(args.name),

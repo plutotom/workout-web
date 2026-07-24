@@ -29,6 +29,8 @@ describe("api-keys", () => {
   it("rejects invalid key format", () => {
     expect(isApiKeyFormat("")).toBe(false);
     expect(isApiKeyFormat("waw_short")).toBe(false);
+    expect(isApiKeyFormat(`${generateRawApiKey()}extra`)).toBe(false);
+    expect(isApiKeyFormat(`waw_${"!".repeat(43)}`)).toBe(false);
     expect(isApiKeyFormat("sk_live_abc")).toBe(false);
   });
 

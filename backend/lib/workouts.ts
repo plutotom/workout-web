@@ -5,6 +5,28 @@ import { getNotesBySlugs } from "./exercise_notes";
 
 const clampWhole = (n: number) => Math.max(0, Math.round(n));
 const DEFAULT_REST_SECONDS = 75;
+const MAX_EXERCISES_PER_SESSION = 50;
+const MAX_SETS_PER_EXERCISE = 20;
+const MAX_WEIGHT = 10_000;
+const MAX_REPS = 1_000;
+const MAX_SLUG_LENGTH = 64;
+
+function boundedWhole(value: number, max: number, field: string) {
+  if (!Number.isFinite(value) || value < 0 || value > max) {
+    throw new Error(`${field} must be between 0 and ${max}`);
+  }
+  return clampWhole(value);
+}
+
+function normalizeExerciseSlug(slug: string) {
+  const normalized = slug.trim();
+  if (!normalized || normalized.length > MAX_SLUG_LENGTH) {
+    throw new Error(
+      `Exercise slug must be between 1 and ${MAX_SLUG_LENGTH} characters`,
+    );
+  }
+  return normalized;
+}
 
 /**
  * The most recent completed set (weight > 0) for an exercise across the
@@ -208,11 +230,18 @@ export async function updateSet(
     completed?: boolean;
   },
 ) {
-  await ownedSetContext(ctx, userId, setId);
+  const set = await ownedSetContext(ctx, userId, setId);
+  const sessionExercise = await ctx.db.get(set.sessionExerciseId);
+  if (!sessionExercise) throw new Error("Set not found");
+  await assertSessionEditable(ctx, userId, sessionExercise.sessionId);
 
   const patch: Partial<Doc<"sets">> = {};
-  if (weight !== undefined) patch.weight = clampWhole(weight);
-  if (reps !== undefined) patch.reps = clampWhole(reps);
+  if (weight !== undefined) {
+    patch.weight = boundedWhole(weight, MAX_WEIGHT, "Weight");
+  }
+  if (reps !== undefined) {
+    patch.reps = boundedWhole(reps, MAX_REPS, "Reps");
+  }
   if (completed !== undefined) {
     patch.completed = completed;
     patch.completedAt = completed ? Date.now() : undefined;
@@ -252,7 +281,7 @@ export async function addSet(
 ) {
   const sessionExercise = await ctx.db.get(sessionExerciseId);
   if (!sessionExercise) throw new Error("Exercise not found");
-  await ownedSession(ctx, userId, sessionExercise.sessionId);
+  await assertSessionEditable(ctx, userId, sessionExercise.sessionId);
 
   const sets = await ctx.db
     .query("sets")
@@ -261,6 +290,11 @@ export async function addSet(
     )
     .collect();
   sets.sort((a, b) => a.orderIndex - b.orderIndex);
+  if (sets.length >= MAX_SETS_PER_EXERCISE) {
+    throw new Error(
+      `Exercises can contain at most ${MAX_SETS_PER_EXERCISE} sets`,
+    );
+  }
 
   const last = sets[sets.length - 1];
   const fallback = last
@@ -316,6 +350,9 @@ export async function moveSessionExercise(
   sessionExerciseId: Id<"sessionExercises">,
   delta: number,
 ) {
+  if (!Number.isInteger(delta) || Math.abs(delta) !== 1) {
+    throw new Error("Exercise move delta must be -1 or 1");
+  }
   const sessionExercise = await ctx.db.get(sessionExerciseId);
   if (!sessionExercise) throw new Error("Exercise not found");
   await assertSessionEditable(ctx, userId, sessionExercise.sessionId);
@@ -345,19 +382,25 @@ export async function addSessionExercise(
   await assertSessionEditable(ctx, userId, sessionId);
 
   const exercises = await sessionExercisesFor(ctx, sessionId);
-  if (exercises.some((e) => e.exerciseSlug === exerciseSlug))
+  if (exercises.length >= MAX_EXERCISES_PER_SESSION) {
+    throw new Error(
+      `Workouts can contain at most ${MAX_EXERCISES_PER_SESSION} exercises`,
+    );
+  }
+  const normalizedSlug = normalizeExerciseSlug(exerciseSlug);
+  if (exercises.some((e) => e.exerciseSlug === normalizedSlug))
     throw new Error("Exercise already in workout");
 
   const orderIndex =
     exercises.length > 0 ? exercises[exercises.length - 1].orderIndex + 1 : 0;
   const sessionExerciseId = await ctx.db.insert("sessionExercises", {
     sessionId,
-    exerciseSlug,
+    exerciseSlug: normalizedSlug,
     orderIndex,
     restSeconds: DEFAULT_REST_SECONDS,
   });
 
-  const fallback = await lastSetForExercise(ctx, userId, exerciseSlug);
+  const fallback = await lastSetForExercise(ctx, userId, normalizedSlug);
   const seed = fallback ?? { weight: 0, reps: 0 };
   await Promise.all(
     Array.from({ length: DEFAULT_SET_ROWS }, (_, i) =>
@@ -377,7 +420,6 @@ export async function addSessionExercise(
 }
 
 const MAX_DRAFT_EXERCISES = 20;
-const MAX_SETS_PER_EXERCISE = 20;
 
 type DraftExercise = {
   slug: string;
@@ -424,6 +466,18 @@ export async function addExercisesFromDraft(
   generationId: string | null;
   removedCount: number;
 }> {
+  if (exercises.length > MAX_DRAFT_EXERCISES) {
+    throw new Error(
+      `AI drafts can add at most ${MAX_DRAFT_EXERCISES} exercises`,
+    );
+  }
+  if (removeSlugs.length > MAX_EXERCISES_PER_SESSION) {
+    throw new Error("AI draft contains too many removals");
+  }
+  if (aiGenerationId && aiGenerationId.trim().length > 64) {
+    throw new Error("AI generation id is too long");
+  }
+
   const session = await assertSessionEditable(ctx, userId, sessionId);
 
   const existing = await sessionExercisesFor(ctx, sessionId);
@@ -476,13 +530,18 @@ export async function addExercisesFromDraft(
 
   const addedIds: Id<"sessionExercises">[] = [];
 
-  for (const draft of exercises.slice(0, MAX_DRAFT_EXERCISES)) {
-    const slug = draft.slug.trim();
+  for (const draft of exercises) {
+    const slug = normalizeExerciseSlug(draft.slug);
     if (!slug || usedSlugs.has(slug)) continue;
 
-    const sets = draft.sets.slice(0, MAX_SETS_PER_EXERCISE).map((s) => ({
-      weight: clampWhole(s.weight),
-      reps: clampWhole(s.reps),
+    if (draft.sets.length > MAX_SETS_PER_EXERCISE) {
+      throw new Error(
+        `Exercises can contain at most ${MAX_SETS_PER_EXERCISE} sets`,
+      );
+    }
+    const sets = draft.sets.map((s) => ({
+      weight: boundedWhole(s.weight, MAX_WEIGHT, "Weight"),
+      reps: boundedWhole(s.reps, MAX_REPS, "Reps"),
     }));
     const presets = sets.length ? sets : [{ weight: 0, reps: 0 }];
 
@@ -562,6 +621,7 @@ export async function undoAiGeneration(
 
   const trimmed = generationId.trim();
   if (!trimmed) throw new Error("Missing generation id");
+  if (trimmed.length > 64) throw new Error("AI generation id is too long");
 
   const batch = await ctx.db
     .query("sessionExercises")

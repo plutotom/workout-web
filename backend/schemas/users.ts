@@ -18,6 +18,9 @@ export const userTables = {
   users: defineTable({
     workosId: v.string(),
     email: v.string(),
+    // Set only after the email has been resolved from WorkOS server-side.
+    // Optional while legacy rows are healed by the bootstrap action.
+    emailVerifiedAt: v.optional(v.number()),
     // Billing tier. Missing means free until payments land.
     plan: v.optional(planValidator),
     // App role. Missing means "user". Admins can grant Pro in Settings.

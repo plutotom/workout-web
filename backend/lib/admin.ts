@@ -20,10 +20,11 @@ export function parseAdminEmails(raw: string | undefined): Set<string> {
  * - OR email listed in `ADMIN_EMAILS` env (comma-separated)
  */
 export function isAdminUser(
-  user: Pick<Doc<"users">, "email" | "role">,
+  user: Pick<Doc<"users">, "email" | "emailVerifiedAt" | "role">,
   adminEmailsRaw: string | undefined = process.env.ADMIN_EMAILS,
 ): boolean {
   if (user.role === "admin") return true;
+  if (user.emailVerifiedAt === undefined) return false;
   const allowlist = parseAdminEmails(adminEmailsRaw);
   if (!user.email) return false;
   return allowlist.has(user.email.trim().toLowerCase());
@@ -34,6 +35,8 @@ export async function requireAdmin(
   ctx: QueryCtx | MutationCtx,
 ): Promise<Doc<"users">> {
   const user = await requireUser(ctx);
+  // Email-based admin access is allowed only after the server-side WorkOS
+  // bootstrap has verified and stored the address.
   if (!isAdminUser(user)) {
     throw new Error("Unauthorized: Admin access required");
   }
