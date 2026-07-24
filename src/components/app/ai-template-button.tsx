@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import Link from "next/link";
 
 import { api } from "@backend/api";
+import { GeneratingLoader } from "@/components/app/generating-loader";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
@@ -186,7 +187,9 @@ export function AiTemplateButton({
           </SheetHeader>
 
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pt-3">
-            {isPro ? (
+            {isPro && generating ? (
+              <GeneratingLoader label="Building your template…" />
+            ) : isPro ? (
               <div className="grid gap-2">
                 <Label htmlFor="ai-template-prompt">
                   {mode === "edit" ? "What should change?" : "Description"}
