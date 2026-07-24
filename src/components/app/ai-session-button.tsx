@@ -10,6 +10,7 @@ import Link from "next/link";
 import { api } from "@backend/api";
 import type { Id } from "@backend/dataModel";
 import { useExerciseCatalog } from "@/components/app/exercise-catalog-provider";
+import { GeneratingLoader } from "@/components/app/generating-loader";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
@@ -409,6 +410,8 @@ export function AiSessionButton({
                   <> For testing, you can also enable Pro there.</>
                 ) : null}
               </p>
+            ) : generating ? (
+              <GeneratingLoader label="Building your changes…" />
             ) : step === "prompt" ? (
               <div className="grid gap-2">
                 <Label htmlFor="ai-session-prompt">What should change?</Label>
