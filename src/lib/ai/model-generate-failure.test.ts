@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { NoObjectGeneratedError } from "ai";
+import { NoObjectGeneratedError, NoOutputGeneratedError } from "ai";
 import { GatewayAuthenticationError } from "@ai-sdk/gateway";
 
 import {
@@ -50,6 +50,16 @@ describe("describeModelGenerateFailure", () => {
     expect(describeModelGenerateFailure(error, "exercises")).toMatchObject({
       code: "AI_INVALID_OUTPUT",
       hint: expect.stringContaining("Invalid workout shape"),
+    });
+  });
+
+  it("maps NoOutputGeneratedError from generateText Output.object", () => {
+    const error = new NoOutputGeneratedError({
+      message: "No output generated.",
+    });
+    expect(describeModelGenerateFailure(error, "exercises")).toMatchObject({
+      code: "AI_NO_OUTPUT",
+      hint: expect.stringContaining("no structured output"),
     });
   });
 
