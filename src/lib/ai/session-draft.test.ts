@@ -81,4 +81,11 @@ describe("sessionDraftSchema", () => {
       }).add,
     ).toHaveLength(1);
   });
+
+  it("defaults missing arrays", () => {
+    expect(sessionDraftSchema.parse({})).toEqual({
+      removeSlugs: [],
+      add: [],
+    });
+  });
 });
