@@ -159,7 +159,14 @@ export const completeOnboarding = mutation({
   returns: v.null(),
   handler: async (ctx) => {
     const user = await requireUser(ctx);
-    if (user.onboardingCompletedAt !== undefined) return null;
+    // Treat the old auto-stamp (completedAt === createdAt) as unfinished so
+    // existing users can still complete the sheet for real.
+    if (
+      user.onboardingCompletedAt !== undefined &&
+      user.onboardingCompletedAt !== user.createdAt
+    ) {
+      return null;
+    }
     await ctx.db.patch(user._id, { onboardingCompletedAt: Date.now() });
     return null;
   },
