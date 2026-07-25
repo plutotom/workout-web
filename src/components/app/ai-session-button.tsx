@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { useVisualViewportFrame } from "@/hooks/use-visual-viewport-frame";
+import { describeAiGenerateFailure } from "@/lib/ai/generate-feedback";
 import type { SessionDraft } from "@/lib/ai/session-draft";
 import { cn } from "@/lib/utils";
 
@@ -131,6 +132,10 @@ export function AiSessionButton({
   const [open, setOpen] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState<{
+    title: string;
+    description?: string;
+  } | null>(null);
   const [applying, setApplying] = useState(false);
   const [review, setReview] = useState<ReviewState | null>(null);
   const [inputFocused, setInputFocused] = useState(false);
@@ -162,6 +167,7 @@ export function AiSessionButton({
     setInputFocused(false);
     setGenerating(false);
     setApplying(false);
+    setGenerateError(null);
   }
 
   function closeSheet() {
@@ -181,6 +187,7 @@ export function AiSessionButton({
     }
 
     setGenerating(true);
+    setGenerateError(null);
     try {
       const res = await fetch("/api/ai/session/generate", {
         method: "POST",
@@ -200,19 +207,31 @@ export function AiSessionButton({
         }),
       });
 
-      const data = (await res.json()) as {
+      let data: {
         error?: string;
         code?: string;
+        hint?: string;
         draft?: SessionDraft;
         droppedSlugs?: string[];
-      };
+      } = {};
+      try {
+        data = (await res.json()) as typeof data;
+      } catch {
+        data = {};
+      }
 
       if (!res.ok) {
-        if (data.code === "PRO_REQUIRED") {
-          toast.error("AI workouts require Pro");
-        } else {
-          toast.error(data.error ?? "Couldn't generate changes");
-        }
+        const feedback = describeAiGenerateFailure(
+          data,
+          "Couldn't generate changes",
+        );
+        setGenerateError(feedback);
+        toast.error(
+          feedback.title,
+          feedback.description
+            ? { description: feedback.description }
+            : undefined,
+        );
         return;
       }
 
@@ -220,11 +239,17 @@ export function AiSessionButton({
         !data.draft ||
         (data.draft.add.length === 0 && data.draft.removeSlugs.length === 0)
       ) {
-        toast.error("Couldn't generate changes");
+        const feedback = {
+          title: "Couldn't generate changes",
+          description: "Try a clearer request with specific lifts.",
+        };
+        setGenerateError(feedback);
+        toast.error(feedback.title, { description: feedback.description });
         return;
       }
 
       setInputFocused(false);
+      setGenerateError(null);
       setReview({
         draft: data.draft,
         droppedSlugs: data.droppedSlugs ?? [],
@@ -232,7 +257,12 @@ export function AiSessionButton({
         selectedRemove: new Set(data.draft.removeSlugs),
       });
     } catch {
-      toast.error("Couldn't generate changes");
+      const feedback = {
+        title: "Couldn't generate changes",
+        description: "Network error. Check your connection and retry.",
+      };
+      setGenerateError(feedback);
+      toast.error(feedback.title, { description: feedback.description });
     } finally {
       setGenerating(false);
     }
@@ -419,7 +449,10 @@ export function AiSessionButton({
                   ref={textareaRef}
                   id="ai-session-prompt"
                   value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
+                  onChange={(e) => {
+                    setPrompt(e.target.value);
+                    if (generateError) setGenerateError(null);
+                  }}
                   onFocus={() => setInputFocused(true)}
                   onBlur={() => setInputFocused(false)}
                   placeholder={
@@ -434,6 +467,19 @@ export function AiSessionButton({
                   )}
                   disabled={generating}
                 />
+                {generateError ? (
+                  <div
+                    role="alert"
+                    className="border-destructive/40 bg-destructive/10 text-destructive rounded-lg border px-3 py-2 text-sm"
+                  >
+                    <p className="font-medium">{generateError.title}</p>
+                    {generateError.description ? (
+                      <p className="text-destructive/90 mt-0.5 leading-snug">
+                        {generateError.description}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
             ) : review ? (
               <div className="flex flex-col gap-4 pb-2">

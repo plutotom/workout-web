@@ -13,6 +13,7 @@ import {
   sessionDraftSchema,
   type SessionDraft,
 } from "@/lib/ai/session-draft";
+import { aiRateLimitFromUnknown } from "@/lib/ai/rate-limit-response";
 import {
   parseBoundedJson,
   RequestBodyTooLargeError,
@@ -40,9 +41,18 @@ const bodySchema = z.object({
   }),
 });
 
-function jsonError(status: number, error: string, code?: string) {
+function jsonError(
+  status: number,
+  error: string,
+  extras?: { code?: string; hint?: string; retryAfterMs?: number },
+) {
   return Response.json(
-    { error, code },
+    {
+      error,
+      code: extras?.code,
+      hint: extras?.hint,
+      retryAfterMs: extras?.retryAfterMs,
+    },
     { status, headers: { "Cache-Control": "no-store" } },
   );
 }
@@ -95,16 +105,27 @@ export async function POST(request: Request) {
     return jsonError(401, "User not found");
   }
   if (!entitlement.isPro) {
-    return jsonError(403, "AI workout generation requires Pro", "PRO_REQUIRED");
+    return jsonError(403, "AI workout generation requires Pro", {
+      code: "PRO_REQUIRED",
+      hint: "Upgrade in Settings to unlock Describe with AI.",
+    });
   }
 
   try {
     await convex.mutation(api.routes.ai.usage.consumeGeneration, {});
   } catch (error) {
-    if (String(error).includes("AI_RATE_LIMITED")) {
-      return jsonError(429, "Too many AI generations. Try again later.");
+    const limited = aiRateLimitFromUnknown(error);
+    if (limited) {
+      return jsonError(429, limited.error, {
+        code: limited.code,
+        hint: limited.hint,
+        retryAfterMs: limited.retryAfterMs,
+      });
     }
-    throw error;
+    console.error("AI generation quota check failed", error);
+    return jsonError(503, "Couldn't verify AI quota. Try again.", {
+      hint: "Your account may still be loading. Wait a moment and retry.",
+    });
   }
 
   const customs = await convex.query(api.routes.exercises.queries.list, {});
@@ -145,7 +166,9 @@ export async function POST(request: Request) {
     object = result.object;
   } catch (error) {
     console.error("AI session generation failed", error);
-    return jsonError(502, "Couldn't generate exercises. Try again.");
+    return jsonError(502, "Couldn't generate exercises. Try again.", {
+      hint: "The model request failed. Check your connection and retry.",
+    });
   }
 
   const { draft, droppedSlugs } = groundSessionDraft(
