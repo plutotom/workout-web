@@ -3,6 +3,7 @@ import {
   APICallError,
   LoadAPIKeyError,
   NoObjectGeneratedError,
+  NoOutputGeneratedError,
   NoSuchModelError,
   RetryError,
 } from "ai";
@@ -130,6 +131,21 @@ export function describeModelGenerateFailure(
       error: "AI provider rate limit hit",
       code: "AI_PROVIDER_RATE_LIMITED",
       hint: "The model provider is throttling requests. Wait a minute and try again.",
+    };
+  }
+
+  if (
+    NoOutputGeneratedError.isInstance(root) ||
+    matchesName(root, [
+      "NoOutputGeneratedError",
+      "AI_NoOutputGeneratedError",
+    ]) ||
+    /no output generated/i.test(message)
+  ) {
+    return {
+      error: `Couldn't generate ${noun}`,
+      code: "AI_NO_OUTPUT",
+      hint: `Model returned no structured output. ${detail}`,
     };
   }
 
