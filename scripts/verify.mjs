@@ -108,6 +108,19 @@ for (const [label, args] of checks) {
   }
 }
 
+// Live AI Gateway structured-output smoke (skips when key absent).
+{
+  const result = run("pnpm", ["smoke:ai"], { env: { ...process.env, ...env } });
+  if (result.ok) {
+    pass("ai gateway smoke");
+    if (result.stdout) console.log(`  → ${result.stdout.split("\n").at(-1)}`);
+  } else {
+    fail("ai gateway smoke");
+    if (result.stdout) console.error(result.stdout);
+    if (result.stderr) console.error(result.stderr);
+  }
+}
+
 async function checkHttp(path, expectedStatus, description) {
   try {
     const response = await fetch(`${baseUrl}${path}`, { redirect: "manual" });
