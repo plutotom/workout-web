@@ -1,4 +1,4 @@
-import { generateText, Output, type FlexibleSchema } from "ai";
+import { generateObject, type FlexibleSchema } from "ai";
 
 import { resolveAiGatewayModel } from "./resolve-model";
 
@@ -15,31 +15,28 @@ export type GenerateStructuredOptions<T> = {
 };
 
 /**
- * Structured object generation via AI SDK 7 (`generateText` + `Output.object`).
+ * Structured object generation for AI Gateway models.
  *
- * Prefer this over deprecated `generateObject`. Pass a Gateway model string
- * (`openai/...`) so the SDK routes through Vercel AI Gateway automatically.
+ * Uses `generateObject` (deprecated but working) instead of
+ * `generateText` + `Output.object()`. With Gateway, `generateText` often
+ * leaves `finishReason` unset / non-`stop`, so accessing `result.output`
+ * throws `AI_NoOutputGeneratedError` even when valid JSON is in `text`
+ * (vercel/ai#11348). Keep schemas OpenAI-strict; switch back when that
+ * path is reliable on Gateway.
  */
 export async function generateStructuredObject<T>(
   options: GenerateStructuredOptions<T>,
 ): Promise<T> {
   const model = options.model ?? resolveAiGatewayModel();
-  const { output } = await generateText({
+  const { object } = await generateObject({
     model,
-    output: Output.object({
-      name: options.schemaName,
-      description: options.schemaDescription,
-      schema: options.schema,
-    }),
+    schema: options.schema,
+    schemaName: options.schemaName,
+    schemaDescription: options.schemaDescription,
     system: options.system,
     prompt: options.prompt,
     temperature: options.temperature,
     maxOutputTokens: options.maxOutputTokens,
   });
-
-  if (output == null) {
-    throw new Error("Model returned no structured output");
-  }
-
-  return output;
+  return object;
 }
