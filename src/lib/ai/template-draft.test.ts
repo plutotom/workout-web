@@ -84,20 +84,18 @@ describe("templateDraftSchema", () => {
     });
   });
 
-  it("coerces string weight/reps from the model", () => {
-    const parsed = templateDraftSchema.parse({
-      name: "Push",
-      exercises: [
-        {
-          slug: "bench",
-          sets: [{ weight: "135", reps: "8" }],
-        },
-      ],
-    });
-    expect(parsed.exercises[0]?.sets[0]).toEqual({
-      weight: 135,
-      reps: 8,
-    });
+  it("rejects string weight/reps (OpenAI strict schema expects numbers)", () => {
+    expect(() =>
+      templateDraftSchema.parse({
+        name: "Push",
+        exercises: [
+          {
+            slug: "bench",
+            sets: [{ weight: "135", reps: "8" }],
+          },
+        ],
+      }),
+    ).toThrow();
   });
 });
 

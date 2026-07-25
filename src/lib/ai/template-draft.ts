@@ -2,22 +2,26 @@ import { z } from "zod";
 
 import { EXERCISES, type Exercise, type MuscleGroup } from "../exercises";
 
-/** Coerce string numbers from models ("135") into finite numbers. */
-const numberLike = z.preprocess((value) => {
-  if (typeof value === "string" && value.trim() !== "") {
-    const n = Number(value);
-    return Number.isFinite(n) ? n : value;
-  }
-  return value;
-}, z.number().finite().min(0));
-
+/**
+ * Model output numbers for set presets.
+ * Keep this a plain `z.number()` so the JSON Schema stays OpenAI-strict
+ * (no preprocess / optional / default footguns). Grounding rounds values.
+ */
 export const templateSetSchema = z.object({
-  weight: numberLike.describe(
-    "Target weight preset as a number. Prefer whole numbers; use 0 when unknown.",
-  ),
-  reps: numberLike.describe(
-    "Target reps preset as a number. Prefer whole numbers; use 0 when unknown.",
-  ),
+  weight: z
+    .number()
+    .finite()
+    .min(0)
+    .describe(
+      "Target weight preset as a number. Prefer whole numbers; use 0 when unknown.",
+    ),
+  reps: z
+    .number()
+    .finite()
+    .min(0)
+    .describe(
+      "Target reps preset as a number. Prefer whole numbers; use 0 when unknown.",
+    ),
 });
 
 export const templateExerciseSchema = z.object({
