@@ -2,16 +2,16 @@
  * Live structured-output probes against Vercel AI Gateway.
  * Invoked by scripts/ai-gateway-smoke.mjs when AI_GATEWAY_API_KEY is set.
  */
-import { generateStructuredObject } from "../src/lib/ai/generate-structured.ts";
-import { resolveAiGatewayModel } from "../src/lib/ai/resolve-model.ts";
+import { generateStructuredObject } from "../src/lib/ai/generate-structured";
+import { resolveAiGatewayModel } from "../src/lib/ai/resolve-model";
 import {
   SESSION_GENERATE_SYSTEM_PROMPT,
   sessionDraftSchema,
-} from "../src/lib/ai/session-draft.ts";
+} from "../src/lib/ai/session-draft";
 import {
   GENERATE_SYSTEM_PROMPT,
   templateDraftSchema,
-} from "../src/lib/ai/template-draft.ts";
+} from "../src/lib/ai/template-draft";
 
 const model = resolveAiGatewayModel();
 console.log(`model: ${model}`);
