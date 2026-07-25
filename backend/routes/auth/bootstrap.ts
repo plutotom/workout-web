@@ -47,6 +47,11 @@ export const upsertVerifiedUser = internalMutation({
       await ctx.db.patch(existing._id, {
         email,
         emailVerifiedAt: verifiedAt,
+        // Grandfather accounts that predate onboarding so the sheet only
+        // appears for brand-new signups.
+        ...(existing.onboardingCompletedAt === undefined
+          ? { onboardingCompletedAt: existing.createdAt }
+          : {}),
       });
       return existing._id;
     }

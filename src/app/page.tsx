@@ -1,7 +1,25 @@
+import type { Metadata } from "next";
+import { withAuth } from "@workos-inc/authkit-nextjs";
 import { redirect } from "next/navigation";
 
-// The root has no UI of its own. Unauthenticated visitors are redirected to
-// sign-in by the proxy; authenticated visitors land on the dashboard.
-export default function Home() {
-  redirect("/dashboard");
+import { LandingPage } from "@/components/marketing/landing-page";
+
+export const metadata: Metadata = {
+  title: "Workout",
+  description:
+    "Track strength sessions in the browser — templates when you want a plan, quick start when you just want to lift.",
+  openGraph: {
+    title: "Workout",
+    description:
+      "Track strength sessions in the browser — templates when you want a plan, quick start when you just want to lift.",
+  },
+};
+
+export default async function Home() {
+  const { user } = await withAuth();
+  if (user) {
+    redirect("/dashboard");
+  }
+
+  return <LandingPage />;
 }
