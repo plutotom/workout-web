@@ -1,12 +1,13 @@
-import { generateObject } from "ai";
-import { gateway } from "@ai-sdk/gateway";
 import { ConvexHttpClient } from "convex/browser";
 import { withAuth } from "@workos-inc/authkit-nextjs";
 import { z } from "zod";
 
 import { api } from "@backend/api";
 import { consumeAiGenerationOrError } from "@/lib/ai/consume-generation";
+import { generateStructuredObject } from "@/lib/ai/generate-structured";
+import { aiJsonError } from "@/lib/ai/json-error";
 import { describeModelGenerateFailure } from "@/lib/ai/model-generate-failure";
+import { resolveAiGatewayModel } from "@/lib/ai/resolve-model";
 import {
   curatedCatalogForPrompt,
   formatCatalogForPrompt,
@@ -43,31 +44,10 @@ const bodySchema = z.object({
   }),
 });
 
-function jsonError(
-  status: number,
-  error: string,
-  extras?: { code?: string; hint?: string; retryAfterMs?: number },
-) {
-  return Response.json(
-    {
-      error,
-      code: extras?.code,
-      hint: extras?.hint,
-      retryAfterMs: extras?.retryAfterMs,
-    },
-    { status, headers: { "Cache-Control": "no-store" } },
-  );
-}
-
 function requireConvexUrl(): string {
   const url = process.env.NEXT_PUBLIC_CONVEX_URL;
   if (!url) throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
   return url;
-}
-
-function resolveModel(): string {
-  // Prefer a small structured-output-capable model. Override with AI_GATEWAY_MODEL.
-  return process.env.AI_GATEWAY_MODEL?.trim() || "openai/gpt-4.1-mini";
 }
 
 function summarizeCurrentSession(
@@ -87,7 +67,7 @@ function summarizeCurrentSession(
 export async function POST(request: Request) {
   const auth = await withAuth({ ensureSignedIn: true });
   if (!auth.user || !auth.accessToken) {
-    return jsonError(401, "Not authenticated");
+    return aiJsonError(401, "Not authenticated");
   }
 
   let body: z.infer<typeof bodySchema>;
@@ -95,9 +75,9 @@ export async function POST(request: Request) {
     body = bodySchema.parse(await parseBoundedJson(request, 32_768));
   } catch (error) {
     if (error instanceof RequestBodyTooLargeError) {
-      return jsonError(413, "Request body is too large");
+      return aiJsonError(413, "Request body is too large");
     }
-    return jsonError(400, "Invalid request body");
+    return aiJsonError(400, "Invalid request body");
   }
 
   const convex = new ConvexHttpClient(requireConvexUrl());
@@ -105,10 +85,10 @@ export async function POST(request: Request) {
 
   const entitlement = await convex.query(api.routes.auth.users.entitlement, {});
   if (!entitlement) {
-    return jsonError(401, "User not found");
+    return aiJsonError(401, "User not found");
   }
   if (!entitlement.isPro) {
-    return jsonError(403, "AI workout generation requires Pro", {
+    return aiJsonError(403, "AI workout generation requires Pro", {
       code: "PRO_REQUIRED",
       hint: "Upgrade in Settings to unlock Describe with AI.",
     });
@@ -143,10 +123,11 @@ export async function POST(request: Request) {
     `Exercise catalog for add (slug | name | category):\n${catalogBlock}`,
   ];
 
+  const model = resolveAiGatewayModel();
   let object: SessionDraft;
   try {
-    const result = await generateObject({
-      model: gateway(resolveModel()),
+    object = await generateStructuredObject({
+      model,
       schema: sessionDraftSchema,
       schemaName: "SessionReshapeDraft",
       schemaDescription:
@@ -156,11 +137,10 @@ export async function POST(request: Request) {
       temperature: 0.3,
       maxOutputTokens: 2_000,
     });
-    object = result.object;
   } catch (error) {
     console.error("AI session generation failed", error);
     const failure = describeModelGenerateFailure(error, "exercises");
-    return jsonError(502, failure.error, {
+    return aiJsonError(502, failure.error, {
       code: failure.code,
       hint: failure.hint,
     });
@@ -172,17 +152,20 @@ export async function POST(request: Request) {
     existingSlugs,
   );
   if (draft.removeSlugs.length === 0 && draft.add.length === 0) {
-    return jsonError(422, "No valid changes to apply. Try a clearer request.");
+    return aiJsonError(
+      422,
+      "No valid changes to apply. Try a clearer request.",
+    );
   }
 
-  const quotaError = await consumeAiGenerationOrError(convex, jsonError);
+  const quotaError = await consumeAiGenerationOrError(convex, aiJsonError);
   if (quotaError) return quotaError;
 
   return Response.json(
     {
       draft,
       droppedSlugs,
-      model: resolveModel(),
+      model,
     },
     { headers: { "Cache-Control": "no-store" } },
   );
