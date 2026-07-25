@@ -82,10 +82,7 @@ describe("sessionDraftSchema", () => {
     ).toHaveLength(1);
   });
 
-  it("defaults missing arrays", () => {
-    expect(sessionDraftSchema.parse({})).toEqual({
-      removeSlugs: [],
-      add: [],
-    });
+  it("rejects missing arrays (OpenAI strict JSON schema requires them)", () => {
+    expect(() => sessionDraftSchema.parse({})).toThrow();
   });
 });
