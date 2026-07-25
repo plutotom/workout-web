@@ -22,8 +22,8 @@ import { cn } from "@/lib/utils";
 
 /**
  * First-run sheet: Quick start a blank workout, or build a template for later.
- * Existing accounts are grandfathered in bootstrap so this only opens for
- * brand-new signups (and until they pick a path or skip).
+ * Opens for any account that has not completed or skipped onboarding yet
+ * (including existing users who never saw it).
  */
 export function OnboardingSheet() {
   const router = useRouter();
@@ -33,15 +33,12 @@ export function OnboardingSheet() {
   );
   const startBlank = useMutation(api.routes.workouts.mutations.startBlank);
 
-  // Capture once so render stays pure (eslint react-hooks/purity).
-  const [openedAt] = useState(() => Date.now());
+  // Missing completedAt, or the old auto-stamp that equaled createdAt.
   const needsOnboarding =
     user !== undefined &&
     user !== null &&
-    user.onboardingCompletedAt === undefined &&
-    // Existing accounts are grandfathered on bootstrap, but `current` can
-    // resolve first — only brand-new signups should see the sheet.
-    openedAt - user.createdAt < 60 * 60 * 1000;
+    (user.onboardingCompletedAt === undefined ||
+      user.onboardingCompletedAt === user.createdAt);
 
   const [open, setOpen] = useState(true);
   const [busy, setBusy] = useState(false);

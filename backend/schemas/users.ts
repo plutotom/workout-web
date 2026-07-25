@@ -38,7 +38,8 @@ export const userTables = {
     // Missing means enabled. The workout elapsed clock is unaffected.
     restTimerEnabled: v.optional(v.boolean()),
     // First-run sheet. Missing = show onboarding; set when the user picks a
-    // path or skips. Existing users are grandfathered on next bootstrap.
+    // path or skips. A legacy auto-stamp equal to createdAt is treated as
+    // unfinished and cleared on bootstrap.
     onboardingCompletedAt: v.optional(v.number()),
     createdAt: v.number(),
   })

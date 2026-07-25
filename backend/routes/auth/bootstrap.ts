@@ -44,15 +44,21 @@ export const upsertVerifiedUser = internalMutation({
       .unique();
 
     if (existing) {
-      await ctx.db.patch(existing._id, {
+      const patch: {
+        email: string;
+        emailVerifiedAt: number;
+        onboardingCompletedAt?: undefined;
+      } = {
         email,
         emailVerifiedAt: verifiedAt,
-        // Grandfather accounts that predate onboarding so the sheet only
-        // appears for brand-new signups.
-        ...(existing.onboardingCompletedAt === undefined
-          ? { onboardingCompletedAt: existing.createdAt }
-          : {}),
-      });
+      };
+      // Earlier builds stamped onboardingCompletedAt = createdAt to skip the
+      // sheet for existing accounts. Clear that so they still get onboarding
+      // until they pick a path or skip for real.
+      if (existing.onboardingCompletedAt === existing.createdAt) {
+        patch.onboardingCompletedAt = undefined;
+      }
+      await ctx.db.patch(existing._id, patch);
       return existing._id;
     }
 
