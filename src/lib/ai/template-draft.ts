@@ -5,14 +5,18 @@ import { EXERCISES, type Exercise } from "../exercises";
 export const templateSetSchema = z.object({
   weight: z
     .number()
-    .int()
+    .finite()
     .min(0)
-    .describe("Target weight preset. Use 0 when unknown or not specified."),
+    .describe(
+      "Target weight preset as a number. Prefer whole numbers; use 0 when unknown.",
+    ),
   reps: z
     .number()
-    .int()
+    .finite()
     .min(0)
-    .describe("Target reps preset. Use 0 when unknown or not specified."),
+    .describe(
+      "Target reps preset as a number. Prefer whole numbers; use 0 when unknown.",
+    ),
 });
 
 export const templateExerciseSchema = z.object({

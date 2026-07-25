@@ -14,6 +14,7 @@ import {
   type TemplateDraft,
 } from "@/lib/ai/template-draft";
 import { aiRateLimitFromUnknown } from "@/lib/ai/rate-limit-response";
+import { describeModelGenerateFailure } from "@/lib/ai/model-generate-failure";
 import {
   parseBoundedJson,
   RequestBodyTooLargeError,
@@ -155,13 +156,15 @@ export async function POST(request: Request) {
       system: GENERATE_SYSTEM_PROMPT,
       prompt: userParts.join("\n\n"),
       temperature: 0.4,
-      maxOutputTokens: 1_500,
+      maxOutputTokens: 2_000,
     });
     object = result.object;
   } catch (error) {
     console.error("AI template generation failed", error);
-    return jsonError(502, "Couldn't generate a template. Try again.", {
-      hint: "The model request failed. Check your connection and retry.",
+    const failure = describeModelGenerateFailure(error, "template");
+    return jsonError(502, failure.error, {
+      code: failure.code,
+      hint: failure.hint,
     });
   }
 
