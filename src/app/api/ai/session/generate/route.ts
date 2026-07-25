@@ -14,6 +14,7 @@ import {
   type SessionDraft,
 } from "@/lib/ai/session-draft";
 import { aiRateLimitFromUnknown } from "@/lib/ai/rate-limit-response";
+import { describeModelGenerateFailure } from "@/lib/ai/model-generate-failure";
 import {
   parseBoundedJson,
   RequestBodyTooLargeError,
@@ -161,13 +162,15 @@ export async function POST(request: Request) {
       system: SESSION_GENERATE_SYSTEM_PROMPT,
       prompt: userParts.join("\n\n"),
       temperature: 0.3,
-      maxOutputTokens: 1_500,
+      maxOutputTokens: 2_000,
     });
     object = result.object;
   } catch (error) {
     console.error("AI session generation failed", error);
-    return jsonError(502, "Couldn't generate exercises. Try again.", {
-      hint: "The model request failed. Check your connection and retry.",
+    const failure = describeModelGenerateFailure(error, "exercises");
+    return jsonError(502, failure.error, {
+      code: failure.code,
+      hint: failure.hint,
     });
   }
 

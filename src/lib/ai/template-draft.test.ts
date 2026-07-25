@@ -66,6 +66,22 @@ describe("templateDraftSchema", () => {
     });
     expect(parsed.name).toBe("Pull");
   });
+
+  it("accepts fractional weight/reps from the model", () => {
+    const parsed = templateDraftSchema.parse({
+      name: "Push",
+      exercises: [
+        {
+          slug: "bench-press",
+          sets: [{ weight: 135.5, reps: 8.0 }],
+        },
+      ],
+    });
+    expect(parsed.exercises[0]?.sets[0]).toEqual({
+      weight: 135.5,
+      reps: 8,
+    });
+  });
 });
 
 describe("formatCatalogForPrompt", () => {
