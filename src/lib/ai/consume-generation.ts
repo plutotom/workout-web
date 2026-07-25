@@ -1,12 +1,13 @@
 import type { ConvexHttpClient } from "convex/browser";
 
 import { api } from "@backend/api";
+import type { AiJsonErrorExtras } from "@/lib/ai/json-error";
 import { aiRateLimitFromUnknown } from "@/lib/ai/rate-limit-response";
 
 type JsonError = (
   status: number,
   error: string,
-  extras?: { code?: string; hint?: string; retryAfterMs?: number },
+  extras?: AiJsonErrorExtras,
 ) => Response;
 
 /** Charge one AI generation after a successful model response. */
