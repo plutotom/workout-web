@@ -59,7 +59,7 @@ function matchesName(error: unknown, names: string[]): boolean {
 }
 
 /**
- * Map AI Gateway / generateObject failures into user-facing copy.
+ * Map AI Gateway / structured-output failures into user-facing copy.
  * Prefer marker checks, then fall back to error.name / message so bundled
  * duplicate package copies still surface useful feedback.
  */
