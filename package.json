@@ -13,6 +13,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
+    "smoke:ai": "node scripts/ai-gateway-smoke.mjs",
     "generate:splash": "node scripts/generate-splash-screens.mjs scripts/splash-base.png",
     "verify": "node scripts/verify.mjs",
     "sync:prod": "node scripts/sync-prod.mjs",
