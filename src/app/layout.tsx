@@ -17,7 +17,8 @@ const geistMono = Geist_Mono({
 });
 
 const APP_NAME = "Workout";
-const APP_DESCRIPTION = "Track workouts in the browser.";
+const APP_DESCRIPTION =
+  "Track strength sessions in the browser — templates when you want a plan, quick start when you just want to lift.";
 
 export const metadata: Metadata = {
   applicationName: APP_NAME,
