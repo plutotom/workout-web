@@ -1,22 +1,23 @@
 import { z } from "zod";
 
-import { EXERCISES, type Exercise } from "../exercises";
+import { EXERCISES, type Exercise, type MuscleGroup } from "../exercises";
+
+/** Coerce string numbers from models ("135") into finite numbers. */
+const numberLike = z.preprocess((value) => {
+  if (typeof value === "string" && value.trim() !== "") {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : value;
+  }
+  return value;
+}, z.number().finite().min(0));
 
 export const templateSetSchema = z.object({
-  weight: z
-    .number()
-    .finite()
-    .min(0)
-    .describe(
-      "Target weight preset as a number. Prefer whole numbers; use 0 when unknown.",
-    ),
-  reps: z
-    .number()
-    .finite()
-    .min(0)
-    .describe(
-      "Target reps preset as a number. Prefer whole numbers; use 0 when unknown.",
-    ),
+  weight: numberLike.describe(
+    "Target weight preset as a number. Prefer whole numbers; use 0 when unknown.",
+  ),
+  reps: numberLike.describe(
+    "Target reps preset as a number. Prefer whole numbers; use 0 when unknown.",
+  ),
 });
 
 export const templateExerciseSchema = z.object({
@@ -58,6 +59,126 @@ export function curatedCatalogForPrompt(): CatalogExercise[] {
     name: e.name,
     category: e.category,
   }));
+}
+
+/**
+ * High-signal curated lifts. Kept small so structured-output models (esp.
+ * nano) can finish a valid JSON object instead of choking on a 280+ line catalog.
+ */
+const PRIORITY_SLUGS = [
+  "bench",
+  "db-bench",
+  "incline-bench-bb",
+  "incline-db-press",
+  "chest-fly-db",
+  "cable-fly",
+  "pushup",
+  "dips",
+  "squat",
+  "front-squat",
+  "goblet-squat",
+  "leg-press",
+  "bulgarian-split-squat",
+  "lunge",
+  "rdl",
+  "deadlift",
+  "sumo-deadlift",
+  "leg-curl",
+  "leg-extension",
+  "calf-raise",
+  "ohp",
+  "db-shoulder-press",
+  "lateral-raise",
+  "face-pull",
+  "rear-delt-fly",
+  "pullup",
+  "chinup",
+  "lat-pulldown",
+  "barbell-row",
+  "db-row",
+  "seated-cable-row",
+  "shrug",
+  "barbell-curl",
+  "bicep-curl",
+  "hammer-curl",
+  "tricep-pushdown",
+  "skullcrusher",
+  "overhead-tricep-ext",
+  "plank",
+  "hanging-leg-raise",
+  "cable-crunch",
+  "ab-wheel",
+] as const;
+
+const PER_CATEGORY_CAP = 14;
+const PROMPT_CATALOG_MAX = 96;
+
+function tokenizeForCatalogMatch(text: string): string[] {
+  return text
+    .toLowerCase()
+    .split(/[^a-z0-9]+/g)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 3);
+}
+
+/**
+ * Build a compact catalog for the model prompt while grounding can still use
+ * the full exercise list. Always includes customs + any `mustInclude` slugs
+ * (e.g. current session lifts), then priority compounds, prompt matches, and
+ * a per-category fill up to a hard cap.
+ */
+export function selectCatalogForAiPrompt(options: {
+  customs?: CatalogExercise[];
+  mustIncludeSlugs?: Iterable<string>;
+  prompt?: string;
+  max?: number;
+}): CatalogExercise[] {
+  const max = options.max ?? PROMPT_CATALOG_MAX;
+  const full = curatedCatalogForPrompt();
+  const bySlug = new Map(full.map((e) => [e.slug, e]));
+  for (const custom of options.customs ?? []) {
+    bySlug.set(custom.slug, custom);
+  }
+
+  const selected = new Map<string, CatalogExercise>();
+  const add = (slug: string) => {
+    if (selected.has(slug) || selected.size >= max) return;
+    const exercise = bySlug.get(slug);
+    if (exercise) selected.set(slug, exercise);
+  };
+
+  for (const slug of options.mustIncludeSlugs ?? []) add(slug);
+  for (const custom of options.customs ?? []) add(custom.slug);
+  for (const slug of PRIORITY_SLUGS) add(slug);
+
+  const tokens = tokenizeForCatalogMatch(options.prompt ?? "");
+  if (tokens.length > 0) {
+    for (const exercise of bySlug.values()) {
+      if (selected.size >= max) break;
+      const hay = `${exercise.slug} ${exercise.name}`.toLowerCase();
+      if (tokens.some((t) => hay.includes(t))) add(exercise.slug);
+    }
+  }
+
+  const perCategory = new Map<MuscleGroup, number>();
+  for (const exercise of selected.values()) {
+    perCategory.set(
+      exercise.category,
+      (perCategory.get(exercise.category) ?? 0) + 1,
+    );
+  }
+
+  for (const exercise of full) {
+    if (selected.size >= max) break;
+    const count = perCategory.get(exercise.category) ?? 0;
+    if (count >= PER_CATEGORY_CAP) continue;
+    add(exercise.slug);
+    if (selected.has(exercise.slug)) {
+      perCategory.set(exercise.category, count + 1);
+    }
+  }
+
+  return [...selected.values()];
 }
 
 /**

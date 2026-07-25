@@ -5,6 +5,8 @@ import { withAuth } from "@workos-inc/authkit-nextjs";
 import { z } from "zod";
 
 import { api } from "@backend/api";
+import { consumeAiGenerationOrError } from "@/lib/ai/consume-generation";
+import { describeModelGenerateFailure } from "@/lib/ai/model-generate-failure";
 import {
   curatedCatalogForPrompt,
   formatCatalogForPrompt,
@@ -13,8 +15,7 @@ import {
   sessionDraftSchema,
   type SessionDraft,
 } from "@/lib/ai/session-draft";
-import { aiRateLimitFromUnknown } from "@/lib/ai/rate-limit-response";
-import { describeModelGenerateFailure } from "@/lib/ai/model-generate-failure";
+import { selectCatalogForAiPrompt } from "@/lib/ai/template-draft";
 import {
   parseBoundedJson,
   RequestBodyTooLargeError,
@@ -112,23 +113,6 @@ export async function POST(request: Request) {
     });
   }
 
-  try {
-    await convex.mutation(api.routes.ai.usage.consumeGeneration, {});
-  } catch (error) {
-    const limited = aiRateLimitFromUnknown(error);
-    if (limited) {
-      return jsonError(429, limited.error, {
-        code: limited.code,
-        hint: limited.hint,
-        retryAfterMs: limited.retryAfterMs,
-      });
-    }
-    console.error("AI generation quota check failed", error);
-    return jsonError(503, "Couldn't verify AI quota. Try again.", {
-      hint: "Your account may still be loading. Wait a moment and retry.",
-    });
-  }
-
   const customs = await convex.query(api.routes.exercises.queries.list, {});
   const customCatalog = customs
     .filter((e) => !e.archived)
@@ -138,13 +122,20 @@ export async function POST(request: Request) {
       category: e.category,
     }));
 
-  const catalog = [...curatedCatalogForPrompt(), ...customCatalog];
-  const allowedSlugs = new Set(catalog.map((e) => e.slug));
   const existingSlugs = new Set(
     body.current.exercises.map((e) => e.slug.trim()).filter(Boolean),
   );
+  // Ground against the full catalog; only send a compact subset to the model.
+  const allowedSlugs = new Set(
+    [...curatedCatalogForPrompt(), ...customCatalog].map((e) => e.slug),
+  );
+  const promptCatalog = selectCatalogForAiPrompt({
+    customs: customCatalog,
+    mustIncludeSlugs: existingSlugs,
+    prompt: body.prompt,
+  });
 
-  const catalogBlock = formatCatalogForPrompt(catalog);
+  const catalogBlock = formatCatalogForPrompt(promptCatalog);
   const userParts = [
     summarizeCurrentSession(body.current.exercises),
     `User request:\n${body.prompt}`,
@@ -182,6 +173,9 @@ export async function POST(request: Request) {
   if (draft.removeSlugs.length === 0 && draft.add.length === 0) {
     return jsonError(422, "No valid changes to apply. Try a clearer request.");
   }
+
+  const quotaError = await consumeAiGenerationOrError(convex, jsonError);
+  if (quotaError) return quotaError;
 
   return Response.json(
     {

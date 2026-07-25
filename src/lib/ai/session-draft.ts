@@ -18,12 +18,14 @@ export const sessionDraftSchema = z.object({
   removeSlugs: z
     .array(z.string().min(1).max(64))
     .max(40)
+    .default([])
     .describe(
       "Existing session exercise slugs to remove. Empty if the user only wants additions.",
     ),
   add: z
     .array(templateExerciseSchema)
     .max(20)
+    .default([])
     .describe(
       "New exercises to add. Empty if the user only wants removals. Do not include slugs that will remain in the session.",
     ),

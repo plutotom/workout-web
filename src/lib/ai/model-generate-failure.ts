@@ -68,12 +68,20 @@ export function describeModelGenerateFailure(
       cause?.toLowerCase().includes("type") ||
       error.message.toLowerCase().includes("validat");
 
+    if (error.finishReason === "length") {
+      return {
+        error: `Couldn't generate ${noun}`,
+        code: "AI_OUTPUT_TRUNCATED",
+        hint: "The model response was cut off. Ask for fewer exercises or a shorter session.",
+      };
+    }
+
     return {
       error: `Couldn't generate ${noun}`,
       code: "AI_INVALID_OUTPUT",
       hint: looksLikeSchema
         ? "The model returned an invalid workout shape. Try a shorter, more specific prompt."
-        : "The model didn't return a usable workout. Try again with a clearer prompt.",
+        : "The model didn't return a usable workout. Try a shorter prompt (e.g. “push day 5 lifts”).",
     };
   }
 

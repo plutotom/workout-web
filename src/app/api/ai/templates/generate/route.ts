@@ -5,16 +5,17 @@ import { withAuth } from "@workos-inc/authkit-nextjs";
 import { z } from "zod";
 
 import { api } from "@backend/api";
+import { consumeAiGenerationOrError } from "@/lib/ai/consume-generation";
+import { describeModelGenerateFailure } from "@/lib/ai/model-generate-failure";
 import {
   curatedCatalogForPrompt,
   formatCatalogForPrompt,
   GENERATE_SYSTEM_PROMPT,
   groundTemplateDraft,
+  selectCatalogForAiPrompt,
   templateDraftSchema,
   type TemplateDraft,
 } from "@/lib/ai/template-draft";
-import { aiRateLimitFromUnknown } from "@/lib/ai/rate-limit-response";
-import { describeModelGenerateFailure } from "@/lib/ai/model-generate-failure";
 import {
   parseBoundedJson,
   RequestBodyTooLargeError,
@@ -105,23 +106,6 @@ export async function POST(request: Request) {
     });
   }
 
-  try {
-    await convex.mutation(api.routes.ai.usage.consumeGeneration, {});
-  } catch (error) {
-    const limited = aiRateLimitFromUnknown(error);
-    if (limited) {
-      return jsonError(429, limited.error, {
-        code: limited.code,
-        hint: limited.hint,
-        retryAfterMs: limited.retryAfterMs,
-      });
-    }
-    console.error("AI generation quota check failed", error);
-    return jsonError(503, "Couldn't verify AI quota. Try again.", {
-      hint: "Your account may still be loading. Wait a moment and retry.",
-    });
-  }
-
   const customs = await convex.query(api.routes.exercises.queries.list, {});
   const customCatalog = customs
     .filter((e) => !e.archived)
@@ -131,10 +115,17 @@ export async function POST(request: Request) {
       category: e.category,
     }));
 
-  const catalog = [...curatedCatalogForPrompt(), ...customCatalog];
-  const allowedSlugs = new Set(catalog.map((e) => e.slug));
+  // Ground against the full catalog; only send a compact subset to the model.
+  const allowedSlugs = new Set(
+    [...curatedCatalogForPrompt(), ...customCatalog].map((e) => e.slug),
+  );
+  const promptCatalog = selectCatalogForAiPrompt({
+    customs: customCatalog,
+    mustIncludeSlugs: body.current?.exercises.map((e) => e.slug) ?? [],
+    prompt: body.prompt,
+  });
 
-  const catalogBlock = formatCatalogForPrompt(catalog);
+  const catalogBlock = formatCatalogForPrompt(promptCatalog);
   const userParts = [`Mode: ${body.mode}`, `User request:\n${body.prompt}`];
   if (body.mode === "edit" && body.current) {
     userParts.push(
@@ -175,6 +166,9 @@ export async function POST(request: Request) {
       "Generated template had no valid exercises. Try a more specific description.",
     );
   }
+
+  const quotaError = await consumeAiGenerationOrError(convex, jsonError);
+  if (quotaError) return quotaError;
 
   return Response.json(
     {
