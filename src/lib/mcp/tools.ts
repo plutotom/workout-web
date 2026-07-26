@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import type {
@@ -20,10 +22,14 @@ const muscleGroup = z.enum([
   "arms",
   "core",
 ]);
-const setPreset = z.object({ weight: z.number(), reps: z.number() });
+const convexId = z.string().min(1).max(128);
+const setPreset = z.object({
+  weight: z.number().finite().min(0).max(10_000),
+  reps: z.number().finite().min(0).max(1_000),
+});
 const exerciseInput = z.object({
   slug: exerciseSlug,
-  sets: z.array(setPreset),
+  sets: z.array(setPreset).max(20),
 });
 
 type ToolExtra = RequestHandlerExtra<ServerRequest, ServerNotification>;
@@ -88,10 +94,10 @@ export function registerWorkoutMcpTools(server: McpServer) {
       description:
         "Create a private custom exercise for the user. Returns its slug, which can be used immediately in create_template / update_template. Set usesBar to true for barbell lifts (the plate calculator then includes the bar).",
       inputSchema: {
-        name: z.string(),
+        name: z.string().trim().min(1).max(64),
         category: muscleGroup,
         usesBar: z.boolean(),
-        short: z.string().optional(),
+        short: z.string().max(64).optional(),
       },
     },
     async ({ name, category, usesBar, short }, extra) => {
@@ -110,11 +116,11 @@ export function registerWorkoutMcpTools(server: McpServer) {
       description:
         "Update a custom exercise (only custom: true entries from list_exercises can be edited). Pass the exercise's slug from list_exercises as exerciseId.",
       inputSchema: {
-        exerciseId: z.string(),
-        name: z.string(),
+        exerciseId: convexId,
+        name: z.string().trim().min(1).max(64),
         category: muscleGroup,
         usesBar: z.boolean(),
-        short: z.string().optional(),
+        short: z.string().max(64).optional(),
       },
     },
     async ({ exerciseId, name, category, usesBar, short }, extra) => {
@@ -136,7 +142,7 @@ export function registerWorkoutMcpTools(server: McpServer) {
       title: "Delete custom exercise",
       description:
         "Delete (archive) a custom exercise. It's hidden from the catalog afterward, but templates and past workouts that already reference it keep showing its name. Pass the exercise's slug from list_exercises as exerciseId.",
-      inputSchema: { exerciseId: z.string() },
+      inputSchema: { exerciseId: convexId },
     },
     async ({ exerciseId }, extra) => {
       await convex().mutation(api.routes.mcp.mutations.archiveCustomExercise, {
@@ -167,7 +173,7 @@ export function registerWorkoutMcpTools(server: McpServer) {
     {
       title: "Get template",
       description: `Get a single workout template with full set presets. ${EXERCISE_NOTE}`,
-      inputSchema: { templateId: z.string() },
+      inputSchema: { templateId: convexId },
     },
     async ({ templateId }, extra) => {
       const data = await convex().query(api.routes.mcp.queries.getTemplate, {
@@ -184,8 +190,8 @@ export function registerWorkoutMcpTools(server: McpServer) {
       title: "Create template",
       description: `Create a new workout template. ${EXERCISE_NOTE}`,
       inputSchema: {
-        name: z.string(),
-        exercises: z.array(exerciseInput),
+        name: z.string().trim().min(1).max(100),
+        exercises: z.array(exerciseInput).max(50),
       },
     },
     async ({ name, exercises }, extra) => {
@@ -203,9 +209,9 @@ export function registerWorkoutMcpTools(server: McpServer) {
       title: "Update template",
       description: `Update a workout template's name and exercises. ${EXERCISE_NOTE}`,
       inputSchema: {
-        templateId: z.string(),
-        name: z.string(),
-        exercises: z.array(exerciseInput),
+        templateId: convexId,
+        name: z.string().trim().min(1).max(100),
+        exercises: z.array(exerciseInput).max(50),
       },
     },
     async ({ templateId, name, exercises }, extra) => {
@@ -224,7 +230,7 @@ export function registerWorkoutMcpTools(server: McpServer) {
     {
       title: "Delete template",
       description: "Delete a workout template.",
-      inputSchema: { templateId: z.string() },
+      inputSchema: { templateId: convexId },
     },
     async ({ templateId }, extra) => {
       await convex().mutation(api.routes.mcp.mutations.deleteTemplate, {
@@ -261,7 +267,7 @@ export function registerWorkoutMcpTools(server: McpServer) {
       description:
         "Start a workout session from a template. Only one active session allowed; set abandonExisting to discard the current one.",
       inputSchema: {
-        templateId: z.string(),
+        templateId: convexId,
         abandonExisting: z.boolean().optional(),
       },
     },
@@ -283,7 +289,7 @@ export function registerWorkoutMcpTools(server: McpServer) {
     {
       title: "Get workout",
       description: "Get a workout session by ID with exercises and sets.",
-      inputSchema: { sessionId: z.string() },
+      inputSchema: { sessionId: convexId },
     },
     async ({ sessionId }, extra) => {
       const data = await convex().query(api.routes.mcp.queries.getWorkout, {
@@ -300,9 +306,9 @@ export function registerWorkoutMcpTools(server: McpServer) {
       title: "Update set",
       description: "Update weight, reps, and/or completed flag on a set.",
       inputSchema: {
-        setId: z.string(),
-        weight: z.number().optional(),
-        reps: z.number().optional(),
+        setId: convexId,
+        weight: z.number().finite().min(0).max(10_000).optional(),
+        reps: z.number().finite().min(0).max(1_000).optional(),
         completed: z.boolean().optional(),
       },
     },
@@ -323,7 +329,7 @@ export function registerWorkoutMcpTools(server: McpServer) {
     {
       title: "Add set",
       description: "Add a set to a session exercise.",
-      inputSchema: { sessionExerciseId: z.string() },
+      inputSchema: { sessionExerciseId: convexId },
     },
     async ({ sessionExerciseId }, extra) => {
       const setId = await convex().mutation(api.routes.mcp.mutations.addSet, {
@@ -339,7 +345,7 @@ export function registerWorkoutMcpTools(server: McpServer) {
     {
       title: "Finish workout",
       description: "Mark an in-progress workout session as completed.",
-      inputSchema: { sessionId: z.string() },
+      inputSchema: { sessionId: convexId },
     },
     async ({ sessionId }, extra) => {
       const data = await convex().mutation(
@@ -358,7 +364,7 @@ export function registerWorkoutMcpTools(server: McpServer) {
     {
       title: "Abandon workout",
       description: "Discard an in-progress workout (excluded from history).",
-      inputSchema: { sessionId: z.string() },
+      inputSchema: { sessionId: convexId },
     },
     async ({ sessionId }, extra) => {
       await convex().mutation(api.routes.mcp.mutations.abandonWorkout, {
@@ -375,7 +381,7 @@ export function registerWorkoutMcpTools(server: McpServer) {
       title: "Get workout history",
       description:
         "Recent completed workouts across all templates, or full history for one template when templateId is provided.",
-      inputSchema: { templateId: z.string().optional() },
+      inputSchema: { templateId: convexId.optional() },
     },
     async ({ templateId }, extra) => {
       const data = await convex().query(

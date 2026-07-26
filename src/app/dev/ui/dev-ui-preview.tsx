@@ -2,6 +2,10 @@
 
 import { toast } from "sonner";
 
+import {
+  GeneratingLoader,
+  LOADER_NAMES,
+} from "@/components/app/generating-loader";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -200,6 +204,26 @@ export function DevUiPreview() {
         <div className="border-success/40 bg-success/10 flex items-center justify-between rounded-md border px-3 py-2 text-sm">
           <span>Set 1 · 135 lb × 5</span>
           <span className="text-success font-medium">Done</span>
+        </div>
+      </Section>
+
+      <Section title="AI generation loaders">
+        <p className="text-muted-foreground text-sm">
+          One of these is picked at random each time a generation starts.
+          Remount to re-roll.
+        </p>
+        <div className="flex flex-col gap-2">
+          <div className="bg-card rounded-lg border p-2">
+            <GeneratingLoader label="Random pick" />
+          </div>
+          {LOADER_NAMES.map((name, i) => (
+            <div key={name} className="bg-card rounded-lg border p-2">
+              <p className="text-muted-foreground px-2 pt-1 font-mono text-[10px] tracking-[0.14em] uppercase">
+                {name}
+              </p>
+              <GeneratingLoader forceIndex={i} />
+            </div>
+          ))}
         </div>
       </Section>
     </main>

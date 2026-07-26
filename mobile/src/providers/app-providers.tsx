@@ -2,7 +2,7 @@ import { api } from "@backend/api";
 import {
   ConvexProviderWithAuth,
   ConvexReactClient,
-  useMutation,
+  useAction,
 } from "convex/react";
 import { useEffect, useMemo, useRef, type ReactNode } from "react";
 
@@ -28,13 +28,15 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
 function BootstrapUser() {
   const { isAuthenticated, user } = useMobileAuth();
-  const getOrCreate = useMutation(api.routes.auth.users.getOrCreate);
+  // The action resolves and verifies the email with WorkOS server-side; the
+  // client no longer supplies identity attributes.
+  const getOrCreate = useAction(api.routes.auth.users.getOrCreate);
   const bootstrapped = useRef<string | null>(null);
 
   useEffect(() => {
     if (!isAuthenticated || !user || bootstrapped.current === user.id) return;
     bootstrapped.current = user.id;
-    void getOrCreate({ email: user.email }).catch(() => {
+    void getOrCreate({}).catch(() => {
       bootstrapped.current = null;
     });
   }, [getOrCreate, isAuthenticated, user]);

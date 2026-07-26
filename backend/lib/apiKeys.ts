@@ -2,6 +2,7 @@ import type { Doc } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 
 const KEY_PREFIX = "waw_";
+const KEY_BODY_LENGTH = 43;
 
 function getPepper(): string {
   const pepper = process.env.MCP_API_KEY_PEPPER;
@@ -19,8 +20,8 @@ export async function hashApiKey(rawKey: string): Promise<string> {
 }
 
 export function isApiKeyFormat(rawKey: string): boolean {
-  return (
-    rawKey.startsWith(KEY_PREFIX) && rawKey.length > KEY_PREFIX.length + 16
+  return new RegExp(`^${KEY_PREFIX}[A-Za-z0-9_-]{${KEY_BODY_LENGTH}}$`).test(
+    rawKey,
   );
 }
 
