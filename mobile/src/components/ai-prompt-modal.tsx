@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Modal, Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { GeneratingLoader } from "@/components/generating-loader";
 import { Button, Field } from "@/components/ui";
 import { colors } from "@/theme";
 
@@ -10,12 +11,15 @@ export function AiPromptModal({
   visible,
   title,
   description,
+  loadingLabel = "Thinking it through…",
   onClose,
   onGenerate,
 }: {
   visible: boolean;
   title: string;
   description: string;
+  /** Shown under the animation while the draft is generating. */
+  loadingLabel?: string;
   onClose: () => void;
   onGenerate: (prompt: string) => Promise<void>;
 }) {
@@ -96,34 +100,49 @@ export function AiPromptModal({
         >
           {description}
         </Text>
-        <Field
-          value={prompt}
-          onChangeText={setPrompt}
-          multiline
-          placeholder="Make this a 45-minute push workout with extra shoulder work…"
-          autoFocus
-        />
-        {error ? (
-          <Text
-            style={{
-              color: colors.danger,
-              fontSize: 12,
-              lineHeight: 18,
-              marginTop: 10,
-            }}
-          >
-            {error}
-          </Text>
-        ) : null}
+        {loading ? (
+          <View style={{ alignItems: "center", paddingTop: 12 }}>
+            <GeneratingLoader label={loadingLabel} />
+          </View>
+        ) : (
+          <>
+            <Field
+              value={prompt}
+              onChangeText={setPrompt}
+              multiline
+              placeholder="Make this a 45-minute push workout with extra shoulder work…"
+              autoFocus
+            />
+            {error ? (
+              <Text
+                style={{
+                  color: colors.danger,
+                  fontSize: 12,
+                  lineHeight: 18,
+                  marginTop: 10,
+                }}
+              >
+                {error}
+              </Text>
+            ) : null}
+          </>
+        )}
         <View style={{ marginTop: "auto", gap: 9 }}>
+          {loading ? null : (
+            <Button
+              label="Generate draft"
+              icon={Sparkles}
+              size="lg"
+              disabled={!prompt.trim()}
+              onPress={submit}
+            />
+          )}
           <Button
-            label={loading ? "Thinking…" : "Generate draft"}
-            icon={Sparkles}
-            size="lg"
-            disabled={loading || !prompt.trim()}
-            onPress={submit}
+            label="Cancel"
+            variant="ghost"
+            disabled={loading}
+            onPress={onClose}
           />
-          <Button label="Cancel" variant="ghost" onPress={onClose} />
         </View>
       </SafeAreaView>
     </Modal>
