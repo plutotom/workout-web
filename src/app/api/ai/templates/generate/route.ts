@@ -1,7 +1,6 @@
 import { generateObject } from "ai";
 import { gateway } from "@ai-sdk/gateway";
 import { ConvexHttpClient } from "convex/browser";
-import { withAuth } from "@workos-inc/authkit-nextjs";
 import { z } from "zod";
 
 import { api } from "@backend/api";
@@ -13,6 +12,7 @@ import {
   templateDraftSchema,
   type TemplateDraft,
 } from "@/lib/ai/template-draft";
+import { accessTokenForRequest } from "@/lib/ai/request-auth";
 
 export const runtime = "nodejs";
 
@@ -52,8 +52,8 @@ function resolveModel(): string {
 }
 
 export async function POST(request: Request) {
-  const auth = await withAuth({ ensureSignedIn: true });
-  if (!auth.user || !auth.accessToken) {
+  const accessToken = await accessTokenForRequest(request);
+  if (!accessToken) {
     return jsonError(401, "Not authenticated");
   }
 
@@ -69,7 +69,7 @@ export async function POST(request: Request) {
   }
 
   const convex = new ConvexHttpClient(requireConvexUrl());
-  convex.setAuth(auth.accessToken);
+  convex.setAuth(accessToken);
 
   const entitlement = await convex.query(api.routes.auth.users.entitlement, {});
   if (!entitlement) {

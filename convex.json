@@ -5,6 +5,7 @@
       "configure": {
         "redirectUris": [
           "http://localhost:4271/callback",
+          "http://localhost:*/callback",
           "https://workout.plutotom.com/callback"
         ],
         "appHomepageUrl": "http://localhost:4271",

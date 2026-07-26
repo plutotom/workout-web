@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import net from "node:net";
-import { dirname, join } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 
 export const MANAGED_ENV_START = "# BEGIN WORKOUT WORKTREE MANAGED";
 export const MANAGED_ENV_END = "# END WORKOUT WORKTREE MANAGED";
@@ -92,6 +92,40 @@ export function readManifests(stateRoot) {
   return readdirSync(directory)
     .filter((name) => name.endsWith(".json"))
     .map((name) => JSON.parse(readFileSync(join(directory, name), "utf8")));
+}
+
+export function formatWorktreeSummary(manifest, listening, primaryPath) {
+  return [
+    `${manifest.slug} · ${manifest.status}`,
+    `  branch:    ${manifest.branch}`,
+    `  app:       ${manifest.browserOrigin}`,
+    `  listening: ${listening.join(", ") || "none"}`,
+    `  path:      ${relative(primaryPath, manifest.worktreePath)}`,
+  ].join("\n");
+}
+
+export function isManagedSupervisorCommand(command, slug) {
+  const argumentsList =
+    command
+      .match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g)
+      ?.map((argument) => argument.replace(/^(['"])(.*)\1$/, "$2")) ?? [];
+  return (
+    command.includes("scripts/worktree.mjs start") &&
+    argumentsList.includes(slug)
+  );
+}
+
+export function isOwnedConvexCommand(command, manifest) {
+  const worktreeStorage = join(
+    resolve(manifest.worktreePath),
+    ".convex",
+    "local",
+  );
+  return (
+    command.includes(worktreeStorage) &&
+    command.includes(`--port ${manifest.ports.convexCloud}`) &&
+    command.includes(`--site-proxy-port ${manifest.ports.convexSite}`)
+  );
 }
 
 export function writeJsonAtomic(path, value) {
