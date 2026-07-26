@@ -1,6 +1,7 @@
 import { generateObject } from "ai";
 import { gateway } from "@ai-sdk/gateway";
 import { ConvexHttpClient } from "convex/browser";
+import { z } from "zod";
 
 import { api } from "@backend/api";
 import {
@@ -13,16 +14,34 @@ import {
 } from "@/lib/ai/template-draft";
 import { accessTokenForRequest } from "@/lib/ai/request-auth";
 import {
-  TEMPLATE_BODY_LIMIT_BYTES,
-  templateRequestSchema,
-  type TemplateRequest,
-} from "@/lib/ai/request-schemas";
-import {
   parseBoundedJson,
   RequestBodyTooLargeError,
 } from "@/lib/http/parse-json";
 
 export const runtime = "nodejs";
+
+const currentExerciseSchema = z.object({
+  slug: z.string().trim().min(1).max(64),
+  sets: z
+    .array(
+      z.object({
+        weight: z.number().finite().min(0).max(10_000),
+        reps: z.number().finite().min(0).max(1_000),
+      }),
+    )
+    .max(20),
+});
+
+const bodySchema = z.object({
+  prompt: z.string().trim().min(1).max(2000),
+  mode: z.enum(["create", "edit"]).default("create"),
+  current: z
+    .object({
+      name: z.string().max(100),
+      exercises: z.array(currentExerciseSchema).max(50),
+    })
+    .optional(),
+});
 
 function jsonError(status: number, error: string, code?: string) {
   return Response.json(
@@ -47,11 +66,9 @@ export async function POST(request: Request) {
     return jsonError(401, "Not authenticated");
   }
 
-  let body: TemplateRequest;
+  let body: z.infer<typeof bodySchema>;
   try {
-    body = templateRequestSchema.parse(
-      await parseBoundedJson(request, TEMPLATE_BODY_LIMIT_BYTES),
-    );
+    body = bodySchema.parse(await parseBoundedJson(request, 32_768));
   } catch (error) {
     if (error instanceof RequestBodyTooLargeError) {
       return jsonError(413, "Request body is too large");

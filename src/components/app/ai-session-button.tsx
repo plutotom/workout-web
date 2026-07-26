@@ -188,12 +188,13 @@ export function AiSessionButton({
         body: JSON.stringify({
           prompt: trimmed,
           current: {
-            // The route only summarises progress as done/total, so sending set
-            // rows would ship weights and reps it never reads.
             exercises: current.map(({ slug, sets }) => ({
               slug,
-              done: sets.filter((s) => s.completed).length,
-              total: sets.length,
+              sets: sets.map((s) => ({
+                completed: s.completed,
+                weight: s.weight,
+                reps: s.reps,
+              })),
             })),
           },
         }),

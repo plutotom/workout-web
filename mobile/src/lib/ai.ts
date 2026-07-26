@@ -46,7 +46,10 @@ export function useAiGeneration() {
     generateSession: (body: {
       prompt: string;
       current: {
-        exercises: { slug: string; done: number; total: number }[];
+        exercises: {
+          slug: string;
+          sets: { completed: boolean; weight: number; reps: number }[];
+        }[];
       };
     }) =>
       post<{ draft: SessionDraft; droppedSlugs: string[] }>(
