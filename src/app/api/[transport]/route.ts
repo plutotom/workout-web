@@ -1,7 +1,7 @@
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import { createMcpHandler, withMcpAuth } from "mcp-handler";
 
-import { validateMcpApiKey } from "@/lib/mcp/convex";
+import { authorizeMcpApiKey } from "@/lib/mcp/convex";
 import { registerWorkoutMcpTools } from "@/lib/mcp/tools";
 
 export const maxDuration = 60;
@@ -25,8 +25,12 @@ async function verifyToken(
   bearerToken?: string,
 ): Promise<AuthInfo | undefined> {
   if (!bearerToken) return undefined;
-  const result = await validateMcpApiKey(bearerToken);
-  if (!result) return undefined;
+  let result: Awaited<ReturnType<typeof authorizeMcpApiKey>>;
+  try {
+    result = await authorizeMcpApiKey(bearerToken);
+  } catch {
+    return undefined;
+  }
   return {
     token: bearerToken,
     clientId: result.userId,

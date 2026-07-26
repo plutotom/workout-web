@@ -10,8 +10,8 @@ export default async function AppLayout({
 }: {
   children: React.ReactNode;
 }) {
-  // Routes in this group are auth-protected by the proxy; `user` is present.
-  const { user } = await withAuth();
+  // Re-check at the route boundary; Proxy is an optimistic navigation gate.
+  await withAuth({ ensureSignedIn: true });
 
   return (
     <ExerciseCatalogProvider>
@@ -21,7 +21,7 @@ export default async function AppLayout({
         </main>
 
         <BottomNav />
-        <UserBootstrap email={user?.email} />
+        <UserBootstrap />
         <WarmQueries />
       </div>
     </ExerciseCatalogProvider>

@@ -19,7 +19,7 @@ export const get = query({
       .query("users")
       .withIndex("by_workosId", (q) => q.eq("workosId", identity.subject))
       .unique();
-    if (!user) return null;
+    if (!user || user.emailVerifiedAt === undefined) return null;
     return { _id: user._id, email: user.email };
   },
 });

@@ -21,10 +21,11 @@ export function parseProEmails(raw: string | undefined): Set<string> {
  * - OR email listed in `PRO_EMAILS` env (comma-separated)
  */
 export function isProUser(
-  user: Pick<Doc<"users">, "email" | "plan">,
+  user: Pick<Doc<"users">, "email" | "emailVerifiedAt" | "plan">,
   proEmailsRaw: string | undefined = process.env.PRO_EMAILS,
 ): boolean {
   if (user.plan === "pro") return true;
+  if (user.emailVerifiedAt === undefined) return false;
   const allowlist = parseProEmails(proEmailsRaw);
   if (!user.email) return false;
   return allowlist.has(user.email.trim().toLowerCase());
