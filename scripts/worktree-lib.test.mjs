@@ -3,7 +3,10 @@ import net from "node:net";
 
 import {
   assertSlug,
+  formatWorktreeSummary,
   isPortAvailable,
+  isManagedSupervisorCommand,
+  isOwnedConvexCommand,
   parseEnv,
   renderManagedEnv,
   slugFromBranch,
@@ -48,5 +51,68 @@ describe("worktree runtime helpers", () => {
       server.close((error) => (error ? reject(error) : resolve())),
     );
     expect(await isPortAvailable(address.port)).toBe(true);
+  });
+
+  it("renders a compact worktree summary without a wide table", () => {
+    const summary = formatWorktreeSummary(
+      {
+        slug: "ios-spike",
+        branch: "wt/ios-spike",
+        status: "running",
+        browserOrigin: "http://localhost:4272",
+        worktreePath: "/repo/.worktrees/ios-spike",
+      },
+      ["convexCloud", "convexSite"],
+      "/repo",
+    );
+    expect(summary).toBe(
+      [
+        "ios-spike · running",
+        "  branch:    wt/ios-spike",
+        "  app:       http://localhost:4272",
+        "  listening: convexCloud, convexSite",
+        "  path:      .worktrees/ios-spike",
+      ].join("\n"),
+    );
+  });
+
+  it("matches only the expected worktree supervisor", () => {
+    expect(
+      isManagedSupervisorCommand(
+        "node scripts/worktree.mjs start ios-spike",
+        "ios-spike",
+      ),
+    ).toBe(true);
+    expect(
+      isManagedSupervisorCommand(
+        "node scripts/worktree.mjs start other-ios-spike",
+        "ios-spike",
+      ),
+    ).toBe(false);
+  });
+
+  it("does not claim an unrelated Convex listener", () => {
+    const manifest = {
+      worktreePath: "/repo/.worktrees/ios-spike",
+      ports: { convexCloud: 3212, convexSite: 3213 },
+    };
+    expect(
+      isOwnedConvexCommand(
+        "/repo/.worktrees/ios-spike/.convex/local/backend --port 3212 --site-proxy-port 3213",
+        manifest,
+      ),
+    ).toBe(true);
+    expect(
+      isOwnedConvexCommand(
+        "/other/.convex/local/backend --port 3212 --site-proxy-port 3213",
+        manifest,
+      ),
+    ).toBe(false);
+    expect(
+      isOwnedConvexCommand(
+        "/repo/.worktrees/ios-spike/.convex/local/backend --port 9999 --site-proxy-port 3213",
+        manifest,
+      ),
+    ).toBe(false);
   });
 });

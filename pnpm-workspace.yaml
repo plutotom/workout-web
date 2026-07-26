@@ -2,6 +2,7 @@
 # allowBuilds is pnpm 11's replacement for onlyBuiltDependencies / ignoredBuiltDependencies.
 packages:
   - "."
+  - "mobile"
 
 allowBuilds:
   "@swc/core": true

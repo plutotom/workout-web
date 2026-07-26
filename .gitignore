@@ -48,3 +48,9 @@ next-env.d.ts
 public/sw*
 public/swe-worker*
 .tokensave
+
+# Expo / React Native
+mobile/.expo/
+mobile/ios/
+mobile/android/
+mobile/dist/

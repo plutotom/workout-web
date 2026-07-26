@@ -1,0 +1,8 @@
+appId: com.isaiahproctor.workout.local
+---
+- openLink: "exp+workout-ios-v1://expo-development-client/?url=http%3A%2F%2F127.0.0.1%3A8081%2F%3FdisableOnboarding%3D1"
+- extendedWaitUntil:
+    visible: "Continue with WorkOS"
+    timeout: 20000
+- assertVisible: "Your training, without the noise."
+- assertVisible: "Continue with WorkOS"
