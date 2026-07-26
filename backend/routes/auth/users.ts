@@ -4,6 +4,7 @@ import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import { action, mutation, query } from "../../_generated/server";
 import { isAdminUser, requireAdmin } from "../../lib/admin";
+import { requireUser } from "../../lib/auth";
 import { allowManualPro, isProUser } from "../../lib/plan";
 import { fetchVerifiedWorkosEmail } from "../../lib/workos";
 import { isBillingConfigured, polar } from "../billing/polar";
@@ -149,6 +150,25 @@ export const getOrCreate = action({
         verifiedAt: Date.now(),
       },
     );
+  },
+});
+
+/** Mark first-run onboarding as done (path picked or skipped). */
+export const completeOnboarding = mutation({
+  args: {},
+  returns: v.null(),
+  handler: async (ctx) => {
+    const user = await requireUser(ctx);
+    // Treat the old auto-stamp (completedAt === createdAt) as unfinished so
+    // existing users can still complete the sheet for real.
+    if (
+      user.onboardingCompletedAt !== undefined &&
+      user.onboardingCompletedAt !== user.createdAt
+    ) {
+      return null;
+    }
+    await ctx.db.patch(user._id, { onboardingCompletedAt: Date.now() });
+    return null;
   },
 });
 

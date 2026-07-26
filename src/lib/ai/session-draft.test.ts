@@ -81,4 +81,8 @@ describe("sessionDraftSchema", () => {
       }).add,
     ).toHaveLength(1);
   });
+
+  it("rejects missing arrays (OpenAI strict JSON schema requires them)", () => {
+    expect(() => sessionDraftSchema.parse({})).toThrow();
+  });
 });
