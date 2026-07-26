@@ -1,8 +1,12 @@
 import { ConvexHttpClient } from "convex/browser";
-import { z } from "zod";
 
 import { api } from "@backend/api";
 import { accessTokenForRequest } from "@/lib/ai/request-auth";
+import {
+  SESSION_BODY_LIMIT_BYTES,
+  sessionRequestSchema,
+  type SessionRequest,
+} from "@/lib/ai/request-schemas";
 import { consumeAiGenerationOrError } from "@/lib/ai/consume-generation";
 import { generateStructuredObject } from "@/lib/ai/generate-structured";
 import { aiJsonError } from "@/lib/ai/json-error";
@@ -24,26 +28,6 @@ import {
 
 export const runtime = "nodejs";
 
-const currentSetSchema = z.object({
-  completed: z.boolean(),
-  weight: z.number().finite().min(0).max(10_000),
-  reps: z.number().finite().min(0).max(1_000),
-});
-
-const bodySchema = z.object({
-  prompt: z.string().trim().min(1).max(2000),
-  current: z.object({
-    exercises: z
-      .array(
-        z.object({
-          slug: z.string().trim().min(1).max(64),
-          sets: z.array(currentSetSchema).max(20),
-        }),
-      )
-      .max(50),
-  }),
-});
-
 function requireConvexUrl(): string {
   const url = process.env.NEXT_PUBLIC_CONVEX_URL;
   if (!url) throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
@@ -51,16 +35,14 @@ function requireConvexUrl(): string {
 }
 
 function summarizeCurrentSession(
-  exercises: z.infer<typeof bodySchema>["current"]["exercises"],
+  exercises: SessionRequest["current"]["exercises"],
 ): string {
   if (exercises.length === 0) {
     return "Current session: empty (no exercises yet).";
   }
-  const lines = exercises.map((ex, i) => {
-    const done = ex.sets.filter((s) => s.completed).length;
-    const total = ex.sets.length;
-    return `${i + 1}. ${ex.slug} (${done}/${total} sets done)`;
-  });
+  const lines = exercises.map(
+    (ex, i) => `${i + 1}. ${ex.slug} (${ex.done}/${ex.total} sets done)`,
+  );
   return `Current session exercises (use these exact slugs in removeSlugs):\n${lines.join("\n")}`;
 }
 
@@ -70,9 +52,11 @@ export async function POST(request: Request) {
     return aiJsonError(401, "Not authenticated");
   }
 
-  let body: z.infer<typeof bodySchema>;
+  let body: SessionRequest;
   try {
-    body = bodySchema.parse(await parseBoundedJson(request, 32_768));
+    body = sessionRequestSchema.parse(
+      await parseBoundedJson(request, SESSION_BODY_LIMIT_BYTES),
+    );
   } catch (error) {
     if (error instanceof RequestBodyTooLargeError) {
       return aiJsonError(413, "Request body is too large");

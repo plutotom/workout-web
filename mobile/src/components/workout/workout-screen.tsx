@@ -124,13 +124,12 @@ function ListWorkout({
     const result = await generateSession({
       prompt,
       current: {
+        // The route only summarises progress as done/total, so sending set
+        // rows would ship weights and reps it never reads.
         exercises: session.exercises.map((exercise) => ({
           slug: exercise.slug,
-          sets: exercise.sets.map((set) => ({
-            completed: set.completed,
-            weight: set.weight,
-            reps: set.reps,
-          })),
+          done: exercise.sets.filter((set) => set.completed).length,
+          total: exercise.sets.length,
         })),
       },
     });

@@ -1,8 +1,12 @@
 import { ConvexHttpClient } from "convex/browser";
-import { z } from "zod";
 
 import { api } from "@backend/api";
 import { accessTokenForRequest } from "@/lib/ai/request-auth";
+import {
+  TEMPLATE_BODY_LIMIT_BYTES,
+  templateRequestSchema,
+  type TemplateRequest,
+} from "@/lib/ai/request-schemas";
 import { consumeAiGenerationOrError } from "@/lib/ai/consume-generation";
 import { generateStructuredObject } from "@/lib/ai/generate-structured";
 import { aiJsonError } from "@/lib/ai/json-error";
@@ -24,29 +28,6 @@ import {
 
 export const runtime = "nodejs";
 
-const currentExerciseSchema = z.object({
-  slug: z.string().trim().min(1).max(64),
-  sets: z
-    .array(
-      z.object({
-        weight: z.number().finite().min(0).max(10_000),
-        reps: z.number().finite().min(0).max(1_000),
-      }),
-    )
-    .max(20),
-});
-
-const bodySchema = z.object({
-  prompt: z.string().trim().min(1).max(2000),
-  mode: z.enum(["create", "edit"]).default("create"),
-  current: z
-    .object({
-      name: z.string().max(100),
-      exercises: z.array(currentExerciseSchema).max(50),
-    })
-    .optional(),
-});
-
 function requireConvexUrl(): string {
   const url = process.env.NEXT_PUBLIC_CONVEX_URL;
   if (!url) throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
@@ -59,9 +40,11 @@ export async function POST(request: Request) {
     return aiJsonError(401, "Not authenticated");
   }
 
-  let body: z.infer<typeof bodySchema>;
+  let body: TemplateRequest;
   try {
-    body = bodySchema.parse(await parseBoundedJson(request, 32_768));
+    body = templateRequestSchema.parse(
+      await parseBoundedJson(request, TEMPLATE_BODY_LIMIT_BYTES),
+    );
   } catch (error) {
     if (error instanceof RequestBodyTooLargeError) {
       return aiJsonError(413, "Request body is too large");
