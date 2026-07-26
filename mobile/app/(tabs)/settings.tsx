@@ -11,6 +11,7 @@ import {
   KeyRound,
   LogOut,
   Settings2,
+  Shield,
   Trash2,
 } from "lucide-react-native";
 import { useRef, useState } from "react";
@@ -264,6 +265,7 @@ function SettingsContent({
           />
         </Card>
         <PlanCard />
+        <AdminCard />
         <McpCard />
         <Button
           label="Sign out"
@@ -417,6 +419,27 @@ function PlanCard() {
           />
         </View>
       ) : null}
+    </Card>
+  );
+}
+
+function AdminCard() {
+  const entitlement = useQuery(api.routes.auth.users.entitlement);
+  if (entitlement === undefined || !entitlement?.isAdmin) return null;
+
+  return (
+    <Card>
+      <Shield color={colors.text} size={22} />
+      <SectionTitle title="Admin" />
+      <Text style={{ color: colors.dim, fontSize: 13 }}>
+        Grant or revoke Pro for users without a Polar subscription.
+      </Text>
+      <Button
+        label="Manage Pro access"
+        variant="outline"
+        icon={Shield}
+        onPress={() => router.push("/settings/admin")}
+      />
     </Card>
   );
 }

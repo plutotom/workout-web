@@ -403,6 +403,7 @@ function ListWorkout({
         visible={aiOpen}
         title="Reshape this workout"
         description="Ask for additions, removals, or a new direction. You’ll review the exact draft before it changes the session."
+        loadingLabel="Reshaping your session…"
         onClose={() => setAiOpen(false)}
         onGenerate={generate}
       />

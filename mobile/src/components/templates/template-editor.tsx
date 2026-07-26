@@ -476,6 +476,7 @@ export function TemplateEditor({
         visible={aiOpen}
         title={templateId ? "Edit this template" : "Describe your workout"}
         description="AI will draft catalog exercises and set targets for you to review before saving."
+        loadingLabel="Building your template…"
         onClose={() => setAiOpen(false)}
         onGenerate={generate}
       />
