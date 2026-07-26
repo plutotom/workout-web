@@ -5,9 +5,10 @@ import { NextResponse } from "next/server";
 const workosProxy = authkitProxy({
   middlewareAuth: {
     enabled: true,
-    // `/` is intentionally omitted: the root redirects to /dashboard, which is
-    // auth-protected, so unauthenticated visitors are sent to sign-in.
+    // Public marketing home plus auth/MCP endpoints. Everything else requires
+    // a session; `/` is the landing page for unsigned visitors.
     unauthenticatedPaths: [
+      "/",
       "/sign-in",
       "/sign-up",
       "/sign-out",

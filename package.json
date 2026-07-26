@@ -17,6 +17,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
+    "smoke:ai": "node scripts/ai-gateway-smoke.mjs",
     "generate:splash": "node scripts/generate-splash-screens.mjs scripts/splash-base.png",
     "verify": "node scripts/verify.mjs",
     "verify:ios": "pnpm --dir mobile verify",
@@ -86,6 +87,7 @@
     "prettier": "^3.8.5",
     "sharp": "^0.35.2",
     "tailwindcss": "^4",
+    "tsx": "^4.23.1",
     "typescript": "^5",
     "vitest": "^4.1.9"
   },

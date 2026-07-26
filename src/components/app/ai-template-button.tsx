@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { useVisualViewportFrame } from "@/hooks/use-visual-viewport-frame";
+import { describeAiGenerateFailure } from "@/lib/ai/generate-feedback";
 import type { TemplateDraft } from "@/lib/ai/template-draft";
 import { cn } from "@/lib/utils";
 
@@ -43,6 +44,10 @@ export function AiTemplateButton({
   const [open, setOpen] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState<{
+    title: string;
+    description?: string;
+  } | null>(null);
   const [inputFocused, setInputFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // Fill mode pins the sheet to the visual viewport so iOS keyboard
@@ -76,6 +81,7 @@ export function AiTemplateButton({
     }
 
     setGenerating(true);
+    setGenerateError(null);
     try {
       const res = await fetch("/api/ai/templates/generate", {
         method: "POST",
@@ -96,30 +102,48 @@ export function AiTemplateButton({
         }),
       });
 
-      const data = (await res.json()) as {
+      let data: {
         error?: string;
         code?: string;
+        hint?: string;
         draft?: TemplateDraft;
         droppedSlugs?: string[];
-      };
+      } = {};
+      try {
+        data = (await res.json()) as typeof data;
+      } catch {
+        data = {};
+      }
 
       if (!res.ok) {
-        if (data.code === "PRO_REQUIRED") {
-          toast.error("AI templates require Pro");
-        } else {
-          toast.error(data.error ?? "Couldn't generate template");
-        }
+        const feedback = describeAiGenerateFailure(
+          data,
+          "Couldn't generate template",
+        );
+        setGenerateError(feedback);
+        toast.error(
+          feedback.title,
+          feedback.description
+            ? { description: feedback.description }
+            : undefined,
+        );
         return;
       }
 
       if (!data.draft) {
-        toast.error("Couldn't generate template");
+        const feedback = {
+          title: "Couldn't generate template",
+          description: "The response was empty. Try again.",
+        };
+        setGenerateError(feedback);
+        toast.error(feedback.title, { description: feedback.description });
         return;
       }
 
       onApply(data.draft);
       setOpen(false);
       setPrompt("");
+      setGenerateError(null);
       if (data.droppedSlugs?.length) {
         toast.message("Draft applied", {
           description: `Skipped unknown exercises: ${data.droppedSlugs.join(", ")}`,
@@ -132,7 +156,12 @@ export function AiTemplateButton({
         );
       }
     } catch {
-      toast.error("Couldn't generate template");
+      const feedback = {
+        title: "Couldn't generate template",
+        description: "Network error. Check your connection and retry.",
+      };
+      setGenerateError(feedback);
+      toast.error(feedback.title, { description: feedback.description });
     } finally {
       setGenerating(false);
     }
@@ -156,7 +185,10 @@ export function AiTemplateButton({
         open={open}
         onOpenChange={(next) => {
           setOpen(next);
-          if (!next) setInputFocused(false);
+          if (!next) {
+            setInputFocused(false);
+            setGenerateError(null);
+          }
         }}
       >
         <SheetContent
@@ -198,7 +230,10 @@ export function AiTemplateButton({
                   ref={textareaRef}
                   id="ai-template-prompt"
                   value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
+                  onChange={(e) => {
+                    setPrompt(e.target.value);
+                    if (generateError) setGenerateError(null);
+                  }}
                   onFocus={() => setInputFocused(true)}
                   onBlur={() => setInputFocused(false)}
                   placeholder={
@@ -213,6 +248,19 @@ export function AiTemplateButton({
                   )}
                   disabled={generating}
                 />
+                {generateError ? (
+                  <div
+                    role="alert"
+                    className="border-destructive/40 bg-destructive/10 text-destructive rounded-lg border px-3 py-2 text-sm"
+                  >
+                    <p className="font-medium">{generateError.title}</p>
+                    {generateError.description ? (
+                      <p className="text-destructive/90 mt-0.5 leading-snug">
+                        {generateError.description}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
             ) : (
               <p className="text-muted-foreground text-sm">
