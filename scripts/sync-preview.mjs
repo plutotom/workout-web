@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 /**
- * Sync preview: Convex preview env defaults, backfill a preview deployment,
- * and push WorkOS secrets to Vercel Preview.
+ * Sync the persistent staging environment: Convex preview defaults, the
+ * preview/staging deployment, WorkOS redirects, and staging-branch Vercel
+ * secrets.
  *
  * Usage:
  *   pnpm sync:preview              # Convex preview defaults + deployment env
- *   pnpm sync:preview -- --vercel  # Also fix empty Vercel Preview env vars
+ *   pnpm sync:preview -- --vercel  # Also sync staging-only Vercel env vars
  *
  * Requires .env.local with WORKOS_CLIENT_ID, WORKOS_API_KEY, WORKOS_COOKIE_PASSWORD.
  * MCP_API_KEY_PEPPER falls back to dev Convex (same as sync:prod).
@@ -23,6 +24,11 @@ const root = resolve(import.meta.dirname, "..");
 const withVercel = process.argv.includes("--vercel");
 const previewDeployment =
   process.env.CONVEX_PREVIEW_DEPLOYMENT?.trim() || "preview/staging";
+const stagingBranch = process.env.STAGING_GIT_BRANCH?.trim() || "staging";
+const vercelProject = process.env.VERCEL_PROJECT_NAME?.trim() || "workout-web";
+const stagingOrigin =
+  process.env.STAGING_APP_URL?.trim().replace(/\/$/, "") ||
+  "https://workout-web-git-staging-isaiah-proctors-projects.vercel.app";
 
 const CONVEX_ENV_KEYS = [
   "WORKOS_CLIENT_ID",
@@ -30,11 +36,13 @@ const CONVEX_ENV_KEYS = [
   "MCP_API_KEY_PEPPER",
 ];
 
-const VERCEL_PREVIEW_KEYS = [
+const VERCEL_STAGING_REQUIRED_KEYS = [
   "WORKOS_CLIENT_ID",
   "WORKOS_API_KEY",
   "WORKOS_COOKIE_PASSWORD",
 ];
+
+const VERCEL_STAGING_OPTIONAL_KEYS = ["AI_GATEWAY_API_KEY", "AI_GATEWAY_MODEL"];
 
 function log(step, message) {
   console.log(`\n▸ ${step}: ${message}`);
@@ -116,6 +124,49 @@ function resolveMcpPepper(env) {
   return pepper;
 }
 
+async function workosRequest(apiKey, method, path, body) {
+  const response = await fetch(
+    `https://api.workos.com/user_management/${path}`,
+    {
+      method,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    },
+  );
+
+  const responseText = await response.text();
+  const ok =
+    response.ok ||
+    response.status === 422 ||
+    response.status === 409 ||
+    responseText.includes("already exists") ||
+    responseText.includes("duplicate_cors_origin");
+  if (!ok) {
+    die(
+      `WorkOS ${method} ${path} failed (${response.status}): ${responseText}`,
+    );
+  }
+}
+
+async function syncWorkosStaging(apiKey) {
+  log("workos", `Configuring AuthKit for ${stagingOrigin}`);
+  await workosRequest(apiKey, "POST", "redirect_uris", {
+    uri: `${stagingOrigin}/callback`,
+  });
+  pass(`redirect ${stagingOrigin}/callback`);
+  await workosRequest(apiKey, "PUT", "app_homepage_url", {
+    url: stagingOrigin,
+  });
+  pass(`homepage ${stagingOrigin}`);
+  await workosRequest(apiKey, "POST", "cors_origins", {
+    origin: stagingOrigin,
+  });
+  pass(`cors ${stagingOrigin}`);
+}
+
 function syncConvexPreviewDefaults(values) {
   log("convex", "Setting preview deployment-type defaults");
 
@@ -157,26 +208,67 @@ function syncConvexPreviewDeployment(values, deployment) {
   }
 }
 
-function syncVercelPreview(env) {
-  log("vercel", "Updating Preview environment variables (WorkOS only)");
+function syncVercelStaging(env) {
+  log(
+    "vercel",
+    `Updating Preview variables for the ${stagingBranch} branch only`,
+  );
 
-  for (const name of VERCEL_PREVIEW_KEYS) {
+  for (const name of VERCEL_STAGING_REQUIRED_KEYS) {
     const value = env[name];
     if (!value?.trim()) {
       die(`Missing ${name} — set it in .env.local`);
     }
-    run("pnpm", ["dlx", "vercel", "env", "add", name, "preview", "--force"], {
-      input: value,
-      quiet: true,
-    });
-    pass(`${name} → Preview`);
+    run(
+      "pnpm",
+      [
+        "dlx",
+        "vercel",
+        "env",
+        "add",
+        name,
+        "preview",
+        stagingBranch,
+        "--project",
+        vercelProject,
+        "--force",
+        "--yes",
+        "--sensitive",
+      ],
+      { input: value, quiet: true },
+    );
+    pass(`${name} → Preview/${stagingBranch}`);
+  }
+
+  for (const name of VERCEL_STAGING_OPTIONAL_KEYS) {
+    const value = env[name]?.trim();
+    if (!value) continue;
+    run(
+      "pnpm",
+      [
+        "dlx",
+        "vercel",
+        "env",
+        "add",
+        name,
+        "preview",
+        stagingBranch,
+        "--project",
+        vercelProject,
+        "--force",
+        "--yes",
+        "--sensitive",
+      ],
+      { input: value, quiet: true },
+    );
+    pass(`${name} → Preview/${stagingBranch}`);
   }
 }
 
 console.log("Sync preview");
 console.log(
   withVercel
-    ? `(Convex defaults + ${previewDeployment} + Vercel Preview)`
+    ? `(Convex defaults + ${previewDeployment} + Vercel Preview/${stagingBranch})`
     : `(Convex defaults + ${previewDeployment})`,
 );
 
@@ -193,14 +285,15 @@ const convexValues = {
   MCP_API_KEY_PEPPER: pepper,
 };
 
+await syncWorkosStaging(env.WORKOS_API_KEY.trim());
 syncConvexPreviewDefaults(convexValues);
 syncConvexPreviewDeployment(convexValues, previewDeployment);
 
 if (withVercel) {
-  syncVercelPreview(env);
+  syncVercelStaging(env);
 }
 
 console.log("\nDone.");
 console.log(
-  "Redeploy a preview branch on Vercel to verify convex deploy + sign-in.",
+  `Push ${stagingBranch} to verify persistent Convex deploy + WorkOS sign-in.`,
 );

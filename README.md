@@ -18,6 +18,24 @@ bun dev
 
 Open [http://localhost:4271](http://localhost:4271) with your browser to see the result.
 
+## Staging
+
+`origin/staging` is the long-lived public test channel. A push to that branch:
+
+1. Reuses the persistent Convex `preview/staging` deployment.
+2. Pushes backend functions and schema without clearing staging data.
+3. Builds Next.js against the URL returned by that Convex deploy.
+4. Configures WorkOS against Vercel's stable branch alias.
+
+Merge feature branches into `staging`, verify the stable Vercel branch URL on
+desktop or phone, then merge `staging` into `main` for a clean production
+build. Never promote a staging artifact directly to production because
+`NEXT_PUBLIC_*` values are fixed when Next.js builds.
+
+Run `pnpm sync:preview:all` from a cloud-connected checkout when rotating
+staging credentials. Set `STAGING_APP_URL` first if staging moves to a custom
+domain.
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
