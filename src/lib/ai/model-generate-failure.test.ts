@@ -42,7 +42,16 @@ describe("describeModelGenerateFailure", () => {
       },
       usage: {
         inputTokens: 1,
+        inputTokenDetails: {
+          noCacheTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+        },
         outputTokens: 1,
+        outputTokenDetails: {
+          textTokens: 1,
+          reasoningTokens: 0,
+        },
         totalTokens: 2,
       },
       finishReason: "stop",

@@ -21,22 +21,27 @@ Vercel runs `pnpm build` → `scripts/vercel-build.mjs`:
 
 - **Production** — `convex deploy`, then Next.js. Deploy injects
   `NEXT_PUBLIC_CONVEX_URL` for the web build.
-- **Preview** — skips `convex deploy` for now (use the shared backend via
-  Preview `NEXT_PUBLIC_CONVEX_URL`). Only builds Next.js.
+- **Staging branch Preview** — deploys backend code to the persistent
+  `preview/staging` deployment, then builds Next.js against the URL returned by
+  that deploy. Its deploy key is restricted to that one deployment, so data
+  survives every deployment.
+- **Other Previews** — skip `convex deploy` and build against their configured
+  Preview `NEXT_PUBLIC_CONVEX_URL`.
 
 `scripts/resolve-workos-redirect-uri.mjs` sets the redirect URI from
 `convex.json` `authKit.prod` on **Production** builds (custom domain) and from
-`VERCEL_URL` on **Preview** builds.
+the stable `VERCEL_BRANCH_URL` on **Preview** builds (`VERCEL_URL` is only a
+fallback).
 
-Set `NEXT_PUBLIC_CONVEX_URL` on Vercel **Preview** (prod or staging URL) while
-preview Convex deploy is disabled.
+Set `NEXT_PUBLIC_CONVEX_URL` on Vercel **Preview** for ordinary PR previews.
+The `staging` branch build receives its URL directly from `convex deploy`.
 
 ### Vercel deploy keys
 
-| Vercel environment | `CONVEX_DEPLOY_KEY` source                                      |
-| ------------------ | --------------------------------------------------------------- |
-| **Production**     | Convex Dashboard → Project Settings → **Production** Deploy Key |
-| **Preview**        | Convex Dashboard → Project Settings → **Preview** Deploy Key    |
+| Vercel environment  | `CONVEX_DEPLOY_KEY` source                                                                                              |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| **Production**      | Convex Dashboard → Project Settings → **Production** Deploy Key                                                         |
+| **Preview/staging** | `convex deployment token create vercel-staging --deployment preview/staging`, scoped to Vercel Preview branch `staging` |
 
 Both variables are named `CONVEX_DEPLOY_KEY` in Vercel, but each key must be
 restricted to the matching environment (Production only / Preview only). If a
@@ -45,9 +50,10 @@ production key is available during a preview build, Convex fails with:
 > Detected a non-production build environment and "CONVEX_DEPLOY_KEY" for a
 > production Convex deployment.
 
-Preview deploys get a branch-specific Convex backend (see `convex.json` →
-`authKit.preview`). Without a preview key, PR preview builds will not deploy
-backend/schema changes.
+The `staging` branch always reuses `preview/staging` (see `convex.json` →
+`authKit.preview`). Without its branch-scoped Preview key, staging fails closed
+instead of silently building against the wrong backend. Ordinary PR previews do
+not deploy backend/schema changes.
 
 ### WorkOS / AuthKit (preview builds)
 
@@ -62,17 +68,22 @@ environment (not just on the Convex deployment).
 2. **Convex preview env defaults** — set `WORKOS_CLIENT_ID`, `WORKOS_API_KEY`,
    and `MCP_API_KEY_PEPPER` under Project Settings → Environment Variable
    Defaults → Preview (applies to new preview backends).
-3. **Vercel Preview env** — same `WORKOS_*` vars plus `WORKOS_COOKIE_PASSWORD`.
+3. **Vercel staging branch env** — same `WORKOS_*` vars plus
+   `WORKOS_COOKIE_PASSWORD`, scoped to Preview branch `staging`.
    `NEXT_PUBLIC_WORKOS_REDIRECT_URI` is set at build time by
-   `scripts/resolve-workos-redirect-uri.mjs` (`VERCEL_URL` on preview,
+   `scripts/resolve-workos-redirect-uri.mjs` (`VERCEL_BRANCH_URL` on preview,
    `authKit.prod` redirect URI on production).
 
 Quick sync from local `.env.local`:
 
 ```bash
 pnpm sync:preview        # Convex preview defaults + preview/staging deployment
-pnpm sync:preview:all    # Also push WorkOS secrets to Vercel Preview
+pnpm sync:preview:all    # Also push secrets to Vercel Preview branch staging
 ```
+
+The sync also registers the stable staging callback, homepage, and CORS origin
+with WorkOS. Override the default branch alias with `STAGING_APP_URL` if the
+staging domain changes.
 
 For local Next.js builds without deploying Convex, use `pnpm build:web`.
 
