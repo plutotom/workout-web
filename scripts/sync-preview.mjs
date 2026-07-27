@@ -20,6 +20,8 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+import { DEFAULT_STAGING_ORIGIN } from "./deployment-environment.mjs";
+
 const root = resolve(import.meta.dirname, "..");
 const withVercel = process.argv.includes("--vercel");
 const previewDeployment =
@@ -28,7 +30,7 @@ const stagingBranch = process.env.STAGING_GIT_BRANCH?.trim() || "staging";
 const vercelProject = process.env.VERCEL_PROJECT_NAME?.trim() || "workout-web";
 const stagingOrigin =
   process.env.STAGING_APP_URL?.trim().replace(/\/$/, "") ||
-  "https://workout-web-git-staging-isaiah-proctors-projects.vercel.app";
+  DEFAULT_STAGING_ORIGIN;
 
 const CONVEX_ENV_KEYS = [
   "WORKOS_CLIENT_ID",
@@ -86,10 +88,17 @@ function loadEnvLocal() {
     if (!trimmed || trimmed.startsWith("#")) continue;
     const index = trimmed.indexOf("=");
     if (index === -1) continue;
-    values[trimmed.slice(0, index)] = trimmed
+    let value = trimmed
       .slice(index + 1)
       .replace(/\s+#.*$/, "")
       .trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    values[trimmed.slice(0, index)] = value.replace(/\\n/g, "\n");
   }
   return values;
 }

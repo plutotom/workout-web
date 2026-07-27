@@ -30,8 +30,10 @@ Vercel runs `pnpm build` → `scripts/vercel-build.mjs`:
 
 `scripts/resolve-workos-redirect-uri.mjs` sets the redirect URI from
 `convex.json` `authKit.prod` on **Production** builds (custom domain) and from
-the stable `VERCEL_BRANCH_URL` on **Preview** builds (`VERCEL_URL` is only a
-fallback).
+`https://staging.workout.plutotom.com` on the **staging Preview** build.
+Other previews use the stable `VERCEL_BRANCH_URL` (`VERCEL_URL` is only a
+fallback). Override the staging origin with `STAGING_APP_URL` if its domain
+changes.
 
 Set `NEXT_PUBLIC_CONVEX_URL` on Vercel **Preview** for ordinary PR previews.
 The `staging` branch build receives its URL directly from `convex deploy`.
@@ -82,7 +84,7 @@ pnpm sync:preview:all    # Also push secrets to Vercel Preview branch staging
 ```
 
 The sync also registers the stable staging callback, homepage, and CORS origin
-with WorkOS. Override the default branch alias with `STAGING_APP_URL` if the
+with WorkOS. Override the default custom domain with `STAGING_APP_URL` if the
 staging domain changes.
 
 For local Next.js builds without deploying Convex, use `pnpm build:web`.
