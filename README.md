@@ -20,23 +20,99 @@ Open [http://localhost:4271](http://localhost:4271) with your browser to see the
 
 ## Staging
 
-`origin/staging` is the long-lived public test channel. A push to that branch:
+`origin/staging` is the long-lived, public test channel for changes that are not
+ready for production. It has its own Vercel project, WorkOS callback, and
+persistent Convex backend:
 
-1. Deploys through the isolated `workout-web-staging` Vercel project.
-2. Reuses the persistent Convex `preview/staging` deployment.
-3. Pushes backend functions and schema without clearing staging data.
-4. Builds Next.js against the URL returned by that Convex deploy.
-5. Configures WorkOS against `https://staging.workout.plutotom.com`.
+| Environment              | Frontend                                                   | Convex data                                                      |
+| ------------------------ | ---------------------------------------------------------- | ---------------------------------------------------------------- |
+| Managed local worktree   | Worktree-specific localhost port                           | Isolated Convex Local database in that worktree                  |
+| Ordinary feature preview | Protected preview on the main `workout-web` Vercel project | Configured shared Preview backend; backend deployment is skipped |
+| `staging`                | Public `workout-web-staging` Vercel Preview                | Persistent `staging` / `successful-jackal-872` deployment        |
+| `main`                   | Production `workout-web` Vercel deployment                 | Production Convex deployment                                     |
+
+Convex does not create a cloud development deployment for every Git branch in
+this repository. Managed worktrees use isolated Convex Local databases, so
+those development databases do not appear as branch deployments in the Convex
+cloud dashboard.
+
+### Publishing a change to staging
+
+Test backend and frontend changes in the feature worktree first. Then either
+open a pull request with `staging` as its base, or merge the feature branch from
+the checkout used to publish staging:
+
+```bash
+git fetch origin
+git merge <feature-branch>
+git push origin HEAD:staging
+```
+
+The managed staging worktree uses a local `wt/workout-staging` branch that
+tracks `origin/staging`, so `git push origin HEAD:staging` is intentional.
+
+Every push to `origin/staging` automatically:
+
+1. Starts a Preview deployment in the isolated `workout-web-staging` Vercel
+   project.
+2. Uses a branch-scoped deploy key that can deploy only to the persistent
+   Convex staging deployment, `successful-jackal-872`.
+3. Pushes the current backend functions and schema without clearing staging
+   data.
+4. Builds Next.js against the backend URL returned by that Convex deployment.
+5. Uses the WorkOS callback
+   `https://staging.workout.plutotom.com/callback`.
+6. Updates [staging.workout.plutotom.com](https://staging.workout.plutotom.com)
+   after the deployment succeeds.
 
 The staging Vercel project builds only the `staging` branch. Production and
 ordinary feature previews remain on the protected `workout-web` project.
 
-Merge feature branches into `staging`, verify the stable staging URL on desktop
-or phone at
-[staging.workout.plutotom.com](https://staging.workout.plutotom.com), then merge
-`staging` into `main` for a clean production
-build. Never promote a staging artifact directly to production because
-`NEXT_PUBLIC_*` values are fixed when Next.js builds.
+In the Convex dashboard, use the deployment named `successful-jackal-872` when
+inspecting staging functions, logs, environment variables, or data. The unused
+`original-reindeer-313` Preview deployment is not connected to the staging
+website.
+
+### Verifying a staging deployment
+
+Wait for the newest `workout-web-staging` deployment to report **Preview** and
+**Ready**, then verify:
+
+1. The staging URL loads without a Vercel login screen.
+2. Sign-in goes to WorkOS and returns to the staging `/callback`.
+3. An authenticated read and write work.
+4. The changed data survives a refresh, browser restart, and later deployment.
+5. Backend/schema changes appear under `successful-jackal-872`.
+
+If a staging build fails, inspect its build log and leave the previous working
+deployment in place. Do not work around a missing staging credential by using a
+production credential.
+
+### Persistent data and schema changes
+
+Staging data is intentionally long-lived and is never cleared during a normal
+deployment. This makes staging production-like, but it also means schema
+changes must remain compatible with existing staging documents.
+
+For a new field on an existing table:
+
+1. Add it as optional.
+2. Deploy to staging.
+3. Backfill existing documents.
+4. Make it required only after the backfill is complete.
+
+Do not clear `successful-jackal-872` to fix a schema deployment. Migrate its
+data instead. Staging uses preview/sandbox credentials and must never receive
+production Convex data, production WorkOS credentials, or a production Convex
+deploy key.
+
+### Promoting staging changes
+
+After verification, merge `staging` into `main` and let `main` perform a clean
+production build. Never promote the staging Vercel artifact directly to
+production because `NEXT_PUBLIC_*` values are fixed when Next.js builds.
+
+### Staging maintenance
 
 Run `pnpm sync:preview:all` from a cloud-connected checkout when rotating
 staging credentials. Override `STAGING_APP_URL` only if the staging domain
