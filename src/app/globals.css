@@ -211,6 +211,203 @@ a,
   animation: slide-up-bar 0.25s ease-out both;
 }
 
+/* ============================================================
+   First-run onboarding takeover (components/app/onboarding-flow.tsx).
+
+   This is a full-screen presentation, not a sheet, so it carries its
+   own ambient background and step-transition motion. Everything here
+   animates transform/opacity only, and reduced-motion is handled by
+   the global rule at the bottom of this file.
+   ============================================================ */
+
+/* A slow drifting light behind the content, so a mostly-black screen
+   still reads as alive while the user is reading. */
+@keyframes ob-drift {
+  0%,
+  100% {
+    transform: translate3d(-8%, -5%, 0) scale(1);
+    opacity: 0.5;
+  }
+  50% {
+    transform: translate3d(8%, 5%, 0) scale(1.15);
+    opacity: 0.85;
+  }
+}
+
+.ob-glow {
+  background: radial-gradient(
+    closest-side,
+    rgba(243, 243, 245, 0.16),
+    rgba(243, 243, 245, 0.04) 55%,
+    transparent 72%
+  );
+  will-change: transform, opacity;
+  animation: ob-drift 16s ease-in-out infinite;
+}
+
+/* Each step swaps in as a unit. Keyed on the step in React, so it
+   replays on every advance. */
+@keyframes ob-step-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 16px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.ob-step {
+  animation: ob-step-in 0.36s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Option lists cascade in behind their heading rather than landing flat. */
+.ob-stagger > * {
+  animation: ob-step-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.ob-stagger > *:nth-child(1) {
+  animation-delay: 0.06s;
+}
+.ob-stagger > *:nth-child(2) {
+  animation-delay: 0.12s;
+}
+.ob-stagger > *:nth-child(3) {
+  animation-delay: 0.18s;
+}
+.ob-stagger > *:nth-child(4) {
+  animation-delay: 0.24s;
+}
+
+/* ---------- Tour scenes (components/app/onboarding-tour.tsx) ----------
+   Miniature mockups of the real screens. Each one loops the single
+   gesture the page is teaching; nothing else moves. */
+
+.ob-rise-1 {
+  animation: ob-step-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.1s both;
+}
+.ob-rise-2 {
+  animation: ob-step-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.22s both;
+}
+.ob-rise-3 {
+  animation: ob-step-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.34s both;
+}
+
+/* A repeating tap: the control dips, a ripple blooms out of it. The two
+   share a period so the press and the ripple read as one gesture. */
+@keyframes ob-press {
+  0%,
+  62%,
+  100% {
+    transform: scale(1);
+  }
+  70%,
+  82% {
+    transform: scale(0.94);
+  }
+}
+
+.ob-press {
+  transform-origin: center;
+  animation: ob-press 2.8s ease-in-out infinite;
+}
+
+@keyframes ob-ripple {
+  0%,
+  60% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.35);
+  }
+  70% {
+    opacity: 0.35;
+    transform: translate(-50%, -50%) scale(0.5);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.6);
+  }
+}
+
+.ob-ripple {
+  animation: ob-ripple 2.8s ease-out infinite;
+}
+
+/* Sets checking off in sequence, then clearing so the loop can replay. */
+@keyframes ob-tick {
+  0%,
+  6% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  14%,
+  76% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  86%,
+  100% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+}
+
+.ob-tick {
+  transform-origin: center;
+  animation: ob-tick 4.2s ease-in-out infinite;
+}
+.ob-tick-1 {
+  animation-delay: 0s;
+}
+.ob-tick-2 {
+  animation-delay: 0.45s;
+}
+.ob-tick-3 {
+  animation-delay: 0.9s;
+}
+
+/* A value stepping up: the old number leaves, the new one arrives. Same
+   2.8s period as ob-press, so the count lands on the tap. */
+@keyframes ob-swap-out {
+  0%,
+  62% {
+    opacity: 1;
+    transform: none;
+  }
+  72%,
+  94% {
+    opacity: 0;
+    transform: translate3d(0, -7px, 0);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes ob-swap-in {
+  0%,
+  62% {
+    opacity: 0;
+    transform: translate3d(0, 7px, 0);
+  }
+  72%,
+  94% {
+    opacity: 1;
+    transform: none;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(0, 7px, 0);
+  }
+}
+
+.ob-swap-out {
+  animation: ob-swap-out 2.8s ease-in-out infinite;
+}
+.ob-swap-in {
+  animation: ob-swap-in 2.8s ease-in-out infinite;
+}
+
 /* Respect users who ask for less motion — disable our transitions/animations. */
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -220,5 +417,20 @@ a,
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+
+  /* The looping tour demos have no fill-mode, so the rule above drops them
+     back to their *declared* style rather than a sensible resting frame:
+     the tap ripple lands at full opacity on top of the button it was
+     decorating, and both halves of the sets counter render at once. Pin the
+     resting state for anything whose keyframes start hidden. */
+  .ob-ripple,
+  .ob-swap-in {
+    opacity: 0;
+  }
+
+  /* Mid-range of the ob-drift keyframe, rather than the undimmed default. */
+  .ob-glow {
+    opacity: 0.65;
   }
 }

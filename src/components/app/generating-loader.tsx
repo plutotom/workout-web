@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 
+import { cn } from "@/lib/utils";
+
 /**
  * Loading animations for AI generation. One is picked at random each time a
  * generation starts, so the wait doesn't feel like the same screen every time.
@@ -553,10 +555,16 @@ export function pickLoaderIndex(random: () => number = Math.random): number {
 export function GeneratingLoader({
   label,
   forceIndex,
+  size = "md",
 }: {
   label?: string;
-  /** Pin a specific loader. Dev preview only — production always rolls. */
+  /**
+   * Pin a specific loader. Used by the /dev/ui preview and by onboarding,
+   * which wants a known animation per screen. AI generation always rolls.
+   */
   forceIndex?: number;
+  /** Stage scale. `lg` is for full-screen moments, `sm` for inline headers. */
+  size?: "sm" | "md" | "lg";
 }) {
   // Picked once per mount. The caller unmounts this between generations, so
   // each new generation re-rolls. Chosen lazily rather than at module scope so
@@ -567,7 +575,14 @@ export function GeneratingLoader({
 
   return (
     <div className="flex flex-col items-center gap-3 py-2">
-      <div className="wl-stage w-full" aria-hidden={label ? true : undefined}>
+      <div
+        className={cn(
+          "wl-stage w-full",
+          size === "lg" && "wl-stage-lg",
+          size === "sm" && "wl-stage-sm",
+        )}
+        aria-hidden={label ? true : undefined}
+      >
         <Loader />
       </div>
       {label ? (
