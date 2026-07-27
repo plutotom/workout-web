@@ -38,9 +38,8 @@ function TabIcon({
 }
 
 export default function TabLayout() {
-  const { isLoading, isAuthenticated } = useMobileAuth();
-  if (!isLoading && !isAuthenticated)
-    return <Redirect href="/(auth)/sign-in" />;
+  const { isLoading, canUseApp } = useMobileAuth();
+  if (!isLoading && !canUseApp) return <Redirect href="/(auth)/sign-in" />;
 
   return (
     <Tabs

@@ -44,10 +44,60 @@ const restOptions = [
 ] as const;
 
 export default function SettingsScreen() {
+  const { isAuthenticated } = useMobileAuth();
+  if (!isAuthenticated) return <OfflineSettingsScreen />;
+  return <AuthenticatedSettingsScreen />;
+}
+
+function AuthenticatedSettingsScreen() {
   const user = useQuery(api.routes.auth.users.current);
   if (user === undefined) return <FullScreenLoader label="Loading settings…" />;
   if (!user) return <FullScreenLoader label="Loading account…" />;
   return <SettingsContent user={user} />;
+}
+
+function OfflineSettingsScreen() {
+  const { signIn } = useMobileAuth();
+  const [connecting, setConnecting] = useState(false);
+  return (
+    <Screen>
+      <Card>
+        <Settings2 color={colors.text} size={22} />
+        <Text style={{ color: colors.text, fontSize: 28, fontWeight: "700" }}>
+          Offline mode
+        </Text>
+        <Text style={{ color: colors.dim, fontSize: 13, lineHeight: 19 }}>
+          Workouts are saved on this phone. Connect your account whenever you
+          want to synchronize them with Workout on the web.
+        </Text>
+        <Button
+          label={connecting ? "Connecting…" : "Connect account"}
+          disabled={connecting}
+          onPress={async () => {
+            setConnecting(true);
+            try {
+              await signIn();
+            } catch {
+              Alert.alert(
+                "Couldn’t connect",
+                "Your workouts are still safe on this phone. Try again when you’re online.",
+              );
+            } finally {
+              setConnecting(false);
+            }
+          }}
+        />
+      </Card>
+      <Card>
+        <CircleDot color={colors.text} size={22} strokeWidth={2.3} />
+        <SectionTitle title="Training tools" />
+        <Text style={{ color: colors.dim, fontSize: 13, lineHeight: 19 }}>
+          The workout tracker and plate calculator remain available without an
+          account.
+        </Text>
+      </Card>
+    </Screen>
+  );
 }
 
 function SettingsContent({

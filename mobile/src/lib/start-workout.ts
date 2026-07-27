@@ -1,28 +1,23 @@
-import { api } from "@backend/api";
-import type { Id } from "@backend/dataModel";
-import { useMutation, useQuery } from "convex/react";
 import { router } from "expo-router";
 import { Alert } from "react-native";
 
-export function useStartWorkout() {
-  const active = useQuery(api.routes.workouts.queries.active);
-  const start = useMutation(api.routes.workouts.mutations.start);
-  const startBlank = useMutation(api.routes.workouts.mutations.startBlank);
+import { useLocalActiveWorkout, useLocalData } from "@/data/local/provider";
 
-  async function launch(
-    templateId?: Id<"workoutTemplates">,
-    abandonExisting = false,
-  ) {
+export function useStartWorkout() {
+  const active = useLocalActiveWorkout();
+  const { startBlank, startFromTemplate } = useLocalData();
+
+  async function launch(templateId?: string, abandonExisting = false) {
     const sessionId = templateId
-      ? await start({ templateId, abandonExisting })
-      : await startBlank({ abandonExisting });
+      ? await startFromTemplate(templateId, abandonExisting)
+      : await startBlank(abandonExisting);
     router.push({
       pathname: "/workout/[sessionId]",
-      params: { sessionId: String(sessionId) },
+      params: { sessionId },
     });
   }
 
-  function begin(templateId?: Id<"workoutTemplates">) {
+  function begin(templateId?: string) {
     if (active) {
       Alert.alert(
         "Workout already in progress",
@@ -40,14 +35,21 @@ export function useStartWorkout() {
           {
             text: "Start new",
             style: "destructive",
-            onPress: () => void launch(templateId, true),
+            onPress: () => void launch(templateId, true).catch(showStartError),
           },
         ],
       );
       return;
     }
-    void launch(templateId);
+    void launch(templateId).catch(showStartError);
   }
 
   return { active, begin };
+}
+
+function showStartError(error: unknown) {
+  Alert.alert(
+    "Couldn’t start workout",
+    error instanceof Error ? error.message : "Please try again.",
+  );
 }
