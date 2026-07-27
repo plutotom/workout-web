@@ -2,7 +2,7 @@ import { withAuth } from "@workos-inc/authkit-nextjs";
 
 import { BottomNav } from "@/components/app/bottom-nav";
 import { ExerciseCatalogProvider } from "@/components/app/exercise-catalog-provider";
-import { OnboardingSheet } from "@/components/app/onboarding-sheet";
+import { OnboardingFlow } from "@/components/app/onboarding-flow";
 import { UserBootstrap } from "@/components/app/user-bootstrap";
 import { WarmQueries } from "@/components/app/warm-queries";
 
@@ -23,7 +23,7 @@ export default async function AppLayout({
 
         <BottomNav />
         <UserBootstrap />
-        <OnboardingSheet />
+        <OnboardingFlow />
         <WarmQueries />
       </div>
     </ExerciseCatalogProvider>
