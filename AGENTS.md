@@ -19,6 +19,12 @@ See `.cursor/rules/backend-organization.mdc` for full conventions.
 
 Vercel runs `pnpm build` → `scripts/vercel-build.mjs`:
 
+The long-lived staging branch is hosted by the isolated
+`workout-web-staging` Vercel project. That project builds only `staging` and
+has public deployment access for the staging custom domain. The main
+`workout-web` project keeps deployment protection enabled for production and
+ordinary previews.
+
 - **Production** — `convex deploy`, then Next.js. Deploy injects
   `NEXT_PUBLIC_CONVEX_URL` for the web build.
 - **Staging branch Preview** — deploys backend code to the persistent
@@ -82,6 +88,9 @@ Quick sync from local `.env.local`:
 pnpm sync:preview        # Convex preview defaults + preview/staging deployment
 pnpm sync:preview:all    # Also push secrets to Vercel Preview branch staging
 ```
+
+`sync:preview:all` targets `workout-web-staging` by default. Set
+`VERCEL_PROJECT_NAME` only when intentionally syncing another project.
 
 The sync also registers the stable staging callback, homepage, and CORS origin
 with WorkOS. Override the default custom domain with `STAGING_APP_URL` if the

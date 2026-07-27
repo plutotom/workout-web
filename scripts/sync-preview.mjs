@@ -27,7 +27,8 @@ const withVercel = process.argv.includes("--vercel");
 const previewDeployment =
   process.env.CONVEX_PREVIEW_DEPLOYMENT?.trim() || "preview/staging";
 const stagingBranch = process.env.STAGING_GIT_BRANCH?.trim() || "staging";
-const vercelProject = process.env.VERCEL_PROJECT_NAME?.trim() || "workout-web";
+const vercelProject =
+  process.env.VERCEL_PROJECT_NAME?.trim() || "workout-web-staging";
 const stagingOrigin =
   process.env.STAGING_APP_URL?.trim().replace(/\/$/, "") ||
   DEFAULT_STAGING_ORIGIN;

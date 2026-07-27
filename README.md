@@ -22,10 +22,14 @@ Open [http://localhost:4271](http://localhost:4271) with your browser to see the
 
 `origin/staging` is the long-lived public test channel. A push to that branch:
 
-1. Reuses the persistent Convex `preview/staging` deployment.
-2. Pushes backend functions and schema without clearing staging data.
-3. Builds Next.js against the URL returned by that Convex deploy.
-4. Configures WorkOS against `https://staging.workout.plutotom.com`.
+1. Deploys through the isolated `workout-web-staging` Vercel project.
+2. Reuses the persistent Convex `preview/staging` deployment.
+3. Pushes backend functions and schema without clearing staging data.
+4. Builds Next.js against the URL returned by that Convex deploy.
+5. Configures WorkOS against `https://staging.workout.plutotom.com`.
+
+The staging Vercel project builds only the `staging` branch. Production and
+ordinary feature previews remain on the protected `workout-web` project.
 
 Merge feature branches into `staging`, verify the stable staging URL on desktop
 or phone at
