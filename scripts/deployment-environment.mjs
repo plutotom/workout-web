@@ -1,5 +1,6 @@
 export const STAGING_BRANCH = "staging";
 export const STAGING_PREVIEW_NAME = "staging";
+export const DEFAULT_STAGING_ORIGIN = "https://staging.workout.plutotom.com";
 
 function configuredValue(value) {
   return typeof value === "string" ? value.trim() : "";
@@ -66,11 +67,18 @@ export function resolveWorkosRedirectUri(config, env = process.env) {
   }
 
   if (vercelEnv === "preview") {
+    const stagingOrigin = isStagingPreview(env)
+      ? configuredValue(env.STAGING_APP_URL) || DEFAULT_STAGING_ORIGIN
+      : "";
     const branchUrl = configuredValue(env.VERCEL_BRANCH_URL);
     const deploymentUrl = configuredValue(env.VERCEL_URL);
     const origin = httpsOrigin(
-      branchUrl || deploymentUrl,
-      branchUrl ? "VERCEL_BRANCH_URL" : "VERCEL_URL",
+      stagingOrigin || branchUrl || deploymentUrl,
+      stagingOrigin
+        ? "STAGING_APP_URL"
+        : branchUrl
+          ? "VERCEL_BRANCH_URL"
+          : "VERCEL_URL",
     );
     return `${origin}/callback`;
   }

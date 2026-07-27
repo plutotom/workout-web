@@ -47,10 +47,30 @@ describe("deployment environment", () => {
     expect(
       resolveWorkosRedirectUri(config, {
         VERCEL_ENV: "preview",
+        VERCEL_GIT_COMMIT_REF: "feature/auth",
+        VERCEL_BRANCH_URL: "workout-web-git-feature-auth.example.vercel.app",
+        VERCEL_URL: "workout-unique-hash.example.vercel.app",
+      }),
+    ).toBe("https://workout-web-git-feature-auth.example.vercel.app/callback");
+  });
+
+  it("uses the public custom domain for staging callbacks", () => {
+    expect(
+      resolveWorkosRedirectUri(config, {
+        VERCEL_ENV: "preview",
+        VERCEL_GIT_COMMIT_REF: "staging",
         VERCEL_BRANCH_URL: "workout-web-git-staging.example.vercel.app",
         VERCEL_URL: "workout-unique-hash.example.vercel.app",
       }),
-    ).toBe("https://workout-web-git-staging.example.vercel.app/callback");
+    ).toBe("https://staging.workout.plutotom.com/callback");
+
+    expect(
+      resolveWorkosRedirectUri(config, {
+        VERCEL_ENV: "preview",
+        VERCEL_GIT_COMMIT_REF: "staging",
+        STAGING_APP_URL: "https://alternate-staging.example.com/",
+      }),
+    ).toBe("https://alternate-staging.example.com/callback");
   });
 
   it("builds staging against the URL from its deployment-scoped key", () => {
