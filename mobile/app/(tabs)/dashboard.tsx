@@ -1,5 +1,4 @@
 import { api } from "@backend/api";
-import type { Id } from "@backend/dataModel";
 import { useQuery } from "convex/react";
 import { router } from "expo-router";
 import { Dumbbell, Play } from "lucide-react-native";
@@ -19,6 +18,7 @@ import {
   Screen,
   SectionTitle,
 } from "@/components/ui";
+import { useLocalTemplates } from "@/data/local/provider";
 import { greeting } from "@/lib/format";
 import { useStartWorkout } from "@/lib/start-workout";
 import { colors } from "@/theme";
@@ -28,7 +28,20 @@ const WEEKLY_GOAL = 4;
 export default function DashboardScreen() {
   const catalog = useCatalog();
   const recent = useQuery(api.routes.workouts.queries.recent);
-  const templates = useQuery(api.routes.templates.queries.list);
+  const remoteTemplates = useQuery(api.routes.templates.queries.list);
+  const localTemplates = useLocalTemplates();
+  const templates =
+    remoteTemplates ??
+    localTemplates?.map((template) => ({
+      _id: template.remoteId,
+      name: template.name,
+      updatedAt: template.updatedAt,
+      lastSessionAt: null,
+      exercises: template.exercises.map((exercise) => ({
+        slug: exercise.slug,
+        setCount: exercise.sets.length,
+      })),
+    }));
   const overview = useQuery(api.routes.insights.queries.overview, { days: 7 });
   const { active, begin } = useStartWorkout();
   const today = templates?.[0];
@@ -229,7 +242,7 @@ export default function DashboardScreen() {
             {templates.slice(0, 3).map((template) => (
               <Pressable
                 key={template._id}
-                onPress={() => begin(template._id as Id<"workoutTemplates">)}
+                onPress={() => begin(template._id)}
                 style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
               >
                 <Card style={{ flexDirection: "row", alignItems: "center" }}>

@@ -4,7 +4,9 @@ import { FullScreenLoader } from "@/components/ui";
 import { useMobileAuth } from "@/auth/auth-provider";
 
 export default function Index() {
-  const { loading, user } = useMobileAuth();
+  const { loading, canUseApp } = useMobileAuth();
   if (loading) return <FullScreenLoader label="Opening Workout…" />;
-  return <Redirect href={user ? "/(tabs)/dashboard" : "/(auth)/sign-in"} />;
+  return (
+    <Redirect href={canUseApp ? "/(tabs)/dashboard" : "/(auth)/sign-in"} />
+  );
 }

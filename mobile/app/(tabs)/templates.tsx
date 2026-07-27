@@ -5,12 +5,26 @@ import { Dumbbell, History, Pencil, Plus, Play } from "lucide-react-native";
 import { Text, View } from "react-native";
 
 import { Button, Card, EmptyState, PageHeader, Screen } from "@/components/ui";
+import { useLocalTemplates } from "@/data/local/provider";
 import { useCatalog } from "@/providers/catalog-provider";
 import { useStartWorkout } from "@/lib/start-workout";
 import { colors } from "@/theme";
 
 export default function TemplatesScreen() {
-  const templates = useQuery(api.routes.templates.queries.list);
+  const remoteTemplates = useQuery(api.routes.templates.queries.list);
+  const localTemplates = useLocalTemplates();
+  const templates =
+    remoteTemplates ??
+    localTemplates?.map((template) => ({
+      _id: template.remoteId,
+      name: template.name,
+      updatedAt: template.updatedAt,
+      lastSessionAt: null,
+      exercises: template.exercises.map((exercise) => ({
+        slug: exercise.slug,
+        setCount: exercise.sets.length,
+      })),
+    }));
   const catalog = useCatalog();
   const { begin } = useStartWorkout();
 
