@@ -1,12 +1,28 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-function readAllowedEnvironment() {
-  const source = readFileSync(path.join(root, ".env.local"), "utf8");
+const DEFAULT_ENV_FILE = ".env.local";
+
+function resolveEnvFilePath() {
+  const configured = process.env.MOBILE_ENV_FILE?.trim();
+  const relative = configured || DEFAULT_ENV_FILE;
+  return path.isAbsolute(relative) ? relative : path.join(root, relative);
+}
+
+function readAllowedEnvironment(envFilePath) {
+  if (!existsSync(envFilePath)) {
+    const hint =
+      envFilePath.endsWith(".env.mobile.preview") ?
+        " Copy .env.mobile.preview.example to .env.mobile.preview and set preview URLs."
+      : "";
+    throw new Error(`Mobile env file not found: ${envFilePath}.${hint}`);
+  }
+
+  const source = readFileSync(envFilePath, "utf8");
   const values = {};
   for (const line of source.split(/\r?\n/)) {
     const match = line.match(/^([A-Z0-9_]+)=(.*)$/);
@@ -24,7 +40,7 @@ function readAllowedEnvironment() {
   const redirectUri = values.NEXT_PUBLIC_WORKOS_REDIRECT_URI;
   if (!convexUrl || !redirectUri) {
     throw new Error(
-      "The worktree .env.local must contain NEXT_PUBLIC_CONVEX_URL and NEXT_PUBLIC_WORKOS_REDIRECT_URI.",
+      `${envFilePath} must contain NEXT_PUBLIC_CONVEX_URL and NEXT_PUBLIC_WORKOS_REDIRECT_URI.`,
     );
   }
   return {
@@ -33,7 +49,10 @@ function readAllowedEnvironment() {
   };
 }
 
-const mobileEnvironment = readAllowedEnvironment();
+const envFilePath = resolveEnvFilePath();
+const mobileEnvironment = readAllowedEnvironment(envFilePath);
+const envLabel = path.relative(root, envFilePath) || path.basename(envFilePath);
+console.log(`[mobile] Using ${envLabel} → EXPO_PUBLIC_WEB_URL=${mobileEnvironment.EXPO_PUBLIC_WEB_URL}`);
 
 const command = process.argv[2] ?? "start";
 const extra = process.argv.slice(3);

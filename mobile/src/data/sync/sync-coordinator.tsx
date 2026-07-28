@@ -21,6 +21,8 @@ export function SyncCoordinator() {
     isAuthenticated ? {} : "skip",
   );
   const pushSession = useMutation(api.routes.ios.sync.pushSession);
+  const createTemplate = useMutation(api.routes.templates.mutations.create);
+  const updateTemplate = useMutation(api.routes.templates.mutations.update);
   const { applyBootstrap } = useLocalData();
   const syncStore = useLocalSyncStore();
   const appliedBootstrap = useRef<number | null>(null);
@@ -40,28 +42,58 @@ export function SyncCoordinator() {
       const deviceId = await syncStore.getDeviceId();
       for (let index = 0; index < MAX_PUSHES_PER_PASS; index++) {
         if (cancelled) return;
-        const pending = await syncStore.getPending();
-        if (!pending) return;
-        await syncStore.noteAttempt(pending.operationId);
+
+        const pendingSession = await syncStore.getPendingSession();
+        if (pendingSession) {
+          await syncStore.noteSessionAttempt(pendingSession.operationId);
+          try {
+            const result = await pushSession({
+              operationId: pendingSession.operationId,
+              deviceId,
+              session: {
+                ...pendingSession.snapshot,
+                remoteTemplateId: pendingSession.snapshot
+                  .remoteTemplateId as Id<"workoutTemplates"> | null,
+              },
+            });
+            if (cancelled) return;
+            await syncStore.completeSession(
+              pendingSession.operationId,
+              pendingSession.sessionId,
+              result.remoteSessionId,
+            );
+          } catch {
+            return;
+          }
+          continue;
+        }
+
+        const pendingTemplate = await syncStore.getPendingTemplate();
+        if (!pendingTemplate) return;
+        await syncStore.noteTemplateAttempt(pendingTemplate.operationId);
         try {
-          const result = await pushSession({
-            operationId: pending.operationId,
-            deviceId,
-            session: {
-              ...pending.snapshot,
-              remoteTemplateId: pending.snapshot
-                .remoteTemplateId as Id<"workoutTemplates"> | null,
-            },
-          });
+          const { snapshot } = pendingTemplate;
+          let remoteTemplateId = snapshot.remoteId;
+          if (remoteTemplateId) {
+            await updateTemplate({
+              templateId: remoteTemplateId as Id<"workoutTemplates">,
+              name: snapshot.name,
+              exercises: snapshot.exercises,
+            });
+          } else {
+            remoteTemplateId = await createTemplate({
+              name: snapshot.name,
+              exercises: snapshot.exercises,
+            });
+          }
           if (cancelled) return;
-          await syncStore.complete(
-            pending.operationId,
-            pending.sessionId,
-            result.remoteSessionId,
+          await syncStore.completeTemplate(
+            pendingTemplate.operationId,
+            pendingTemplate.templateId,
+            remoteTemplateId,
           );
         } catch {
-          // Connectivity/auth failures remain queued. A future revision,
-          // bootstrap, or app foreground will retry the latest snapshot.
+          // Connectivity/auth failures remain queued for a later pass.
           return;
         }
       }
@@ -69,7 +101,14 @@ export function SyncCoordinator() {
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated, pushSession, syncStore, syncStore.revision]);
+  }, [
+    createTemplate,
+    isAuthenticated,
+    pushSession,
+    syncStore,
+    syncStore.revision,
+    updateTemplate,
+  ]);
 
   return null;
 }

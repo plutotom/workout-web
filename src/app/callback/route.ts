@@ -16,7 +16,7 @@ export const GET = handleAuth({
       impersonator: data.impersonator,
       authenticationMethod: data.authenticationMethod,
     });
-    storeMobileAuthSession(code, {
+    await storeMobileAuthSession(code, {
       session,
       accessToken: data.accessToken,
       user: data.user,

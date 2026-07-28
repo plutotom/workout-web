@@ -12,6 +12,10 @@ import type {
   PendingSessionSync,
   SessionSyncSnapshot,
 } from "@/data/local/types";
+import {
+  isUnsyncedTemplateRemoteId,
+  localTemplateRemoteId,
+} from "@/data/local/types";
 
 const DEFAULT_REST_SECONDS = 75;
 const DEFAULT_SET_ROWS = 3;
@@ -151,6 +155,103 @@ export async function getLocalWorkout(
     updatedAt: session.updated_at,
     exercises,
   };
+}
+
+export type LocalInsightsSession = {
+  sessionId: string;
+  remoteId: string | null;
+  templateId: string | null;
+  remoteTemplateId: string | null;
+  templateName: string;
+  startedAt: number;
+  completedAt: number;
+  exercises: Array<{
+    slug: string;
+    sets: Array<{
+      orderIndex: number;
+      weight: number;
+      reps: number;
+      completed: boolean;
+    }>;
+  }>;
+};
+
+/** Completed local workouts shaped for insights aggregation. */
+export async function listLocalCompletedSessions(
+  db: SQLiteDatabase,
+): Promise<LocalInsightsSession[]> {
+  const sessions = await db.getAllAsync<{
+    id: string;
+    remote_id: string | null;
+    template_id: string | null;
+    remote_template_id: string | null;
+    template_name: string;
+    started_at: number;
+    completed_at: number | null;
+  }>(
+    `SELECT id, remote_id, template_id, remote_template_id, template_name,
+            started_at, completed_at
+       FROM local_sessions
+      WHERE status = 'completed'
+      ORDER BY COALESCE(completed_at, started_at) DESC`,
+  );
+
+  const loaded = await Promise.all(
+    sessions.map(async (session) => {
+      const exercises = await db.getAllAsync<{
+        id: string;
+        slug: string;
+      }>(
+        `SELECT id, slug
+           FROM local_session_exercises
+          WHERE session_id = ?
+          ORDER BY order_index`,
+        session.id,
+      );
+      const withSets = await Promise.all(
+        exercises.map(async (exercise) => {
+          const sets = await db.getAllAsync<{
+            order_index: number;
+            weight: number;
+            reps: number;
+            completed: number;
+          }>(
+            `SELECT order_index, weight, reps, completed
+               FROM local_sets
+              WHERE session_exercise_id = ?
+              ORDER BY order_index`,
+            exercise.id,
+          );
+          return {
+            slug: exercise.slug,
+            sets: sets.map((set) => ({
+              orderIndex: set.order_index,
+              weight: set.weight,
+              reps: set.reps,
+              completed: set.completed === 1,
+            })),
+          };
+        }),
+      );
+      const templateName = session.template_name.trim();
+      return {
+        sessionId: session.id,
+        remoteId: session.remote_id,
+        templateId: session.template_id,
+        remoteTemplateId: session.remote_template_id,
+        templateName: templateName.length > 0 ? templateName : "Quick start",
+        startedAt: session.started_at,
+        completedAt: session.completed_at ?? session.started_at,
+        exercises: withSets,
+      } satisfies LocalInsightsSession;
+    }),
+  );
+
+  return loaded.filter((session) =>
+    session.exercises.some((exercise) =>
+      exercise.sets.some((set) => set.completed && set.reps > 0),
+    ),
+  );
 }
 
 export async function getLocalActiveWorkout(
@@ -724,6 +825,236 @@ export async function getLocalTemplates(db: SQLiteDatabase) {
   );
 }
 
+export async function saveLocalTemplate(
+  db: SQLiteDatabase,
+  input: {
+    templateId?: string;
+    name: string;
+    exercises: Array<{ slug: string; sets: Array<{ weight: number; reps: number }> }>;
+  },
+): Promise<string> {
+  const name = input.name.trim();
+  if (!name) throw new Error("Template name is required");
+  if (!input.exercises.length) throw new Error("Add at least one exercise");
+  if (input.exercises.length > MAX_EXERCISES) {
+    throw new Error(`Templates support up to ${MAX_EXERCISES} exercises`);
+  }
+
+  const existing = input.templateId
+    ? await getLocalTemplate(db, input.templateId)
+    : null;
+  const templateId = existing?._id ?? input.templateId ?? randomUUID();
+  const remoteId =
+    existing?.remoteId ??
+    (input.templateId && !isUnsyncedTemplateRemoteId(input.templateId)
+      ? input.templateId
+      : localTemplateRemoteId(templateId));
+  const now = Date.now();
+  const exercises = input.exercises.map((exercise, orderIndex) => {
+    const slug = normalizedSlug(exercise.slug);
+    if (exercise.sets.length > MAX_SETS) {
+      throw new Error(`Each exercise supports up to ${MAX_SETS} sets`);
+    }
+    return {
+      slug,
+      orderIndex,
+      sets: exercise.sets.map((set) => ({
+        weight: boundedWhole(set.weight, MAX_WEIGHT, "Weight"),
+        reps: boundedWhole(set.reps, MAX_REPS, "Reps"),
+      })),
+    };
+  });
+
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    await txn.runAsync(
+      `INSERT INTO local_templates (id, remote_id, name, updated_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         name = excluded.name,
+         updated_at = excluded.updated_at`,
+      templateId,
+      remoteId,
+      name,
+      now,
+    );
+    await txn.runAsync(
+      "DELETE FROM local_template_exercises WHERE template_id = ?",
+      templateId,
+    );
+    for (const exercise of exercises) {
+      await txn.runAsync(
+        `INSERT INTO local_template_exercises (
+           id, template_id, slug, order_index, sets_json
+         ) VALUES (?, ?, ?, ?, ?)`,
+        randomUUID(),
+        templateId,
+        exercise.slug,
+        exercise.orderIndex,
+        JSON.stringify(exercise.sets),
+      );
+    }
+  });
+
+  await queueTemplateSnapshot(db, templateId, now);
+  return templateId;
+}
+
+async function queueTemplateSnapshot(
+  db: SQLiteDatabase,
+  templateId: string,
+  now: number,
+) {
+  const template = await getLocalTemplate(db, templateId);
+  if (!template) return;
+  await db.runAsync(
+    `INSERT INTO local_sync_outbox (
+       entity_type, entity_id, operation_id, payload_json, created_at, attempt_count
+     ) VALUES ('template', ?, ?, ?, ?, 0)
+     ON CONFLICT(entity_type, entity_id) DO UPDATE SET
+       operation_id = excluded.operation_id,
+       payload_json = excluded.payload_json,
+       created_at = excluded.created_at,
+       attempt_count = 0`,
+    templateId,
+    randomUUID(),
+    JSON.stringify({
+      localId: template._id,
+      remoteId: isUnsyncedTemplateRemoteId(template.remoteId)
+        ? null
+        : template.remoteId,
+      name: template.name,
+      updatedAt: template.updatedAt,
+      exercises: template.exercises.map((exercise) => ({
+        slug: exercise.slug,
+        sets: exercise.sets,
+      })),
+    }),
+    now,
+  );
+}
+
+export async function setLocalTemplateRemoteId(
+  db: SQLiteDatabase,
+  templateId: string,
+  remoteId: string,
+) {
+  await db.runAsync(
+    "UPDATE local_templates SET remote_id = ? WHERE id = ?",
+    remoteId,
+    templateId,
+  );
+}
+
+export type PendingTemplateSync = {
+  operationId: string;
+  templateId: string;
+  snapshot: {
+    localId: string;
+    remoteId: string | null;
+    name: string;
+    updatedAt: number;
+    exercises: Array<{ slug: string; sets: Array<{ weight: number; reps: number }> }>;
+  };
+  createdAt: number;
+  attemptCount: number;
+};
+
+export async function getPendingTemplateSync(
+  db: SQLiteDatabase,
+): Promise<PendingTemplateSync | null> {
+  const row = await db.getFirstAsync<{
+    operation_id: string;
+    entity_id: string;
+    payload_json: string;
+    created_at: number;
+    attempt_count: number;
+  }>(
+    `SELECT operation_id, entity_id, payload_json, created_at, attempt_count
+       FROM local_sync_outbox
+      WHERE entity_type = 'template'
+      ORDER BY created_at
+      LIMIT 1`,
+  );
+  if (!row) return null;
+  return {
+    operationId: row.operation_id,
+    templateId: row.entity_id,
+    snapshot: JSON.parse(row.payload_json) as PendingTemplateSync["snapshot"],
+    createdAt: row.created_at,
+    attemptCount: row.attempt_count,
+  };
+}
+
+export async function noteTemplateSyncAttempt(
+  db: SQLiteDatabase,
+  operationId: string,
+) {
+  await db.runAsync(
+    `UPDATE local_sync_outbox
+        SET attempt_count = attempt_count + 1
+      WHERE operation_id = ?`,
+    operationId,
+  );
+}
+
+export async function completeTemplateSync(
+  db: SQLiteDatabase,
+  operationId: string,
+  templateId: string,
+  remoteTemplateId: string | null,
+) {
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    if (remoteTemplateId) {
+      await txn.runAsync(
+        "UPDATE local_templates SET remote_id = ? WHERE id = ?",
+        remoteTemplateId,
+        templateId,
+      );
+    }
+    await txn.runAsync(
+      "DELETE FROM local_sync_outbox WHERE operation_id = ?",
+      operationId,
+    );
+  });
+}
+
+export async function deleteLocalTemplate(
+  db: SQLiteDatabase,
+  templateId: string,
+): Promise<LocalTemplate | null> {
+  const existing = await getLocalTemplate(db, templateId);
+  if (!existing) return null;
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    await txn.runAsync(
+      "DELETE FROM local_template_exercises WHERE template_id = ?",
+      existing._id,
+    );
+    await txn.runAsync("DELETE FROM local_templates WHERE id = ?", existing._id);
+    await txn.runAsync(
+      `DELETE FROM local_sync_outbox
+        WHERE entity_type = 'template' AND entity_id = ?`,
+      existing._id,
+    );
+  });
+  return existing;
+}
+
+export async function getLocalExerciseNotes(
+  db: SQLiteDatabase,
+  slugs: string[],
+): Promise<Record<string, string>> {
+  if (!slugs.length) return {};
+  const notes: Record<string, string> = {};
+  for (const slug of slugs) {
+    const row = await db.getFirstAsync<{ notes: string }>(
+      "SELECT notes FROM local_exercise_notes WHERE slug = ?",
+      normalizedSlug(slug),
+    );
+    if (row?.notes) notes[slug] = row.notes;
+  }
+  return notes;
+}
+
 export async function applyIosBootstrap(
   db: SQLiteDatabase,
   payload: IosBootstrapPayload,
@@ -743,28 +1074,33 @@ export async function applyIosBootstrap(
     );
 
     for (const template of payload.templates) {
+      const existing = await txn.getFirstAsync<{ id: string }>(
+        "SELECT id FROM local_templates WHERE remote_id = ?",
+        template.remoteId,
+      );
+      const localId = existing?.id ?? template.remoteId;
       await txn.runAsync(
         `INSERT INTO local_templates (id, remote_id, name, updated_at)
          VALUES (?, ?, ?, ?)
          ON CONFLICT(remote_id) DO UPDATE SET
            name = excluded.name,
            updated_at = excluded.updated_at`,
-        template.remoteId,
+        localId,
         template.remoteId,
         template.name,
         template.updatedAt,
       );
       await txn.runAsync(
         "DELETE FROM local_template_exercises WHERE template_id = ?",
-        template.remoteId,
+        localId,
       );
       for (const exercise of template.exercises) {
         await txn.runAsync(
           `INSERT INTO local_template_exercises (
              id, template_id, slug, order_index, sets_json
            ) VALUES (?, ?, ?, ?, ?)`,
-          `${template.remoteId}:${exercise.orderIndex}:${exercise.slug}`,
-          template.remoteId,
+          randomUUID(),
+          localId,
           exercise.slug,
           exercise.orderIndex,
           JSON.stringify(exercise.sets),

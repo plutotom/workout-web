@@ -11,6 +11,7 @@ import {
   KeyRound,
   LogOut,
   Settings2,
+  Sparkles,
   Trash2,
 } from "lucide-react-native";
 import { useRef, useState } from "react";
@@ -59,6 +60,21 @@ function AuthenticatedSettingsScreen() {
 function OfflineSettingsScreen() {
   const { signIn } = useMobileAuth();
   const [connecting, setConnecting] = useState(false);
+
+  async function connectAccount() {
+    setConnecting(true);
+    try {
+      await signIn();
+    } catch {
+      Alert.alert(
+        "Couldn’t connect",
+        "Your workouts are still safe on this phone. Try again when you’re online.",
+      );
+    } finally {
+      setConnecting(false);
+    }
+  }
+
   return (
     <Screen>
       <Card>
@@ -73,19 +89,22 @@ function OfflineSettingsScreen() {
         <Button
           label={connecting ? "Connecting…" : "Connect account"}
           disabled={connecting}
-          onPress={async () => {
-            setConnecting(true);
-            try {
-              await signIn();
-            } catch {
-              Alert.alert(
-                "Couldn’t connect",
-                "Your workouts are still safe on this phone. Try again when you’re online.",
-              );
-            } finally {
-              setConnecting(false);
-            }
-          }}
+          onPress={() => void connectAccount()}
+        />
+      </Card>
+      <Card>
+        <Sparkles color={colors.text} size={22} />
+        <SectionTitle title="AI workouts" />
+        <Text style={{ color: colors.dim, fontSize: 13, lineHeight: 19 }}>
+          Create an account to use AI to generate workout templates and reshape
+          sessions as you train.
+        </Text>
+        <Button
+          label={connecting ? "Connecting…" : "Create an account"}
+          variant="outline"
+          icon={Sparkles}
+          disabled={connecting}
+          onPress={() => void connectAccount()}
         />
       </Card>
       <Card>
@@ -326,7 +345,7 @@ function SettingsContent({
                 text: "Sign out",
                 style: "destructive",
                 onPress: () =>
-                  void signOut().then(() => router.replace("/(auth)/sign-in")),
+                  void signOut().then(() => router.replace("/sign-in")),
               },
             ])
           }
