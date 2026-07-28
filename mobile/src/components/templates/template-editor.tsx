@@ -13,6 +13,7 @@ import {
 import { useMemo, useState } from "react";
 import { Alert, Pressable, Text, View } from "react-native";
 
+import { useMobileAuth } from "@/auth/auth-provider";
 import { AiPromptModal } from "@/components/ai-prompt-modal";
 import { buildMuscleSegments, MuscleBand } from "@/components/charts";
 import { ExercisePicker } from "@/components/exercise-picker";
@@ -24,6 +25,8 @@ import {
   PageHeader,
   Screen,
 } from "@/components/ui";
+import { useLocalData, useLocalExerciseNotes } from "@/data/local/provider";
+import { isUnsyncedTemplateRemoteId } from "@/data/local/types";
 import { useAiGeneration } from "@/lib/ai";
 import { useCatalog } from "@/providers/catalog-provider";
 import { colors } from "@/theme";
@@ -37,26 +40,37 @@ export function TemplateEditor({
   templateId,
   initial,
 }: {
-  templateId?: Id<"workoutTemplates">;
+  templateId?: string;
   initial: { name: string; exercises: EditorExercise[] };
 }) {
   const catalog = useCatalog();
-  const create = useMutation(api.routes.templates.mutations.create);
-  const update = useMutation(api.routes.templates.mutations.update);
+  const { isAuthenticated } = useMobileAuth();
+  const {
+    saveTemplate,
+    deleteTemplate,
+    saveNote: saveLocalNote,
+  } = useLocalData();
   const remove = useMutation(api.routes.templates.mutations.remove);
-  const saveNote = useMutation(api.routes.exercises.mutations.upsertNote);
+  const saveRemoteNote = useMutation(api.routes.exercises.mutations.upsertNote);
   const [name, setName] = useState(initial.name);
   const [exercises, setExercises] = useState(initial.exercises);
   const [expanded, setExpanded] = useState(initial.exercises.length ? 0 : -1);
   const [picker, setPicker] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [localNotes, setLocalNotes] = useState<Record<string, string>>({});
   const slugs = useMemo(
     () => exercises.map((exercise) => exercise.slug),
     [exercises],
   );
-  const notes =
-    useQuery(api.routes.exercises.queries.getNotes, { slugs }) ?? {};
+  const remoteNotes = useQuery(
+    api.routes.exercises.queries.getNotes,
+    isAuthenticated ? { slugs } : "skip",
+  );
+  const storedLocalNotes = useLocalExerciseNotes(slugs);
+  const notes = isAuthenticated
+    ? (remoteNotes ?? {})
+    : { ...(storedLocalNotes ?? {}), ...localNotes };
   const setCount = exercises.reduce(
     (sum, exercise) => sum + exercise.sets.length,
     0,
@@ -105,14 +119,27 @@ export function TemplateEditor({
     setExpanded(target);
   }
 
+  async function persistNote(slug: string, value: string) {
+    if (!isAuthenticated) {
+      setLocalNotes((current) => ({ ...current, [slug]: value }));
+      await saveLocalNote(slug, value);
+      return;
+    }
+    await saveRemoteNote({ exerciseSlug: slug, notes: value });
+  }
+
   async function save() {
     if (!name.trim() || !exercises.length) return;
     setSaving(true);
     try {
-      if (templateId)
-        await update({ templateId, name: name.trim(), exercises });
-      else await create({ name: name.trim(), exercises });
-      router.replace("/(tabs)/templates");
+      // Local commit is authoritative. SyncCoordinator pushes to Convex when
+      // an account is available (now or on a later reconnect).
+      await saveTemplate({
+        templateId,
+        name: name.trim(),
+        exercises,
+      });
+      router.replace("/templates");
     } catch {
       Alert.alert("Couldn’t save template", "Please try again.");
       setSaving(false);
@@ -126,10 +153,30 @@ export function TemplateEditor({
       {
         text: "Delete",
         style: "destructive",
-        onPress: () =>
-          void remove({ templateId }).then(() =>
-            router.replace("/(tabs)/templates"),
-          ),
+        onPress: () => {
+          void (async () => {
+            try {
+              const deleted = await deleteTemplate(templateId);
+              const remoteId = deleted?.remoteId;
+              if (
+                isAuthenticated &&
+                remoteId &&
+                !isUnsyncedTemplateRemoteId(remoteId)
+              ) {
+                try {
+                  await remove({
+                    templateId: remoteId as Id<"workoutTemplates">,
+                  });
+                } catch {
+                  // Local delete already succeeded; remote can be cleaned later.
+                }
+              }
+              router.replace("/templates");
+            } catch {
+              Alert.alert("Couldn’t delete template", "Please try again.");
+            }
+          })();
+        },
       },
     ]);
   }
@@ -166,22 +213,26 @@ export function TemplateEditor({
           onChangeText={setName}
           placeholder="Push Day"
         />
-        <Button
-          label={templateId ? "Edit with AI" : "Describe with AI"}
-          variant="outline"
-          icon={Sparkles}
-          onPress={() => setAiOpen(true)}
-        />
-        <Text
-          style={{
-            color: colors.dim,
-            fontSize: 11,
-            textAlign: "center",
-            marginTop: -12,
-          }}
-        >
-          Build by hand, or ask AI to reshape the draft.
-        </Text>
+        {isAuthenticated ? (
+          <>
+            <Button
+              label={templateId ? "Edit with AI" : "Describe with AI"}
+              variant="outline"
+              icon={Sparkles}
+              onPress={() => setAiOpen(true)}
+            />
+            <Text
+              style={{
+                color: colors.dim,
+                fontSize: 11,
+                textAlign: "center",
+                marginTop: -12,
+              }}
+            >
+              Build by hand, or ask AI to reshape the draft.
+            </Text>
+          </>
+        ) : null}
 
         <Card>
           <View style={{ flexDirection: "row" }}>
@@ -290,10 +341,7 @@ export function TemplateEditor({
                       label="Exercise note"
                       value={notes[exercise.slug] ?? ""}
                       onChangeText={(value) =>
-                        void saveNote({
-                          exerciseSlug: exercise.slug,
-                          notes: value,
-                        })
+                        void persistNote(exercise.slug, value)
                       }
                       placeholder="Cues, setup, or reminders"
                       multiline
@@ -472,14 +520,16 @@ export function TemplateEditor({
         onClose={() => setPicker(false)}
         onAdd={addExercises}
       />
-      <AiPromptModal
-        visible={aiOpen}
-        title={templateId ? "Edit this template" : "Describe your workout"}
-        description="AI will draft catalog exercises and set targets for you to review before saving."
-        loadingLabel="Building your template…"
-        onClose={() => setAiOpen(false)}
-        onGenerate={generate}
-      />
+      {isAuthenticated ? (
+        <AiPromptModal
+          visible={aiOpen}
+          title={templateId ? "Edit this template" : "Describe your workout"}
+          description="AI will draft catalog exercises and set targets for you to review before saving."
+          loadingLabel="Building your template…"
+          onClose={() => setAiOpen(false)}
+          onGenerate={generate}
+        />
+      ) : null}
     </>
   );
 }

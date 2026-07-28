@@ -1,7 +1,3 @@
-import { api } from "@backend/api";
-import type { Id } from "@backend/dataModel";
-import type { FunctionReturnType } from "convex/server";
-import { useMutation, useQuery } from "convex/react";
 import { Redirect, router } from "expo-router";
 import { useKeepAwake } from "expo-keep-awake";
 import * as Haptics from "expo-haptics";
@@ -19,8 +15,8 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { Alert, Pressable, Text, View } from "react-native";
 
-import { AiPromptModal } from "@/components/ai-prompt-modal";
 import { useMobileAuth } from "@/auth/auth-provider";
+import { AiPromptModal } from "@/components/ai-prompt-modal";
 import { ExercisePicker } from "@/components/exercise-picker";
 import {
   Button,
@@ -34,37 +30,39 @@ import {
 import { PlateModal } from "@/components/workout/plate-modal";
 import { RestBar } from "@/components/workout/rest-bar";
 import { useAiGeneration } from "@/lib/ai";
+import {
+  useLocalData,
+  useLocalLastSet,
+  useLocalPreferences,
+  useLocalWorkout,
+} from "@/data/local/provider";
+import type { LocalPreferences, LocalWorkoutSession } from "@/data/local/types";
 import { formatClock, useRestTimer } from "@/lib/rest-timer";
 import { useCatalog } from "@/providers/catalog-provider";
 import { colors } from "@/theme";
 
-type WorkoutSession = NonNullable<
-  FunctionReturnType<typeof api.routes.workouts.queries.get>
->;
+type WorkoutSession = LocalWorkoutSession;
 type WorkoutExercise = WorkoutSession["exercises"][number];
 type WorkoutSet = WorkoutExercise["sets"][number];
 
-export function WorkoutScreen({
-  sessionId,
-}: {
-  sessionId: Id<"workoutSessions">;
-}) {
+export function WorkoutScreen({ sessionId }: { sessionId: string }) {
   useKeepAwake();
-  const { isAuthenticated, isLoading: authLoading } = useMobileAuth();
-  const session = useQuery(api.routes.workouts.queries.get, { sessionId });
-  const user = useQuery(api.routes.auth.users.current);
-  if (authLoading) return <FullScreenLoader label="Loading workout…" />;
-  if (!isAuthenticated) return <Redirect href="/(auth)/sign-in" />;
+  const session = useLocalWorkout(sessionId);
+  const user = useLocalPreferences();
   if (session === undefined || user === undefined)
     return <FullScreenLoader label="Loading workout…" />;
-  if (!user) return <FullScreenLoader label="Preparing your account…" />;
-  if (!session) return <Redirect href="/(tabs)/dashboard" />;
+  if (!session) return <Redirect href="/dashboard" />;
   if (session.status !== "in_progress")
     return <CompletedWorkout session={session} />;
-  return user?.activeWorkoutMode === "focus" ? (
-    <FocusWorkout session={session} user={user} />
-  ) : (
-    <ListWorkout session={session} user={user} />
+  return (
+    <>
+      <WorkoutFinishController />
+      {user.activeWorkoutMode === "focus" ? (
+        <FocusWorkout session={session} user={user} />
+      ) : (
+        <ListWorkout session={session} user={user} />
+      )}
+    </>
   );
 }
 
@@ -93,31 +91,27 @@ function ListWorkout({
   user,
 }: {
   session: WorkoutSession;
-  user: NonNullable<FunctionReturnType<typeof api.routes.auth.users.current>>;
+  user: LocalPreferences;
 }) {
   const catalog = useCatalog();
-  const updateSet = useMutation(api.routes.workouts.mutations.updateSet);
-  const addSet = useMutation(api.routes.workouts.mutations.addSet);
-  const deleteSet = useMutation(api.routes.workouts.mutations.deleteSet);
-  const addExercise = useMutation(api.routes.workouts.mutations.addExercise);
-  const removeExercise = useMutation(
-    api.routes.workouts.mutations.removeExercise,
-  );
-  const moveExercise = useMutation(api.routes.workouts.mutations.moveExercise);
-  const saveNote = useMutation(api.routes.exercises.mutations.upsertNote);
-  const addDraft = useMutation(
-    api.routes.workouts.mutations.addExercisesFromDraft,
-  );
-  const undoDraft = useMutation(api.routes.workouts.mutations.undoAiGeneration);
+  const { isAuthenticated } = useMobileAuth();
+  const {
+    updateSet,
+    addSet,
+    deleteSet,
+    addExercise,
+    removeExercise,
+    moveExercise,
+    saveNote,
+  } = useLocalData();
   const [picker, setPicker] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
-  const [lastGeneration, setLastGeneration] = useState<string | null>(null);
   const rest = useRestTimer();
   const { generateSession } = useAiGeneration();
 
   async function addPicked(slugs: string[]) {
     for (const exerciseSlug of slugs)
-      await addExercise({ sessionId: session._id, exerciseSlug });
+      await addExercise(session._id, exerciseSlug);
   }
 
   async function generate(prompt: string) {
@@ -154,14 +148,15 @@ function ListWorkout({
           text: "Apply",
           onPress: () =>
             void (async () => {
-              const generationId = `mobile-${Date.now()}`;
-              await addDraft({
-                sessionId: session._id,
-                exercises: result.draft.add,
-                removeSlugs: result.draft.removeSlugs,
-                aiGenerationId: generationId,
-              });
-              setLastGeneration(generationId);
+              for (const slug of result.draft.removeSlugs) {
+                const exercise = session.exercises.find(
+                  (candidate) => candidate.slug === slug,
+                );
+                if (exercise) await removeExercise(exercise._id);
+              }
+              for (const exercise of result.draft.add) {
+                await addExercise(session._id, exercise.slug);
+              }
               resolve();
             })().catch(reject),
         },
@@ -184,28 +179,22 @@ function ListWorkout({
             />
           }
         />
-        <Button
-          label="Edit workout with AI"
-          variant="outline"
-          icon={Sparkles}
-          onPress={() => setAiOpen(true)}
-        />
-        {lastGeneration ? (
+        {isAuthenticated ? (
           <Button
-            label="Undo last AI changes"
-            variant="ghost"
-            onPress={() =>
-              void undoDraft({
-                sessionId: session._id,
-                generationId: lastGeneration,
-              }).then(() => setLastGeneration(null))
-            }
+            label="Edit workout with AI"
+            variant="outline"
+            icon={Sparkles}
+            onPress={() => setAiOpen(true)}
           />
         ) : null}
         {!session.exercises.length ? (
           <EmptyState
             title="No exercises yet"
-            description="Add lifts as you go, or describe the session with AI."
+            description={
+              isAuthenticated
+                ? "Add lifts as you go, or describe the session with AI."
+                : "Add lifts as you go to build this session."
+            }
           />
         ) : (
           session.exercises.map((exercise, exerciseIndex) => (
@@ -238,12 +227,7 @@ function ListWorkout({
                   <Pressable
                     disabled={exerciseIndex === 0}
                     hitSlop={7}
-                    onPress={() =>
-                      void moveExercise({
-                        sessionExerciseId: exercise._id,
-                        delta: -1,
-                      })
-                    }
+                    onPress={() => void moveExercise(exercise._id, -1)}
                   >
                     <ChevronUp
                       size={20}
@@ -253,12 +237,7 @@ function ListWorkout({
                   <Pressable
                     disabled={exerciseIndex === session.exercises.length - 1}
                     hitSlop={7}
-                    onPress={() =>
-                      void moveExercise({
-                        sessionExerciseId: exercise._id,
-                        delta: 1,
-                      })
-                    }
+                    onPress={() => void moveExercise(exercise._id, 1)}
                   >
                     <ChevronDown
                       size={20}
@@ -272,9 +251,7 @@ function ListWorkout({
                 </View>
                 <NoteField
                   initial={exercise.notes ?? ""}
-                  onSave={(notes) =>
-                    saveNote({ exerciseSlug: exercise.slug, notes })
-                  }
+                  onSave={(notes) => saveNote(exercise.slug, notes)}
                 />
               </View>
               <View
@@ -322,11 +299,9 @@ function ListWorkout({
                         : (user.barWeightKg ?? 20)
                     }
                     usesBar={catalog.usesBar(exercise.slug)}
-                    onCommit={(values) =>
-                      updateSet({ setId: set._id, ...values })
-                    }
+                    onCommit={(values) => updateSet(set._id, values)}
                     onComplete={(completed, values) => {
-                      void updateSet({ setId: set._id, ...values, completed });
+                      void updateSet(set._id, { ...values, completed });
                       if (completed) {
                         void Haptics.notificationAsync(
                           Haptics.NotificationFeedbackType.Success,
@@ -338,7 +313,7 @@ function ListWorkout({
                           );
                       }
                     }}
-                    onDelete={() => void deleteSet({ setId: set._id })}
+                    onDelete={() => void deleteSet(set._id)}
                     canDelete={exercise.sets.length > 1}
                   />
                 ))}
@@ -347,7 +322,7 @@ function ListWorkout({
                   variant="outline"
                   icon={Plus}
                   onPress={async () => {
-                    await addSet({ sessionExerciseId: exercise._id });
+                    await addSet(exercise._id);
                   }}
                 />
                 <Button
@@ -363,10 +338,7 @@ function ListWorkout({
                         {
                           text: "Remove",
                           style: "destructive",
-                          onPress: () =>
-                            void removeExercise({
-                              sessionExerciseId: exercise._id,
-                            }),
+                          onPress: () => void removeExercise(exercise._id),
                         },
                       ],
                     )
@@ -398,14 +370,16 @@ function ListWorkout({
         onClose={() => setPicker(false)}
         onAdd={(slugs) => void addPicked(slugs)}
       />
-      <AiPromptModal
-        visible={aiOpen}
-        title="Reshape this workout"
-        description="Ask for additions, removals, or a new direction. You’ll review the exact draft before it changes the session."
-        loadingLabel="Reshaping your session…"
-        onClose={() => setAiOpen(false)}
-        onGenerate={generate}
-      />
+      {isAuthenticated ? (
+        <AiPromptModal
+          visible={aiOpen}
+          title="Reshape this workout"
+          description="Ask for additions, removals, or a new direction. You’ll review the exact draft before it changes the session."
+          loadingLabel="Reshaping your session…"
+          onClose={() => setAiOpen(false)}
+          onGenerate={generate}
+        />
+      ) : null}
     </>
   );
 }
@@ -551,7 +525,7 @@ function FocusWorkout({
   user,
 }: {
   session: WorkoutSession;
-  user: NonNullable<FunctionReturnType<typeof api.routes.auth.users.current>>;
+  user: LocalPreferences;
 }) {
   const catalog = useCatalog();
   const allSets = useMemo(
@@ -570,15 +544,12 @@ function FocusWorkout({
   const [position, setPosition] = useState(Math.max(0, firstIncomplete));
   const item = allSets[Math.min(position, Math.max(0, allSets.length - 1))];
   const rest = useRestTimer();
-  const updateSet = useMutation(api.routes.workouts.mutations.updateSet);
+  const { updateSet } = useLocalData();
   const [drafts, setDrafts] = useState<
     Record<string, { weight: string; reps: string }>
   >({});
   const [plates, setPlates] = useState(false);
-  const last = useQuery(
-    api.routes.workouts.queries.lastLoggedSet,
-    item ? { exerciseSlug: item.exercise.slug } : "skip",
-  );
+  const last = useLocalLastSet(item?.exercise.slug);
 
   if (!item) {
     return (
@@ -619,7 +590,7 @@ function FocusWorkout({
   );
 
   async function complete() {
-    await updateSet({ setId: item.set._id, ...values, completed: true });
+    await updateSet(item.set._id, { ...values, completed: true });
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     if (user.restTimerEnabled ?? true)
       void rest.start(item.exercise.restSeconds, "Recover, then keep moving");
@@ -777,7 +748,7 @@ function FocusWorkout({
             ...current,
             [item.set._id]: { ...draft, weight: String(next) },
           }));
-          void updateSet({ setId: item.set._id, ...values, weight: next });
+          void updateSet(item.set._id, { ...values, weight: next });
         }}
       />
       {rest.rest ? (
@@ -800,13 +771,7 @@ async function finishWorkout(session: WorkoutSession) {
 let finishController: ((session: WorkoutSession) => void) | null = null;
 
 export function WorkoutFinishController() {
-  const finish = useMutation(api.routes.workouts.mutations.finish);
-  const abandon = useMutation(api.routes.workouts.mutations.abandon);
-  const sync = useMutation(api.routes.templates.mutations.syncFromSession);
-  const createTemplate = useMutation(
-    api.routes.templates.mutations.createFromSession,
-  );
-  const templates = useQuery(api.routes.templates.queries.list);
+  const { finish, abandon } = useLocalData();
 
   useEffect(() => {
     finishController = (session) => {
@@ -826,8 +791,8 @@ export function WorkoutFinishController() {
               text: "Discard",
               style: "destructive",
               onPress: () =>
-                void abandon({ sessionId: session._id }).then(() =>
-                  router.replace("/(tabs)/dashboard"),
+                void abandon(session._id).then(() =>
+                  router.replace("/dashboard"),
                 ),
             },
           ],
@@ -836,71 +801,10 @@ export function WorkoutFinishController() {
       }
 
       const commit = async () => {
-        await finish({ sessionId: session._id });
+        await finish(session._id);
         await Haptics.notificationAsync(
           Haptics.NotificationFeedbackType.Success,
         );
-        if (session.templateId === null) {
-          Alert.prompt(
-            "Save as template?",
-            "Keep this workout for next time.",
-            [
-              {
-                text: "Not now",
-                style: "cancel",
-                onPress: () => goRecap(session._id),
-              },
-              {
-                text: "Save",
-                onPress: (name?: string) =>
-                  void createTemplate({
-                    sessionId: session._id,
-                    name: name?.trim() || new Date().toLocaleDateString(),
-                  }).then(() => goRecap(session._id)),
-              },
-            ],
-            "plain-text",
-            new Date().toLocaleDateString(undefined, {
-              month: "short",
-              day: "numeric",
-              year: "numeric",
-            }),
-          );
-          return;
-        }
-        const template = templates?.find(
-          (candidate) => candidate._id === session.templateId,
-        );
-        const differs = template
-          ? JSON.stringify(
-              template.exercises.map((exercise) => ({
-                slug: exercise.slug,
-                setCount: exercise.setCount,
-              })),
-            ) !==
-            JSON.stringify(
-              session.exercises.map((exercise) => ({
-                slug: exercise.slug,
-                setCount: exercise.sets.length,
-              })),
-            )
-          : false;
-        if (differs) {
-          Alert.alert(
-            "Update this template?",
-            "Use today’s exercise order and set targets next time.",
-            [
-              { text: "Keep original", onPress: () => goRecap(session._id) },
-              {
-                text: "Update",
-                onPress: () =>
-                  void sync({ sessionId: session._id }).then(() =>
-                    goRecap(session._id),
-                  ),
-              },
-            ],
-          );
-        } else goRecap(session._id);
       };
 
       if (unchecked) {
@@ -910,8 +814,8 @@ export function WorkoutFinishController() {
             text: "Discard",
             style: "destructive",
             onPress: () =>
-              void abandon({ sessionId: session._id }).then(() =>
-                router.replace("/(tabs)/dashboard"),
+              void abandon(session._id).then(() =>
+                router.replace("/dashboard"),
               ),
           },
           { text: "Save workout", onPress: () => void commit() },
@@ -921,22 +825,13 @@ export function WorkoutFinishController() {
     return () => {
       finishController = null;
     };
-  }, [abandon, createTemplate, finish, sync, templates]);
+  }, [abandon, finish]);
   return null;
-}
-
-function goRecap(sessionId: Id<"workoutSessions">) {
-  router.replace({
-    pathname: "/workout/recap/[sessionId]",
-    params: { sessionId: String(sessionId) },
-  });
 }
 
 function CompletedWorkout({ session }: { session: WorkoutSession }) {
   const catalog = useCatalog();
-  const deleteSession = useMutation(
-    api.routes.workouts.mutations.deleteSession,
-  );
+  const { deleteSession } = useLocalData();
   return (
     <Screen>
       <PageHeader
@@ -967,7 +862,7 @@ function CompletedWorkout({ session }: { session: WorkoutSession }) {
           ))}
         </Card>
       ))}
-      <Button label="View recap" onPress={() => goRecap(session._id)} />
+      <Button label="Done" onPress={() => router.replace("/dashboard")} />
       <Button
         label="Delete workout"
         variant="ghost"
@@ -979,8 +874,8 @@ function CompletedWorkout({ session }: { session: WorkoutSession }) {
               text: "Delete",
               style: "destructive",
               onPress: () =>
-                void deleteSession({ sessionId: session._id }).then(() =>
-                  router.replace("/(tabs)/insights"),
+                void deleteSession(session._id).then(() =>
+                  router.replace("/insights"),
                 ),
             },
           ])

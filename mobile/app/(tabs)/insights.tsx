@@ -1,5 +1,4 @@
 import { api } from "@backend/api";
-import type { Id } from "@backend/dataModel";
 import { useQuery } from "convex/react";
 import { router } from "expo-router";
 import {
@@ -12,6 +11,7 @@ import {
 import { useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
+import { useMobileAuth } from "@/auth/auth-provider";
 import {
   buildMuscleSegments,
   MuscleBand,
@@ -26,6 +26,11 @@ import {
   SectionTitle,
   Segmented,
 } from "@/components/ui";
+import {
+  useLocalInsightsLifts,
+  useMergedInsightsOverview,
+  useMergedInsightsSessions,
+} from "@/data/local/use-local-insights";
 import { useCatalog } from "@/providers/catalog-provider";
 import { colors } from "@/theme";
 
@@ -151,17 +156,31 @@ function SessionRow({
 }
 
 export default function InsightsScreen() {
+  const { isAuthenticated } = useMobileAuth();
   const [range, setRange] = useState<Range>("30");
   const [section, setSection] = useState<Section>("overview");
   const days = rangeArg(range);
-  const overview = useQuery(api.routes.insights.queries.overview, { days });
-  const lifts = useQuery(
-    api.routes.insights.queries.lifts,
-    section === "lifts" ? { days } : "skip",
-  );
-  const sessions = useQuery(
+  const remoteSessionHistory = useQuery(
     api.routes.insights.queries.sessionHistory,
-    section === "sessions" ? { days } : "skip",
+    isAuthenticated ? { days } : "skip",
+  );
+  const remoteLifts = useQuery(
+    api.routes.insights.queries.lifts,
+    isAuthenticated && section === "lifts" ? { days } : "skip",
+  );
+  const localLifts = useLocalInsightsLifts(days);
+  const overview = useMergedInsightsOverview(
+    days,
+    isAuthenticated ? remoteSessionHistory : undefined,
+  );
+  const lifts = isAuthenticated
+    ? remoteLifts
+    : section === "lifts"
+      ? localLifts
+      : undefined;
+  const sessions = useMergedInsightsSessions(
+    days,
+    isAuthenticated ? remoteSessionHistory : undefined,
   );
   const catalog = useCatalog();
   const muscles = useMemo(
@@ -301,10 +320,7 @@ export default function InsightsScreen() {
         ) : (
           <View style={{ gap: 10 }}>
             {sessions.map((session) => (
-              <SessionRow
-                key={session.sessionId as Id<"workoutSessions">}
-                session={session}
-              />
+              <SessionRow key={session.sessionId} session={session} />
             ))}
           </View>
         )

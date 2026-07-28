@@ -8,18 +8,18 @@ import { Button, Screen } from "@/components/ui";
 import { colors } from "@/theme";
 
 export default function SignInScreen() {
-  const { isAuthenticated, signIn } = useMobileAuth();
+  const { canUseApp, continueOffline, signIn } = useMobileAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (isAuthenticated) return <Redirect href="/(tabs)/dashboard" />;
+  if (canUseApp) return <Redirect href="/dashboard" />;
 
   async function handleSignIn() {
     setLoading(true);
     setError(null);
     try {
       await signIn();
-      router.replace("/(tabs)/dashboard");
+      router.replace("/dashboard");
     } catch {
       setError(
         "Sign-in could not be completed. Make sure the local web app is running.",
@@ -78,8 +78,8 @@ export default function SignInScreen() {
             maxWidth: 330,
           }}
         >
-          Templates, live set tracking, focused rest, and honest progress—all
-          synced through Convex.
+          Track every workout without a connection. Connect your account when
+          you want your training to sync with the web.
         </Text>
       </View>
 
@@ -94,6 +94,15 @@ export default function SignInScreen() {
           onPress={handleSignIn}
           disabled={loading}
           size="lg"
+        />
+        <Button
+          label="Continue offline"
+          variant="outline"
+          disabled={loading}
+          size="lg"
+          onPress={() =>
+            void continueOffline().then(() => router.replace("/dashboard"))
+          }
         />
         <Text
           style={{

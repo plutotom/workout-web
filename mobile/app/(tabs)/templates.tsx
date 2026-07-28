@@ -4,13 +4,63 @@ import { router } from "expo-router";
 import { Dumbbell, History, Pencil, Plus, Play } from "lucide-react-native";
 import { Text, View } from "react-native";
 
+import { useMobileAuth } from "@/auth/auth-provider";
 import { Button, Card, EmptyState, PageHeader, Screen } from "@/components/ui";
+import { useLocalTemplates } from "@/data/local/provider";
+import { isUnsyncedTemplateRemoteId } from "@/data/local/types";
 import { useCatalog } from "@/providers/catalog-provider";
 import { useStartWorkout } from "@/lib/start-workout";
 import { colors } from "@/theme";
 
+function mapLocalTemplate(template: {
+  _id: string;
+  remoteId: string;
+  name: string;
+  updatedAt: number;
+  exercises: Array<{ slug: string; sets: unknown[] }>;
+}) {
+  return {
+    _id: template._id,
+    name: template.name,
+    updatedAt: template.updatedAt,
+    lastSessionAt: null as number | null,
+    exercises: template.exercises.map((exercise) => ({
+      slug: exercise.slug,
+      setCount: exercise.sets.length,
+    })),
+  };
+}
+
 export default function TemplatesScreen() {
-  const templates = useQuery(api.routes.templates.queries.list);
+  const { isAuthenticated } = useMobileAuth();
+  const remoteTemplates = useQuery(
+    api.routes.templates.queries.list,
+    isAuthenticated ? {} : "skip",
+  );
+  const localTemplates = useLocalTemplates();
+  const templates = isAuthenticated
+    ? (() => {
+        if (remoteTemplates === undefined && localTemplates === undefined) {
+          return undefined;
+        }
+        const remote = remoteTemplates ?? [];
+        const remoteIds = new Set(
+          remote.map((template) => String(template._id)),
+        );
+        const unsyncedLocal =
+          localTemplates
+            ?.filter(
+              (template) =>
+                isUnsyncedTemplateRemoteId(template.remoteId) ||
+                !remoteIds.has(template.remoteId),
+            )
+            .map(mapLocalTemplate) ?? [];
+        if (remoteTemplates === undefined) {
+          return localTemplates?.map(mapLocalTemplate);
+        }
+        return [...unsyncedLocal, ...remote];
+      })()
+    : localTemplates?.map(mapLocalTemplate);
   const catalog = useCatalog();
   const { begin } = useStartWorkout();
 
