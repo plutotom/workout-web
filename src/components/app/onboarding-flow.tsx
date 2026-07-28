@@ -231,7 +231,9 @@ export function OnboardingFlow() {
     }
   }
 
-  async function handleFinalChoice(choice: "templates" | "new" | "empty") {
+  async function handleFinalChoice(
+    choice: "templates" | "new" | "empty" | "home",
+  ) {
     if (busy) return;
     setBusy(true);
     try {
@@ -245,7 +247,13 @@ export function OnboardingFlow() {
       }
 
       setOpen(false);
-      router.push(choice === "templates" ? "/templates" : "/templates/new");
+      router.push(
+        choice === "templates"
+          ? "/templates"
+          : choice === "new"
+            ? "/templates/new"
+            : "/dashboard",
+      );
     } catch {
       toast.error(
         choice === "empty"
@@ -466,6 +474,13 @@ export function OnboardingFlow() {
                         description="Log a workout now and add exercises as you go."
                         disabled={busy}
                         onSelect={() => void handleFinalChoice("empty")}
+                      />
+                      <ChoiceCard
+                        icon={House}
+                        title="Take me to the homepage"
+                        description="Explore the app and start whenever you’re ready."
+                        disabled={busy}
+                        onSelect={() => void handleFinalChoice("home")}
                       />
                     </div>
                   ) : null}
