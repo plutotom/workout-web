@@ -21,6 +21,9 @@ export function SyncCoordinator() {
     isAuthenticated ? {} : "skip",
   );
   const pushSession = useMutation(api.routes.ios.sync.pushSession);
+  const pushCustomExercise = useMutation(
+    api.routes.ios.sync.pushCustomExercise,
+  );
   const createTemplate = useMutation(api.routes.templates.mutations.create);
   const updateTemplate = useMutation(api.routes.templates.mutations.update);
   const { applyBootstrap } = useLocalData();
@@ -42,6 +45,34 @@ export function SyncCoordinator() {
       const deviceId = await syncStore.getDeviceId();
       for (let index = 0; index < MAX_PUSHES_PER_PASS; index++) {
         if (cancelled) return;
+
+        // Custom lifts go first: templates and sessions reference them by slug,
+        // and until the upload lands that slug is the provisional
+        // `custom:local-…` form. Draining them here means the aggregates are
+        // rewritten to the durable slug before they are pushed.
+        const pendingExercise = await syncStore.getPendingCustomExercise();
+        if (pendingExercise) {
+          await syncStore.noteCustomExerciseAttempt(
+            pendingExercise.operationId,
+          );
+          try {
+            const result = await pushCustomExercise({
+              operationId: pendingExercise.operationId,
+              deviceId,
+              exercise: pendingExercise.snapshot,
+            });
+            if (cancelled) return;
+            await syncStore.completeCustomExercise(
+              pendingExercise.operationId,
+              pendingExercise.exerciseId,
+              result.remoteExerciseId,
+              result.slug,
+            );
+          } catch {
+            return;
+          }
+          continue;
+        }
 
         const pendingSession = await syncStore.getPendingSession();
         if (pendingSession) {
@@ -104,6 +135,7 @@ export function SyncCoordinator() {
   }, [
     createTemplate,
     isAuthenticated,
+    pushCustomExercise,
     pushSession,
     syncStore,
     syncStore.revision,
