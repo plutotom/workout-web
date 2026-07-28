@@ -38,7 +38,7 @@ export default function SignInScreen() {
       router.replace(destination);
     } catch {
       setError(
-        "Sign-in could not be completed. Make sure the local web app is running.",
+        "Sign-in could not be completed. Check your connection and try again — you can keep training without an account.",
       );
     } finally {
       setLoading(false);
@@ -106,13 +106,13 @@ export default function SignInScreen() {
           </Text>
         ) : null}
         <Button
-          label={loading ? "Opening WorkOS…" : "Continue with WorkOS"}
+          label={loading ? "Opening sign in…" : "Sign in or create account"}
           onPress={handleSignIn}
           disabled={loading}
           size="lg"
         />
         <Button
-          label="Continue offline"
+          label="Use without an account"
           variant="outline"
           disabled={loading}
           size="lg"
@@ -128,7 +128,8 @@ export default function SignInScreen() {
             lineHeight: 16,
           }}
         >
-          Uses the same secure account as Workout on the web.
+          An account backs up your training and syncs it with Workout on the
+          web. You can create one later — nothing is lost.
         </Text>
       </View>
     </Screen>

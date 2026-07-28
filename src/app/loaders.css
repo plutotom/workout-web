@@ -35,6 +35,23 @@
   display: block;
 }
 
+/* Full-screen moments (first-run onboarding) get a bigger stage; the
+   viewBox is fixed, so scaling the height is enough. */
+.wl-stage-lg {
+  min-height: min(38vh, 232px);
+}
+.wl-stage-lg svg {
+  height: min(36vh, 216px);
+}
+
+/* Inline next to a heading. */
+.wl-stage-sm {
+  min-height: 108px;
+}
+.wl-stage-sm svg {
+  height: 96px;
+}
+
 /* ---------- Loading the Bar ---------- */
 .lb-rig {
   transform-box: view-box;

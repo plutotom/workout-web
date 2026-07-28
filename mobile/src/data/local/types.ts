@@ -73,6 +73,58 @@ export function localTemplateRemoteId(templateId: string) {
   return `${LOCAL_TEMPLATE_REMOTE_PREFIX}${templateId}`;
 }
 
+export type LocalMuscleGroup =
+  | "chest"
+  | "back"
+  | "legs"
+  | "shoulders"
+  | "arms"
+  | "core";
+
+export type LocalCustomExercise = {
+  _id: LocalId;
+  slug: string;
+  remoteId: string | null;
+  name: string;
+  short: string | null;
+  category: LocalMuscleGroup;
+  usesBar: boolean;
+  archived: boolean;
+  updatedAt: number;
+};
+
+/**
+ * Slug prefix for a custom lift created offline. Convex-backed lifts use
+ * `custom:<documentId>`; until the upload lands we mint `custom:local-<uuid>`
+ * so templates, sessions and notes have something stable to reference.
+ */
+export const LOCAL_CUSTOM_SLUG_PREFIX = "custom:local-";
+
+export function localCustomSlug(exerciseId: string) {
+  return `${LOCAL_CUSTOM_SLUG_PREFIX}${exerciseId}`;
+}
+
+export function remoteCustomSlug(remoteId: string) {
+  return `custom:${remoteId}`;
+}
+
+export type CustomExerciseSyncSnapshot = {
+  clientId: string;
+  name: string;
+  short: string | null;
+  category: LocalMuscleGroup;
+  usesBar: boolean;
+  archived: boolean;
+};
+
+export type PendingCustomExerciseSync = {
+  operationId: string;
+  exerciseId: string;
+  snapshot: CustomExerciseSyncSnapshot;
+  createdAt: number;
+  attemptCount: number;
+};
+
 export type LocalPreferences = {
   unit: "lb" | "kg";
   barWeightLb: number;
@@ -98,6 +150,7 @@ export type IosBootstrapPayload = {
   }>;
   customExercises: Array<{
     remoteId: string;
+    clientId: string | null;
     name: string;
     short: string | null;
     category: string;

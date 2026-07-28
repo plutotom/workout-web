@@ -6,6 +6,7 @@ import {
   GeneratingLoader,
   LOADER_NAMES,
 } from "@/components/app/generating-loader";
+import { OnboardingTour } from "@/components/app/onboarding-tour";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -224,6 +225,16 @@ export function DevUiPreview() {
               <GeneratingLoader forceIndex={i} />
             </div>
           ))}
+        </div>
+      </Section>
+
+      <Section title="First-run tour">
+        <p className="text-muted-foreground text-sm">
+          The onboarding tour pages, in a phone-sized frame. Swipe or use the
+          dots — the real flow renders this full-screen.
+        </p>
+        <div className="bg-background flex h-[34rem] max-w-[24rem] flex-col overflow-hidden rounded-2xl border">
+          <OnboardingTour onDone={() => toast.success("Tour finished")} />
         </div>
       </Section>
     </main>

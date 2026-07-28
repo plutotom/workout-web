@@ -15,6 +15,8 @@ import {
   addLocalExercise,
   addLocalSet,
   applyIosBootstrap,
+  archiveLocalCustomExercise,
+  completeCustomExerciseSync,
   completeSessionSync,
   completeTemplateSync,
   deleteLocalSet,
@@ -29,12 +31,16 @@ import {
   getLocalTemplates,
   getLocalWorkout,
   getOrCreateDeviceId,
+  getPendingCustomExerciseSync,
   getPendingSessionSync,
   getPendingTemplateSync,
+  listLocalCustomExercises,
   moveLocalExercise,
+  noteCustomExerciseSyncAttempt,
   noteSessionSyncAttempt,
   noteTemplateSyncAttempt,
   removeLocalExercise,
+  saveLocalCustomExercise,
   saveLocalExerciseNote,
   saveLocalTemplate,
   startLocalBlankWorkout,
@@ -44,6 +50,7 @@ import {
 import type {
   IosBootstrapPayload,
   LocalActiveWorkout,
+  LocalCustomExercise,
   LocalPreferences,
   LocalTemplate,
   LocalWorkoutSession,
@@ -56,6 +63,14 @@ type LocalTemplateInput = {
     slug: string;
     sets: Array<{ weight: number; reps: number }>;
   }>;
+};
+
+type LocalCustomExerciseInput = {
+  exerciseId?: string;
+  name: string;
+  short?: string;
+  category: string;
+  usesBar: boolean;
 };
 
 type LocalDataContextValue = {
@@ -78,6 +93,10 @@ type LocalDataContextValue = {
   saveNote: (slug: string, notes: string) => Promise<void>;
   saveTemplate: (input: LocalTemplateInput) => Promise<string>;
   deleteTemplate: (templateId: string) => Promise<LocalTemplate | null>;
+  saveCustomExercise: (
+    input: LocalCustomExerciseInput,
+  ) => Promise<LocalCustomExercise>;
+  archiveCustomExercise: (exerciseId: string) => Promise<void>;
   finish: (sessionId: string) => Promise<void>;
   abandon: (sessionId: string) => Promise<void>;
   deleteSession: (sessionId: string) => Promise<void>;
@@ -135,6 +154,10 @@ function LocalDataState({ children }: { children: ReactNode }) {
       saveTemplate: (input) => run(() => saveLocalTemplate(db, input)),
       deleteTemplate: (templateId) =>
         run(() => deleteLocalTemplate(db, templateId)),
+      saveCustomExercise: (input) =>
+        run(() => saveLocalCustomExercise(db, input)),
+      archiveCustomExercise: (exerciseId) =>
+        run(() => archiveLocalCustomExercise(db, exerciseId)),
       finish: (sessionId) => run(() => finishLocalWorkout(db, sessionId)),
       abandon: (sessionId) => run(() => abandonLocalWorkout(db, sessionId)),
       deleteSession: (sessionId) =>
@@ -223,6 +246,15 @@ export function useLocalTemplate(templateId?: string) {
   );
 }
 
+export function useLocalCustomExercises() {
+  const db = useSQLiteContext();
+  const { revision } = useLocalData();
+  return useLocalValue<LocalCustomExercise[]>(
+    () => listLocalCustomExercises(db),
+    [db, revision],
+  );
+}
+
 export function useLocalExerciseNotes(slugs: string[]) {
   const db = useSQLiteContext();
   const { revision } = useLocalData();
@@ -250,10 +282,28 @@ export function useLocalSyncStore() {
       revision,
       getPendingSession: () => getPendingSessionSync(db),
       getPendingTemplate: () => getPendingTemplateSync(db),
+      getPendingCustomExercise: () => getPendingCustomExerciseSync(db),
       noteSessionAttempt: (operationId: string) =>
         noteSessionSyncAttempt(db, operationId),
       noteTemplateAttempt: (operationId: string) =>
         noteTemplateSyncAttempt(db, operationId),
+      noteCustomExerciseAttempt: (operationId: string) =>
+        noteCustomExerciseSyncAttempt(db, operationId),
+      completeCustomExercise: async (
+        operationId: string,
+        exerciseId: string,
+        remoteExerciseId: string,
+        remoteSlug: string,
+      ) => {
+        await completeCustomExerciseSync(
+          db,
+          operationId,
+          exerciseId,
+          remoteExerciseId,
+          remoteSlug,
+        );
+        refresh();
+      },
       completeSession: async (
         operationId: string,
         sessionId: string,

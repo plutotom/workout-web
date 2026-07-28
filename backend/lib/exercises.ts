@@ -84,6 +84,60 @@ export async function createCustomExercise(
   return { id, slug: customSlug(id) };
 }
 
+/**
+ * Create-or-update a lift that was authored offline, keyed by the phone's
+ * client ID. Idempotent: a retried upload patches the row it already created.
+ */
+export async function upsertCustomExerciseFromClient(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  args: {
+    clientId: string;
+    name: string;
+    short?: string;
+    category: MuscleGroup;
+    usesBar: boolean;
+    archived: boolean;
+  },
+) {
+  const existing = await ctx.db
+    .query("customExercises")
+    .withIndex("by_user_client_id", (q) =>
+      q.eq("userId", userId).eq("clientId", args.clientId),
+    )
+    .first();
+
+  const fields = {
+    name: normalizeName(args.name),
+    short: normalizeShort(args.short),
+    category: args.category,
+    usesBar: args.usesBar,
+    archived: args.archived,
+  };
+
+  if (existing) {
+    await ctx.db.patch(existing._id, fields);
+    return { id: existing._id, slug: customSlug(existing._id) };
+  }
+
+  const total = await ctx.db
+    .query("customExercises")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .take(MAX_CUSTOM_EXERCISES_PER_USER);
+  if (total.length >= MAX_CUSTOM_EXERCISES_PER_USER) {
+    throw new Error(
+      `At most ${MAX_CUSTOM_EXERCISES_PER_USER} custom exercises are allowed`,
+    );
+  }
+
+  const id = await ctx.db.insert("customExercises", {
+    userId,
+    clientId: args.clientId,
+    ...fields,
+  });
+  return { id, slug: customSlug(id) };
+}
+
 async function requireOwned(
   ctx: MutationCtx,
   userId: Id<"users">,
