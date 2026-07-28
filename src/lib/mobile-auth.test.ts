@@ -2,11 +2,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 
 import {
-  hasMobileAuthSession,
+  mobileAuthEnabled,
+  redeemMobileAuthExchangeTicket,
   resolveMobileAuthCallbackOrigin,
-  storeMobileAuthSession,
-  takeMobileAuthSession,
+  sealMobileAuthExchange,
+  unsealMobileAuthExchange,
 } from "./mobile-auth";
+
+const password = "test-workos-cookie-password-32chars!!";
 
 const payload = {
   session: "sealed-session",
@@ -15,29 +18,33 @@ const payload = {
 };
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   vi.useRealTimers();
 });
 
-describe("mobile auth exchange store", () => {
-  it("consumes an exchange code only once", () => {
-    storeMobileAuthSession(
-      "one-time",
-      payload as Parameters<typeof storeMobileAuthSession>[1],
+describe("mobile auth exchange tickets", () => {
+  it("seals and redeems a one-time ticket", async () => {
+    vi.stubEnv("WORKOS_COOKIE_PASSWORD", password);
+    const ticket = await sealMobileAuthExchange(
+      "11111111-1111-1111-1111-111111111111",
+      payload as Parameters<typeof sealMobileAuthExchange>[1],
     );
-    expect(takeMobileAuthSession("one-time")?.session).toBe("sealed-session");
-    expect(takeMobileAuthSession("one-time")).toBeUndefined();
+    const redeemed = await redeemMobileAuthExchangeTicket(ticket);
+    expect(redeemed?.session).toBe("sealed-session");
+    expect(redeemed?.accessToken).toBe("access-token");
   });
 
-  it("expires codes after five minutes", () => {
+  it("expires tickets after five minutes", async () => {
+    vi.stubEnv("WORKOS_COOKIE_PASSWORD", password);
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
-    storeMobileAuthSession(
-      "expiring",
-      payload as Parameters<typeof storeMobileAuthSession>[1],
+    const ticket = await sealMobileAuthExchange(
+      "22222222-2222-2222-2222-222222222222",
+      payload as Parameters<typeof sealMobileAuthExchange>[1],
     );
-    expect(hasMobileAuthSession("expiring")).toBe(true);
+    expect(await unsealMobileAuthExchange(ticket)).not.toBeNull();
     vi.advanceTimersByTime(5 * 60_000 + 1);
-    expect(hasMobileAuthSession("expiring")).toBe(false);
+    expect(await unsealMobileAuthExchange(ticket)).toBeNull();
   });
 });
 
@@ -75,5 +82,15 @@ describe("mobile auth callback origin", () => {
       ),
     ).toBe(current);
     expect(resolveMobileAuthCallbackOrigin(current, "not a url")).toBe(current);
+  });
+});
+
+describe("mobileAuthEnabled", () => {
+  it("defaults off in production unless explicitly enabled", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("MOBILE_AUTH_ENABLED", "");
+    expect(mobileAuthEnabled()).toBe(false);
+    vi.stubEnv("MOBILE_AUTH_ENABLED", "true");
+    expect(mobileAuthEnabled()).toBe(true);
   });
 });

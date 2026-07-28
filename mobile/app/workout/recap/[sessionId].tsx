@@ -29,6 +29,11 @@ function formatVolume(value: number) {
   return `${Math.round(value).toLocaleString()} lb`;
 }
 
+function formatSet(weight: number, reps: number) {
+  if (weight <= 0) return `${reps} reps`;
+  return `${weight} × ${reps}`;
+}
+
 export default function WorkoutRecapScreen() {
   const { sessionId } = useLocalSearchParams<{ sessionId: string }>();
   const recap = useQuery(api.routes.workouts.queries.recap, {
@@ -110,7 +115,7 @@ export default function WorkoutRecapScreen() {
       kicker: "Standout lift",
       title: standout ? catalog.name(standout.slug) : "No completed sets",
       body: standout
-        ? `Best set today: ${standout.weight} × ${standout.reps}`
+        ? `Best set today: ${formatSet(standout.weight, standout.reps)}`
         : "Check off sets during a workout to build records.",
       extra: standout ? (
         <Card
@@ -133,8 +138,10 @@ export default function WorkoutRecapScreen() {
             </Text>
             <Text style={{ color: colors.dim, fontSize: 12, marginTop: 4 }}>
               {standout.isPr && standout.priorBest
-                ? `Previous best ${standout.priorBest.weight} × ${standout.priorBest.reps}`
-                : `Estimated 1RM ${Math.round(standout.est1RM)} lb`}
+                ? `Previous best ${formatSet(standout.priorBest.weight, standout.priorBest.reps)}`
+                : standout.est1RM > 0
+                  ? `Estimated 1RM ${Math.round(standout.est1RM)} lb`
+                  : `${standout.reps} reps logged`}
             </Text>
           </View>
         </Card>
@@ -160,7 +167,7 @@ export default function WorkoutRecapScreen() {
             body: story.isBaseline
               ? "Baseline locked in — next time you’ll see the trend."
               : story.today && story.previous
-                ? `${story.today.weight}×${story.today.reps} · was ${story.previous.weight}×${story.previous.reps} last time`
+                ? `${formatSet(story.today.weight, story.today.reps)} · was ${formatSet(story.previous.weight, story.previous.reps)} last time`
                 : "Your recent training trend.",
             extra: (
               <Card style={{ marginTop: 20 }}>
@@ -343,7 +350,7 @@ export default function WorkoutRecapScreen() {
       <Button
         label="Done"
         variant="ghost"
-        onPress={() => router.replace("/(tabs)/dashboard")}
+        onPress={() => router.replace("/dashboard")}
       />
     </Screen>
   );

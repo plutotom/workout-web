@@ -8,21 +8,21 @@ import { Button, Screen } from "@/components/ui";
 import { colors } from "@/theme";
 
 export default function SignInScreen() {
-  const { isAuthenticated, signIn } = useMobileAuth();
+  const { canUseApp, continueOffline, signIn } = useMobileAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (isAuthenticated) return <Redirect href="/(tabs)/dashboard" />;
+  if (canUseApp) return <Redirect href="/dashboard" />;
 
   async function handleSignIn() {
     setLoading(true);
     setError(null);
     try {
       await signIn();
-      router.replace("/(tabs)/dashboard");
+      router.replace("/dashboard");
     } catch {
       setError(
-        "Sign-in could not be completed. Make sure the local web app is running.",
+        "Sign-in could not be completed. Check your connection and try again — you can keep training without an account.",
       );
     } finally {
       setLoading(false);
@@ -78,8 +78,8 @@ export default function SignInScreen() {
             maxWidth: 330,
           }}
         >
-          Templates, live set tracking, focused rest, and honest progress—all
-          synced through Convex.
+          Track every workout without a connection. Connect your account when
+          you want your training to sync with the web.
         </Text>
       </View>
 
@@ -90,10 +90,19 @@ export default function SignInScreen() {
           </Text>
         ) : null}
         <Button
-          label={loading ? "Opening WorkOS…" : "Continue with WorkOS"}
+          label={loading ? "Opening sign in…" : "Sign in or create account"}
           onPress={handleSignIn}
           disabled={loading}
           size="lg"
+        />
+        <Button
+          label="Use without an account"
+          variant="outline"
+          disabled={loading}
+          size="lg"
+          onPress={() =>
+            void continueOffline().then(() => router.replace("/dashboard"))
+          }
         />
         <Text
           style={{
@@ -103,7 +112,8 @@ export default function SignInScreen() {
             lineHeight: 16,
           }}
         >
-          Uses the same secure account as Workout on the web.
+          An account backs up your training and syncs it with Workout on the
+          web. You can create one later — nothing is lost.
         </Text>
       </View>
     </Screen>

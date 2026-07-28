@@ -5,26 +5,55 @@ import { router, useLocalSearchParams } from "expo-router";
 import { ChevronRight, History } from "lucide-react-native";
 import { Pressable, Text, View } from "react-native";
 
+import { useMobileAuth } from "@/auth/auth-provider";
 import { Card, EmptyState, PageHeader, Screen } from "@/components/ui";
+import { useLocalTemplate } from "@/data/local/provider";
+import { isUnsyncedTemplateRemoteId } from "@/data/local/types";
+import { useMergedTemplateHistory } from "@/data/local/use-local-insights";
 import { useCatalog } from "@/providers/catalog-provider";
 import { formatDate } from "@/lib/format";
 import { colors } from "@/theme";
 
 export default function TemplateHistoryScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const templateId = id as Id<"workoutTemplates">;
-  const template = useQuery(api.routes.templates.queries.get, { templateId });
-  const sessions = useQuery(api.routes.workouts.queries.history, {
-    templateId,
-  });
+  const templateRouteId = id;
+  const { isAuthenticated } = useMobileAuth();
+  const localTemplate = useLocalTemplate(templateRouteId);
+  const canQueryRemote =
+    isAuthenticated &&
+    Boolean(templateRouteId) &&
+    !(
+      localTemplate &&
+      isUnsyncedTemplateRemoteId(localTemplate.remoteId) &&
+      localTemplate._id === templateRouteId
+    );
+  const remoteTemplate = useQuery(
+    api.routes.templates.queries.get,
+    canQueryRemote
+      ? { templateId: templateRouteId as Id<"workoutTemplates"> }
+      : "skip",
+  );
+  const remoteSessions = useQuery(
+    api.routes.workouts.queries.history,
+    canQueryRemote
+      ? { templateId: templateRouteId as Id<"workoutTemplates"> }
+      : "skip",
+  );
+  const sessions = useMergedTemplateHistory(
+    templateRouteId,
+    canQueryRemote ? remoteSessions : undefined,
+    {
+      localTemplateId: localTemplate?._id,
+      localRemoteTemplateId: localTemplate?.remoteId,
+      templateName: remoteTemplate?.name ?? localTemplate?.name ?? "Workout",
+    },
+  );
   const catalog = useCatalog();
+  const titleName = remoteTemplate?.name ?? localTemplate?.name;
 
   return (
     <Screen>
-      <PageHeader
-        back
-        title={template ? `${template.name} history` : "History"}
-      />
+      <PageHeader back title={titleName ? `${titleName} history` : "History"} />
       {sessions === undefined ? (
         <Text style={{ color: colors.dim }}>Loading…</Text>
       ) : sessions.length === 0 ? (
@@ -48,11 +77,11 @@ export default function TemplateHistoryScreen() {
             : "No sets checked off";
           return (
             <Pressable
-              key={session._id}
+              key={session.sessionId}
               onPress={() =>
                 router.push({
                   pathname: "/workout/[sessionId]",
-                  params: { sessionId: String(session._id) },
+                  params: { sessionId: session.sessionId },
                 })
               }
               style={({ pressed }) => ({ opacity: pressed ? 0.65 : 1 })}

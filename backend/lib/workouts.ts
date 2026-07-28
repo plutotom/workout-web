@@ -989,18 +989,18 @@ function betterBestSet(a: BestSet | null, b: BestSet): BestSet {
   return a;
 }
 
-function validDoneSets(exercises: { slug: string; sets: Doc<"sets">[] }[]) {
+/** Checked-off sets that count toward recap totals (weight may be 0). */
+function loggedDoneSets(exercises: { slug: string; sets: Doc<"sets">[] }[]) {
   const sets: RecapSet[] = [];
   for (const exercise of exercises) {
     for (const set of exercise.sets) {
-      if (set.completed && set.weight > 0 && set.reps > 0) {
-        sets.push({
-          slug: exercise.slug,
-          weight: set.weight,
-          reps: set.reps,
-          completed: set.completed,
-        });
-      }
+      if (!isLoggedSet(set)) continue;
+      sets.push({
+        slug: exercise.slug,
+        weight: set.weight,
+        reps: set.reps,
+        completed: set.completed,
+      });
     }
   }
   return sets;
@@ -1048,7 +1048,7 @@ async function bestSetForSlugInSession(
 
   let best: BestSet | null = null;
   for (const set of sets) {
-    if (!set.completed || set.weight <= 0 || set.reps <= 0) continue;
+    if (!isLoggedSet(set)) continue;
     best = betterBestSet(best, { weight: set.weight, reps: set.reps });
   }
   if (!best) return null;
@@ -1064,11 +1064,12 @@ export async function getWorkoutRecap(
   if (!session) return null;
 
   const completedAt = session.completedAt ?? session.startedAt;
-  const doneSets = validDoneSets(session.exercises);
+  const doneSets = loggedDoneSets(session.exercises);
   const totalVolume = doneSets.reduce(
     (sum, set) => sum + set.weight * set.reps,
     0,
   );
+  // Heavier weight wins; among weight-0 (bodyweight / unset) sets, more reps.
   const standout =
     [...doneSets].sort((a, b) => compareBestSets(b, a))[0] ?? null;
 
@@ -1147,7 +1148,9 @@ export async function getWorkoutRecap(
       volume: totalVolume,
       durationMs: Math.max(0, completedAt - session.startedAt),
       completedSets: doneSets.length,
-      exerciseCount: session.exercises.length,
+      exerciseCount: session.exercises.filter((exercise) =>
+        exercise.sets.some((set) => isLoggedSet(set)),
+      ).length,
     },
     standout: standout
       ? {

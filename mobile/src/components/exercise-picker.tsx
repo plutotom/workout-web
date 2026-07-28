@@ -1,6 +1,3 @@
-import { api } from "@backend/api";
-import type { Id } from "@backend/dataModel";
-import { useMutation } from "convex/react";
 import { Check, Plus, Search, X } from "lucide-react-native";
 import { useMemo, useState } from "react";
 import {
@@ -16,6 +13,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import type { MuscleGroup } from "@shared/exercises";
 import { MUSCLE_GROUPS } from "@shared/exercises";
+import { useLocalCustomExercises, useLocalData } from "@/data/local/provider";
 import { useCatalog } from "@/providers/catalog-provider";
 import { Button, Field, Segmented } from "@/components/ui";
 import { colors, radius } from "@/theme";
@@ -32,7 +30,12 @@ export function ExercisePicker({
   onAdd: (slugs: string[]) => void;
 }) {
   const catalog = useCatalog();
-  const archive = useMutation(api.routes.exercises.mutations.archive);
+  const { archiveCustomExercise } = useLocalData();
+  const customExercises = useLocalCustomExercises();
+  const localIdBySlug = useMemo(
+    () => new Map((customExercises ?? []).map((item) => [item.slug, item._id])),
+    [customExercises],
+  );
   const [query, setQuery] = useState("");
   const [group, setGroup] = useState<MuscleGroup | "all">("all");
   const [selected, setSelected] = useState<string[]>([]);
@@ -50,7 +53,8 @@ export function ExercisePicker({
   }
 
   function archiveCustom(slug: string, name: string) {
-    if (!slug.startsWith("custom:")) return;
+    const exerciseId = localIdBySlug.get(slug);
+    if (!exerciseId) return;
     Alert.alert(
       "Archive custom exercise?",
       `${name} will disappear from pickers but stay in workout history.`,
@@ -59,10 +63,7 @@ export function ExercisePicker({
         {
           text: "Archive",
           style: "destructive",
-          onPress: () =>
-            void archive({
-              exerciseId: slug.slice(7) as Id<"customExercises">,
-            }),
+          onPress: () => void archiveCustomExercise(exerciseId),
         },
       ],
     );
@@ -291,7 +292,7 @@ function CreateExercise({
   onCancel: () => void;
   onCreated: (slug: string) => void;
 }) {
-  const create = useMutation(api.routes.exercises.mutations.create);
+  const { saveCustomExercise } = useLocalData();
   const [name, setName] = useState("");
   const [short, setShort] = useState("");
   const [category, setCategory] = useState<MuscleGroup>("chest");
@@ -302,7 +303,9 @@ function CreateExercise({
     if (!name.trim()) return;
     setSaving(true);
     try {
-      const result = await create({
+      // Saved to this phone straight away; the upload is queued and runs the
+      // next time an account is connected.
+      const result = await saveCustomExercise({
         name: name.trim(),
         short: short.trim() || undefined,
         category,
