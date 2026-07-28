@@ -25,10 +25,7 @@ import {
   PageHeader,
   Screen,
 } from "@/components/ui";
-import {
-  useLocalData,
-  useLocalExerciseNotes,
-} from "@/data/local/provider";
+import { useLocalData, useLocalExerciseNotes } from "@/data/local/provider";
 import { isUnsyncedTemplateRemoteId } from "@/data/local/types";
 import { useAiGeneration } from "@/lib/ai";
 import { useCatalog } from "@/providers/catalog-provider";

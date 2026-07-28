@@ -44,7 +44,9 @@ export default function TemplatesScreen() {
           return undefined;
         }
         const remote = remoteTemplates ?? [];
-        const remoteIds = new Set(remote.map((template) => String(template._id)));
+        const remoteIds = new Set(
+          remote.map((template) => String(template._id)),
+        );
         const unsyncedLocal =
           localTemplates
             ?.filter(

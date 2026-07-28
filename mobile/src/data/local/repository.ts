@@ -830,7 +830,10 @@ export async function saveLocalTemplate(
   input: {
     templateId?: string;
     name: string;
-    exercises: Array<{ slug: string; sets: Array<{ weight: number; reps: number }> }>;
+    exercises: Array<{
+      slug: string;
+      sets: Array<{ weight: number; reps: number }>;
+    }>;
   },
 ): Promise<string> {
   const name = input.name.trim();
@@ -953,7 +956,10 @@ export type PendingTemplateSync = {
     remoteId: string | null;
     name: string;
     updatedAt: number;
-    exercises: Array<{ slug: string; sets: Array<{ weight: number; reps: number }> }>;
+    exercises: Array<{
+      slug: string;
+      sets: Array<{ weight: number; reps: number }>;
+    }>;
   };
   createdAt: number;
   attemptCount: number;
@@ -1029,7 +1035,10 @@ export async function deleteLocalTemplate(
       "DELETE FROM local_template_exercises WHERE template_id = ?",
       existing._id,
     );
-    await txn.runAsync("DELETE FROM local_templates WHERE id = ?", existing._id);
+    await txn.runAsync(
+      "DELETE FROM local_templates WHERE id = ?",
+      existing._id,
+    );
     await txn.runAsync(
       `DELETE FROM local_sync_outbox
         WHERE entity_type = 'template' AND entity_id = ?`,

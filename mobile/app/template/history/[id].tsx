@@ -45,8 +45,7 @@ export default function TemplateHistoryScreen() {
     {
       localTemplateId: localTemplate?._id,
       localRemoteTemplateId: localTemplate?.remoteId,
-      templateName:
-        remoteTemplate?.name ?? localTemplate?.name ?? "Workout",
+      templateName: remoteTemplate?.name ?? localTemplate?.name ?? "Workout",
     },
   );
   const catalog = useCatalog();
@@ -54,10 +53,7 @@ export default function TemplateHistoryScreen() {
 
   return (
     <Screen>
-      <PageHeader
-        back
-        title={titleName ? `${titleName} history` : "History"}
-      />
+      <PageHeader back title={titleName ? `${titleName} history` : "History"} />
       {sessions === undefined ? (
         <Text style={{ color: colors.dim }}>Loading…</Text>
       ) : sessions.length === 0 ? (

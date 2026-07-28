@@ -82,11 +82,11 @@ cp .env.mobile.preview.example .env.mobile.preview
 # Edit .env.mobile.preview — preview Convex URL + HTTPS app redirect URI
 ```
 
-| Command | Env file | Use |
-| -------- | -------- | --- |
-| `pnpm dev:ios` | `.env.local` | Simulator + local worktree backend |
-| `pnpm dev:ios:preview` | `.env.mobile.preview` | Simulator against preview backends |
-| `pnpm ios:device:preview` | `.env.mobile.preview` | Debug install on device |
+| Command                           | Env file              | Use                                                  |
+| --------------------------------- | --------------------- | ---------------------------------------------------- |
+| `pnpm dev:ios`                    | `.env.local`          | Simulator + local worktree backend                   |
+| `pnpm dev:ios:preview`            | `.env.mobile.preview` | Simulator against preview backends                   |
+| `pnpm ios:device:preview`         | `.env.mobile.preview` | Debug install on device                              |
 | `pnpm ios:device:preview:release` | `.env.mobile.preview` | Release install (no Metro; ~7 days on Personal Team) |
 
 Override the file path anytime: `MOBILE_ENV_FILE=.env.mobile.preview pnpm ios -- --device`.

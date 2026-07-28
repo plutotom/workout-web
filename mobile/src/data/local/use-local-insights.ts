@@ -321,9 +321,7 @@ export function useMergedTemplateHistory(
       remote,
       remoteSessions !== undefined,
     );
-    return merged === undefined
-      ? undefined
-      : merged.map(toTemplateHistoryRow);
+    return merged === undefined ? undefined : merged.map(toTemplateHistoryRow);
   }, [
     localRemoteTemplateId,
     localSessions,
@@ -369,9 +367,7 @@ export function useMergedExerciseHistory(
   return useMemo(() => {
     const merged = mergeLoadedSessions(
       localSessions,
-      remoteSessions
-        ? remoteExerciseHistoryToLocal(slug, remoteSessions)
-        : [],
+      remoteSessions ? remoteExerciseHistoryToLocal(slug, remoteSessions) : [],
       remoteSessions !== undefined,
     );
     return merged === undefined
@@ -391,9 +387,7 @@ export function useMergedExerciseRecords(
   return useMemo(() => {
     const merged = mergeLoadedSessions(
       localSessions,
-      remoteSessions
-        ? remoteExerciseHistoryToLocal(slug, remoteSessions)
-        : [],
+      remoteSessions ? remoteExerciseHistoryToLocal(slug, remoteSessions) : [],
       remoteSessions !== undefined,
     );
     return merged === undefined
