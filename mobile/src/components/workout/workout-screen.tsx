@@ -862,10 +862,7 @@ function CompletedWorkout({ session }: { session: WorkoutSession }) {
           ))}
         </Card>
       ))}
-      <Button
-        label="Done"
-        onPress={() => router.replace("/dashboard")}
-      />
+      <Button label="Done" onPress={() => router.replace("/dashboard")} />
       <Button
         label="Delete workout"
         variant="ghost"

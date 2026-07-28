@@ -21,7 +21,11 @@ export default function TemplateEditorScreen() {
   );
 
   if (templateId) {
-    if (isAuthenticated && remoteTemplate === undefined && localTemplate === undefined) {
+    if (
+      isAuthenticated &&
+      remoteTemplate === undefined &&
+      localTemplate === undefined
+    ) {
       return <FullScreenLoader label="Loading template…" />;
     }
     if (!isAuthenticated && localTemplate === undefined) {

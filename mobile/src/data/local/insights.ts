@@ -301,7 +301,11 @@ function liftsInPeriod(
     .sort((a, b) => b.est1RM - a.est1RM);
 }
 
-function sessionsInPeriod(all: LoadedSession[], days: InsightsDays, now: number) {
+function sessionsInPeriod(
+  all: LoadedSession[],
+  days: InsightsDays,
+  now: number,
+) {
   const start = rangeStart(days, now);
   return all.filter((s) => inRange(s.completedAt, start, now));
 }
@@ -330,7 +334,10 @@ export function getLocalOverview(
   now = Date.now(),
 ): InsightsOverview {
   const inPeriod = sessionsInPeriod(all, days, now);
-  const weekStreak = computeWeekStreak(all.map((s) => s.completedAt), now);
+  const weekStreak = computeWeekStreak(
+    all.map((s) => s.completedAt),
+    now,
+  );
   const totalDurationMs = inPeriod.reduce(
     (sum, s) => sum + Math.max(0, s.completedAt - s.startedAt),
     0,

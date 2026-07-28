@@ -52,7 +52,10 @@ import type {
 type LocalTemplateInput = {
   templateId?: string;
   name: string;
-  exercises: Array<{ slug: string; sets: Array<{ weight: number; reps: number }> }>;
+  exercises: Array<{
+    slug: string;
+    sets: Array<{ weight: number; reps: number }>;
+  }>;
 };
 
 type LocalDataContextValue = {
@@ -215,9 +218,7 @@ export function useLocalTemplate(templateId?: string) {
   const { revision } = useLocalData();
   return useLocalValue<LocalTemplate | null>(
     () =>
-      templateId
-        ? getLocalTemplate(db, templateId)
-        : Promise.resolve(null),
+      templateId ? getLocalTemplate(db, templateId) : Promise.resolve(null),
     [db, revision, templateId],
   );
 }

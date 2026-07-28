@@ -101,9 +101,7 @@ export default function SignInScreen() {
           disabled={loading}
           size="lg"
           onPress={() =>
-            void continueOffline().then(() =>
-              router.replace("/dashboard"),
-            )
+            void continueOffline().then(() => router.replace("/dashboard"))
           }
         />
         <Text

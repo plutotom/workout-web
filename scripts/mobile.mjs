@@ -15,9 +15,8 @@ function resolveEnvFilePath() {
 
 function readAllowedEnvironment(envFilePath) {
   if (!existsSync(envFilePath)) {
-    const hint =
-      envFilePath.endsWith(".env.mobile.preview") ?
-        " Copy .env.mobile.preview.example to .env.mobile.preview and set preview URLs."
+    const hint = envFilePath.endsWith(".env.mobile.preview")
+      ? " Copy .env.mobile.preview.example to .env.mobile.preview and set preview URLs."
       : "";
     throw new Error(`Mobile env file not found: ${envFilePath}.${hint}`);
   }
@@ -52,7 +51,9 @@ function readAllowedEnvironment(envFilePath) {
 const envFilePath = resolveEnvFilePath();
 const mobileEnvironment = readAllowedEnvironment(envFilePath);
 const envLabel = path.relative(root, envFilePath) || path.basename(envFilePath);
-console.log(`[mobile] Using ${envLabel} → EXPO_PUBLIC_WEB_URL=${mobileEnvironment.EXPO_PUBLIC_WEB_URL}`);
+console.log(
+  `[mobile] Using ${envLabel} → EXPO_PUBLIC_WEB_URL=${mobileEnvironment.EXPO_PUBLIC_WEB_URL}`,
+);
 
 const command = process.argv[2] ?? "start";
 const extra = process.argv.slice(3);
