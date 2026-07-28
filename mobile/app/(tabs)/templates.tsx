@@ -1,7 +1,15 @@
 import { api } from "@backend/api";
 import { useQuery } from "convex/react";
 import { router } from "expo-router";
-import { Dumbbell, History, Pencil, Plus, Play } from "lucide-react-native";
+import {
+  Download,
+  Dumbbell,
+  History,
+  Pencil,
+  Plus,
+  Play,
+  Share2,
+} from "lucide-react-native";
 import { Text, View } from "react-native";
 
 import { useMobileAuth } from "@/auth/auth-provider";
@@ -79,12 +87,22 @@ export default function TemplatesScreen() {
           />
         }
       />
-      <Button
-        label="Quick start"
-        variant="outline"
-        icon={Play}
-        onPress={() => begin()}
-      />
+      <View style={{ flexDirection: "row", gap: 8 }}>
+        <Button
+          label="Quick start"
+          variant="outline"
+          icon={Play}
+          style={{ flex: 1 }}
+          onPress={() => begin()}
+        />
+        <Button
+          label="Import"
+          variant="outline"
+          icon={Download}
+          style={{ flex: 1 }}
+          onPress={() => router.push("/import-workouts")}
+        />
+      </View>
       {templates === undefined ? (
         <Text style={{ color: colors.dim }}>Loading…</Text>
       ) : templates.length === 0 ? (
@@ -93,16 +111,24 @@ export default function TemplatesScreen() {
           title="No templates yet"
           description="Quick start a workout and save it when you’re done, or build a template first."
           action={
-            <Button
-              label="New template"
-              icon={Plus}
-              onPress={() =>
-                router.push({
-                  pathname: "/template/[id]",
-                  params: { id: "new" },
-                })
-              }
-            />
+            <View style={{ gap: 8, alignSelf: "stretch" }}>
+              <Button
+                label="New template"
+                icon={Plus}
+                onPress={() =>
+                  router.push({
+                    pathname: "/template/[id]",
+                    params: { id: "new" },
+                  })
+                }
+              />
+              <Button
+                label="Import from a friend"
+                variant="outline"
+                icon={Download}
+                onPress={() => router.push("/import-workouts")}
+              />
+            </View>
           }
         />
       ) : (
@@ -176,6 +202,18 @@ export default function TemplatesScreen() {
                   router.push({
                     pathname: "/template/history/[id]",
                     params: { id: String(template._id) },
+                  })
+                }
+              />
+              <Button
+                label="Share"
+                variant="outline"
+                icon={Share2}
+                style={{ flex: 1 }}
+                onPress={() =>
+                  router.push({
+                    pathname: "/share-workouts",
+                    params: { templateId: String(template._id) },
                   })
                 }
               />

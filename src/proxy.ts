@@ -13,6 +13,9 @@ const workosProxy = authkitProxy({
       "/sign-up",
       "/sign-out",
       "/callback",
+      // Share links must render for signed-out visitors — the recipient may
+      // not have an account yet. Importing is still gated behind sign-in.
+      "/share/:token",
       "/api/mobile-auth/start",
       "/api/mobile-auth/complete",
       "/api/mobile-auth/exchange",
@@ -21,6 +24,9 @@ const workosProxy = authkitProxy({
       "/api/ai/session/generate",
       "/api/mcp",
       "/.well-known/oauth-protected-resource",
+      // Apple fetches this unauthenticated to verify universal links.
+      "/.well-known/apple-app-site-association",
+      "/api/apple-app-site-association",
       "/serwist",
     ],
   },
