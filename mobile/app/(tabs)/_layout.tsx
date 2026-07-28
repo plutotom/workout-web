@@ -38,9 +38,8 @@ function TabIcon({
 }
 
 export default function TabLayout() {
-  const { isLoading, isAuthenticated } = useMobileAuth();
-  if (!isLoading && !isAuthenticated)
-    return <Redirect href="/(auth)/sign-in" />;
+  const { isLoading, canUseApp } = useMobileAuth();
+  if (!isLoading && !canUseApp) return <Redirect href="/sign-in" />;
 
   return (
     <Tabs
@@ -58,6 +57,12 @@ export default function TabLayout() {
         tabBarLabelStyle: { fontSize: 10, fontWeight: "600", marginTop: 2 },
       }}
     >
+      <Tabs.Screen
+        name="index"
+        options={{
+          href: null,
+        }}
+      />
       <Tabs.Screen
         name="dashboard"
         options={{

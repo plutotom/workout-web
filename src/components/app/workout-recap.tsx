@@ -58,6 +58,7 @@ function formatShortDate(ts: number) {
 }
 
 function formatSet(weight: number, reps: number) {
+  if (weight <= 0) return `${reps} reps`;
   return `${weight}×${reps}`;
 }
 

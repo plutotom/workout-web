@@ -15,6 +15,8 @@ import { requirePublicConfig } from "@/lib/config";
 WebBrowser.maybeCompleteAuthSession();
 
 const SESSION_KEY = "workout.workos.session.v1";
+const USER_KEY = "workout.workos.user.v1";
+const LOCAL_MODE_KEY = "workout.local-mode.v1";
 
 type MobileUser = {
   id: string;
@@ -33,9 +35,11 @@ type AuthContextValue = {
   loading: boolean;
   isLoading: boolean;
   isAuthenticated: boolean;
+  canUseApp: boolean;
   user: MobileUser | null;
   signIn: () => Promise<void>;
   signOut: () => Promise<void>;
+  continueOffline: () => Promise<void>;
   fetchAccessToken: (
     options?: boolean | { forceRefreshToken?: boolean },
   ) => Promise<string | null>;
@@ -76,6 +80,7 @@ async function postToken(path: string, body: unknown): Promise<TokenResponse> {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<MobileUser | null>(null);
+  const [localMode, setLocalMode] = useState(false);
   const sessionRef = useRef<string | null>(null);
   const accessTokenRef = useRef<string | null>(null);
   const refreshInFlight = useRef<Promise<string | null> | null>(null);
@@ -84,9 +89,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     sessionRef.current = result.session;
     accessTokenRef.current = result.accessToken;
     setUser(result.user);
-    await SecureStore.setItemAsync(SESSION_KEY, result.session, {
-      keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
-    });
+    setLocalMode(true);
+    await Promise.all([
+      SecureStore.setItemAsync(SESSION_KEY, result.session, {
+        keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+      }),
+      SecureStore.setItemAsync(USER_KEY, JSON.stringify(result.user), {
+        keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+      }),
+      SecureStore.setItemAsync(LOCAL_MODE_KEY, "1", {
+        keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+      }),
+    ]);
     return result.accessToken;
   }, []);
 
@@ -95,16 +109,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     sessionRef.current = null;
     accessTokenRef.current = null;
     setUser(null);
-    await SecureStore.deleteItemAsync(SESSION_KEY);
+    setLocalMode(false);
+    await Promise.all([
+      SecureStore.deleteItemAsync(SESSION_KEY),
+      SecureStore.deleteItemAsync(USER_KEY),
+      SecureStore.deleteItemAsync(LOCAL_MODE_KEY),
+    ]);
   }, []);
 
   useEffect(() => {
     let active = true;
     void (async () => {
       try {
-        const stored = await SecureStore.getItemAsync(SESSION_KEY);
-        if (!stored || !active) return;
+        const [stored, cachedUser, storedLocalMode] = await Promise.all([
+          SecureStore.getItemAsync(SESSION_KEY),
+          SecureStore.getItemAsync(USER_KEY),
+          SecureStore.getItemAsync(LOCAL_MODE_KEY),
+        ]);
+        if (!active) return;
+        if (storedLocalMode === "1") setLocalMode(true);
+        if (!stored) return;
         sessionRef.current = stored;
+        if (cachedUser) {
+          try {
+            setUser(JSON.parse(cachedUser) as MobileUser);
+            setLoading(false);
+          } catch {
+            await SecureStore.deleteItemAsync(USER_KEY);
+          }
+        }
         const result = await postToken("/api/mobile-auth/token", {
           session: stored,
         });
@@ -182,17 +215,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await clear();
   }, [clear]);
 
+  const continueOffline = useCallback(async () => {
+    setLocalMode(true);
+    await SecureStore.setItemAsync(LOCAL_MODE_KEY, "1", {
+      keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+    });
+  }, []);
+
   const value = useMemo(
     () => ({
       loading,
       isLoading: loading,
       isAuthenticated: Boolean(user),
+      canUseApp: localMode || Boolean(user),
       user,
       signIn,
       signOut,
+      continueOffline,
       fetchAccessToken,
     }),
-    [fetchAccessToken, loading, signIn, signOut, user],
+    [
+      continueOffline,
+      fetchAccessToken,
+      loading,
+      localMode,
+      signIn,
+      signOut,
+      user,
+    ],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
