@@ -142,7 +142,7 @@ function LogScene() {
   return (
     <SceneFrame label="Bench Press">
       <div className="border-border/70 rounded-xl border bg-[var(--surface-2)] p-2.5">
-        <div className="text-muted-foreground grid grid-cols-[1.25rem_1fr_1fr_1.5rem] gap-1.5 px-0.5 pb-1.5 text-[9px] font-medium tracking-wide uppercase">
+        <div className="text-muted-foreground grid grid-cols-[1.25rem_1fr_1fr_1.5rem] gap-1.5 px-0.5 pb-1.5 text-[10px] font-medium tracking-wide uppercase">
           <span>Set</span>
           <span>Weight</span>
           <span>Reps</span>
@@ -272,12 +272,18 @@ export function OnboardingTour({ onDone }: { onDone: () => void }) {
         }}
         className="flex min-h-0 flex-1 snap-x snap-mandatory overflow-x-auto overflow-y-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
-        {scenes.map(({ id, Scene, title, description }) => (
+        {scenes.map(({ id, Scene, title, description }, index) => (
           <section
             key={id}
             className="flex w-full shrink-0 snap-center flex-col justify-center gap-6 px-5 py-2"
           >
-            <Scene />
+            {/* Every scene loops from mount, so a user swiping to page 3
+                arrives partway through the 4.2s check sequence and never sees
+                set 1 tick first. Re-keying on activation remounts the scene
+                and restarts its loops from frame 0. */}
+            <div key={index === page ? `${id}-active` : id}>
+              <Scene />
+            </div>
             <div className="text-center">
               <h2 className="text-xl font-semibold text-balance">{title}</h2>
               <p className="text-muted-foreground mx-auto mt-2 max-w-[22rem] text-[0.95rem] leading-snug text-pretty">
