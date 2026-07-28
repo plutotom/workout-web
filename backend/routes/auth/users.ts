@@ -172,6 +172,25 @@ export const completeOnboarding = mutation({
   },
 });
 
+/**
+ * Clear first-run onboarding so the sheet can be retriggered for testing.
+ * Does not delete existing starter templates.
+ */
+export const resetOnboardingForTesting = mutation({
+  args: {},
+  returns: v.null(),
+  handler: async (ctx) => {
+    const user = await requireUser(ctx);
+    await ctx.db.patch(user._id, {
+      onboardingCompletedAt: undefined,
+      onboardingGoal: undefined,
+      onboardingSetting: undefined,
+      onboardingTemplatesCreatedAt: undefined,
+    });
+    return null;
+  },
+});
+
 /** Update the user's preferred weight unit. */
 export const setUnit = mutation({
   args: { unit: unitValidator },
