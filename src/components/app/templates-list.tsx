@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { useQuery } from "convex-helpers/react/cache/hooks";
-import { Dumbbell, History, Pencil, Plus } from "lucide-react";
+import { Download, Dumbbell, History, Pencil, Plus } from "lucide-react";
 
 import { api } from "@backend/api";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
 import { StartWorkoutButton } from "@/components/app/start-workout-button";
+import { TemplateShareDialog } from "@/components/app/template-share-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useExerciseCatalog } from "@/components/app/exercise-catalog-provider";
@@ -66,6 +67,12 @@ export function TemplatesList() {
                   New template
                 </Link>
               </Button>
+              <Button asChild variant="outline">
+                <Link href="/templates/import">
+                  <Download className="size-4" />
+                  Import
+                </Link>
+              </Button>
             </div>
           }
         />
@@ -96,7 +103,7 @@ export function TemplatesList() {
               </CardHeader>
               <CardContent className="flex flex-col gap-2">
                 <StartWorkoutButton templateId={t._id} />
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   <Button asChild variant="outline">
                     <Link href={`/templates/${t._id}/edit`}>
                       <Pencil className="size-4" />
@@ -109,10 +116,26 @@ export function TemplatesList() {
                       History
                     </Link>
                   </Button>
+                  <TemplateShareDialog templateIds={[t._id]} />
                 </div>
               </CardContent>
             </Card>
           ))}
+
+          <div className="grid grid-cols-2 gap-2">
+            <Button asChild variant="ghost" size="sm">
+              <Link href="/templates/import">
+                <Download className="size-4" />
+                Import
+              </Link>
+            </Button>
+            <TemplateShareDialog
+              label="Share all"
+              variant="ghost"
+              size="sm"
+              className="w-full"
+            />
+          </div>
         </div>
       )}
     </div>

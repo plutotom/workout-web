@@ -1,7 +1,10 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
-/node_modules
+# Unanchored so it matches every workspace, not just the root. pnpm fills
+# mobile/node_modules with links whose .bin shims embed absolute paths, so
+# committing them breaks the toolchain on any other checkout.
+node_modules/
 /.pnp
 .pnp.*
 .yarn/*
@@ -51,7 +54,7 @@ public/swe-worker*
 .tokensave
 
 # Expo / React Native (mobile app)
-mobile/node_modules/
+# (mobile/node_modules is covered by the repo-wide node_modules/ rule above)
 mobile/.expo/
 mobile/.expo-shared/
 mobile/dist/

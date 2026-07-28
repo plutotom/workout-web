@@ -2,6 +2,8 @@ import { v } from "convex/values";
 
 import { mutation } from "../../_generated/server";
 import { requireUser } from "../../lib/auth";
+import { importBundle as importBundleLib } from "../../lib/portableTemplates";
+import { portableBundleValidator } from "../../schemas/portable";
 import {
   createTemplate as createTemplateLib,
   createTemplateFromSession as createTemplateFromSessionLib,
@@ -47,6 +49,21 @@ export const remove = mutation({
   handler: async (ctx, { templateId }) => {
     const user = await requireUser(ctx);
     await removeTemplateLib(ctx, user._id, templateId);
+  },
+});
+
+/**
+ * Add the templates in a portable bundle to the caller's account. Additive
+ * only — nothing existing is overwritten, and name collisions are suffixed.
+ */
+export const importBundle = mutation({
+  args: {
+    bundle: portableBundleValidator,
+    includeNotes: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { bundle, includeNotes }) => {
+    const user = await requireUser(ctx);
+    return importBundleLib(ctx, user._id, bundle, { includeNotes });
   },
 });
 

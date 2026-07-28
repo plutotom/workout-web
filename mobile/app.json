@@ -14,7 +14,8 @@
       },
       "supportsTablet": false,
       "bundleIdentifier": "com.isaiahproctor.workout.local",
-      "appleTeamId": "3CVY7K9AJ6"
+      "appleTeamId": "3CVY7K9AJ6",
+      "associatedDomains": ["applinks:workout.plutotom.com"]
     },
     "plugins": [
       "expo-router",
@@ -22,7 +23,9 @@
       "expo-secure-store",
       "expo-font",
       "expo-sqlite",
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-file-system",
+      "expo-sharing"
     ]
   }
 }

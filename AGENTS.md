@@ -15,6 +15,58 @@ Convex functions live in `backend/`. As the app grows:
 
 See `.cursor/rules/backend-organization.mdc` for full conventions.
 
+## Sharing workouts (export / import)
+
+Templates move between accounts as a **portable bundle**. One format, three
+transports, both apps:
+
+| Transport    | Where                               | Offline |
+| ------------ | ----------------------------------- | ------- |
+| Share link   | `/share/<token>` (public preview)   | No      |
+| `.json` file | Download on web, share sheet on iOS | Yes     |
+| Pasted code  | `WKT1-…` base64url text             | Yes     |
+
+- **Format** — `backend/schemas/portable.ts` holds `portableBundleValidator`,
+  the single source of truth. `src/lib/workout-export.ts` derives its
+  TypeScript type from it via a **type-only** import, so the wire format can't
+  drift from what the server accepts. That module has zero runtime imports and
+  hand-rolls its base64 (no `btoa`/`Buffer`/`TextEncoder`) because it runs in
+  the browser, a service worker, Node, and Hermes.
+- **Import is additive.** Nothing is ever overwritten: name collisions get a
+  `(2)` suffix, and an imported exercise note is only written when the importer
+  has no note for that lift.
+- **Custom lifts travel with the bundle** and are recreated under the importer's
+  account (matched by name, reviving archived ones) so `custom:<id>` slugs from
+  another account resolve instead of dangling.
+- **Weights convert** when sender and recipient use different units. `0` means
+  "no preset" and stays `0`.
+- Share tokens are 128-bit bearer secrets — revocable, 30-day default expiry,
+  50 live links per user. `shares.queries.preview` is intentionally
+  **unauthenticated** (the recipient may have no account yet) and exposes only
+  the bundle plus an optional sender-supplied display name — never the sender's
+  email or user id. Importing still requires sign-in.
+
+### iOS universal links
+
+Tapping a share link opens the app instead of Safari via
+`associatedDomains` in `mobile/app.json`, served from
+`/.well-known/apple-app-site-association` (a rewrite to
+`src/app/api/apple-app-site-association/route.ts`).
+
+The route defaults to the team and bundle ids declared in `mobile/app.json`
+(`ios.appleTeamId` / `ios.bundleIdentifier`), so universal links work without
+extra configuration. `APPLE_TEAM_ID` and `APPLE_BUNDLE_ID` override them if the
+app is ever signed by a different team — keep the two in sync, because iOS
+caches a rejected association.
+
+Only `workout.plutotom.com` is claimed, so on staging a tapped link stays in
+the browser. The `workout://share/<token>` scheme and the file/code transports
+are unaffected.
+
+`expo-file-system` and `expo-sharing` are native modules: **the iOS app needs a
+rebuild**, not just a Metro reload, before the file transport or universal links
+work on device.
+
 ## Deployment
 
 Vercel runs `pnpm build` → `scripts/vercel-build.mjs`:

@@ -70,6 +70,15 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   productionBrowserSourceMaps: false,
   serverExternalPackages: ["@serwist/turbopack"],
+  async rewrites() {
+    return [
+      // Apple fetches this exact path and will not follow a redirect.
+      {
+        source: "/.well-known/apple-app-site-association",
+        destination: "/api/apple-app-site-association",
+      },
+    ];
+  },
   async headers() {
     return [
       {
