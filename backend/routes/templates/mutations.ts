@@ -2,6 +2,7 @@ import { v } from "convex/values";
 
 import { mutation } from "../../_generated/server";
 import { requireUser } from "../../lib/auth";
+import { buildStarterTemplates } from "../../lib/templates";
 import {
   createTemplate as createTemplateLib,
   createTemplateFromSession as createTemplateFromSessionLib,
@@ -10,12 +11,52 @@ import {
   removeTemplate as removeTemplateLib,
   updateTemplate as updateTemplateLib,
 } from "../../lib/templates";
+import {
+  onboardingGoalValidator,
+  onboardingSettingValidator,
+} from "../../schemas/users";
 
 export const create = mutation({
   args: { name: v.string(), exercises: v.array(exerciseInputValidator) },
   handler: async (ctx, args) => {
     const user = await requireUser(ctx);
     return createTemplateLib(ctx, user._id, args);
+  },
+});
+
+/**
+ * Create the three transparent starter templates selected during first-run
+ * onboarding. The user marker makes retries safe and prevents duplicate
+ * starter sets if the client reconnects after a successful mutation.
+ */
+export const setupStarterTemplates = mutation({
+  args: {
+    goal: onboardingGoalValidator,
+    setting: onboardingSettingValidator,
+  },
+  returns: v.array(v.id("workoutTemplates")),
+  handler: async (ctx, { goal, setting }) => {
+    const user = await requireUser(ctx);
+    if (user.onboardingTemplatesCreatedAt !== undefined) return [];
+
+    const templates = buildStarterTemplates({ goal, setting });
+    const templateIds = [];
+    for (const template of templates) {
+      templateIds.push(
+        await createTemplateLib(ctx, user._id, {
+          name: template.name,
+          exercises: template.exercises,
+        }),
+      );
+    }
+
+    await ctx.db.patch(user._id, {
+      onboardingGoal: goal,
+      onboardingSetting: setting,
+      onboardingTemplatesCreatedAt: Date.now(),
+    });
+
+    return templateIds;
   },
 });
 

@@ -2,6 +2,7 @@ import { v } from "convex/values";
 
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
+import type { OnboardingGoal, OnboardingSetting } from "../schemas/users";
 import { getNotesBySlugs } from "./exercise_notes";
 import { exerciseSlugValidator } from "../schemas/exercises";
 
@@ -79,6 +80,68 @@ export function normalizeTemplateSets(
     reps: boundedWhole(s.reps, MAX_REPS, "Reps"),
   }));
   return cleaned.length ? cleaned : [{ weight: 0, reps: 0 }];
+}
+
+type StarterTemplate = {
+  name: string;
+  exercises: ExerciseInput[];
+};
+
+const starterTemplateExercises = {
+  "commercial-gym": [
+    ["bench", "barbell-row", "squat", "ohp"],
+    ["deadlift", "db-bench", "lat-pulldown", "reverse-lunge-barbell"],
+    ["incline-bench-bb", "tbar-row", "leg-press", "db-shoulder-press"],
+  ],
+  "home-gym": [
+    ["db-bench", "db-row", "goblet-squat", "db-shoulder-press"],
+    [
+      "romanian-deadlift-dumbbell",
+      "pushup",
+      "reverse-lunge",
+      "bent-over-row-dumbbell",
+    ],
+    ["step-up", "db-bench", "single-leg-romanian-deadlift-dumbbell", "plank"],
+  ],
+  bodyweight: [
+    ["pushup", "full-squat", "reverse-lunge", "plank"],
+    ["pushup", "lunge-2", "glute-bridge", "situp"],
+    ["pushup", "calf-raise", "single-leg-glute-bridge", "plank"],
+  ],
+} as const satisfies Record<OnboardingSetting, readonly (readonly string[])[]>;
+
+const starterGoalDefaults: Record<
+  OnboardingGoal,
+  { sets: number; reps: number }
+> = {
+  strength: { sets: 4, reps: 5 },
+  maintain: { sets: 3, reps: 8 },
+  habit: { sets: 2, reps: 8 },
+};
+
+/**
+ * Build the transparent, first-run templates from the two onboarding inputs.
+ * The slugs intentionally come from the existing client exercise catalog.
+ */
+export function buildStarterTemplates({
+  goal,
+  setting,
+}: {
+  goal: OnboardingGoal;
+  setting: OnboardingSetting;
+}): StarterTemplate[] {
+  const defaults = starterGoalDefaults[goal];
+
+  return starterTemplateExercises[setting].map((slugs, index) => ({
+    name: `Starter ${String.fromCharCode(65 + index)}`,
+    exercises: slugs.map((slug) => ({
+      slug,
+      sets: Array.from({ length: defaults.sets }, () => ({
+        weight: 0,
+        reps: defaults.reps,
+      })),
+    })),
+  }));
 }
 
 export async function createTemplate(

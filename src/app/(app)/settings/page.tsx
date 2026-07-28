@@ -3,6 +3,7 @@ import { LogOut, Settings2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { AdminSettings } from "./admin-settings";
+import { DevSettings } from "./dev-settings";
 import { GeneralSettings } from "./general-settings";
 import { McpSettings } from "./mcp-settings";
 import { PlanSettings } from "./plan-settings";
@@ -30,6 +31,8 @@ export default function SettingsPage() {
       <PlanSettings />
 
       <AdminSettings />
+
+      <DevSettings />
 
       <McpSettings />
 
