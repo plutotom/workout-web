@@ -8,9 +8,11 @@ import {
   CircleDot,
   Copy,
   Crown,
+  Download,
   KeyRound,
   LogOut,
   Settings2,
+  Share2,
   Shield,
   Trash2,
 } from "lucide-react-native";
@@ -262,6 +264,25 @@ function SettingsContent({
             variant="outline"
             icon={CircleDot}
             onPress={() => setPlateCalculatorOpen(true)}
+          />
+        </Card>
+        <Card>
+          <Share2 color={colors.text} size={22} strokeWidth={2.3} />
+          <SectionTitle title="Share & transfer" />
+          <Text style={{ color: colors.dim, fontSize: 13, lineHeight: 19 }}>
+            Send your templates to a friend, or bring in someone else&apos;s.
+          </Text>
+          <Button
+            label="Export templates"
+            variant="outline"
+            icon={Share2}
+            onPress={() => router.push("/share-workouts")}
+          />
+          <Button
+            label="Import templates"
+            variant="outline"
+            icon={Download}
+            onPress={() => router.push("/import-workouts")}
           />
         </Card>
         <PlanCard />
