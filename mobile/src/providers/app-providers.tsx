@@ -7,6 +7,8 @@ import {
 import { useEffect, useMemo, useRef, type ReactNode } from "react";
 
 import { AuthProvider, useMobileAuth } from "@/auth/auth-provider";
+import { LocalDatabaseProvider } from "@/data/local/provider";
+import { SyncCoordinator } from "@/data/sync/sync-coordinator";
 import { CatalogProvider } from "@/providers/catalog-provider";
 import { requirePublicConfig } from "@/lib/config";
 
@@ -19,8 +21,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
   return (
     <AuthProvider>
       <ConvexProviderWithAuth client={client} useAuth={useMobileAuth}>
-        <BootstrapUser />
-        <CatalogProvider>{children}</CatalogProvider>
+        <LocalDatabaseProvider>
+          <BootstrapUser />
+          <SyncCoordinator />
+          <CatalogProvider>{children}</CatalogProvider>
+        </LocalDatabaseProvider>
       </ConvexProviderWithAuth>
     </AuthProvider>
   );

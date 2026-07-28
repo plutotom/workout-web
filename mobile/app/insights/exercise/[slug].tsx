@@ -5,6 +5,7 @@ import { Dumbbell } from "lucide-react-native";
 import { useState } from "react";
 import { Text, View } from "react-native";
 
+import { useMobileAuth } from "@/auth/auth-provider";
 import {
   Card,
   EmptyState,
@@ -14,6 +15,10 @@ import {
   SectionTitle,
   Segmented,
 } from "@/components/ui";
+import {
+  useMergedExerciseHistory,
+  useMergedExerciseRecords,
+} from "@/data/local/use-local-insights";
 import { useCatalog } from "@/providers/catalog-provider";
 import { colors } from "@/theme";
 
@@ -24,16 +29,27 @@ const tabs = [
 ] as const;
 
 export default function ExerciseInsightsScreen() {
-  const { slug } = useLocalSearchParams<{ slug: string }>();
+  const { slug: slugParam } = useLocalSearchParams<{ slug: string }>();
+  const slug = slugParam ?? "";
   const catalog = useCatalog();
+  const { isAuthenticated } = useMobileAuth();
   const [tab, setTab] = useState<Tab>("history");
-  const history = useQuery(api.routes.insights.queries.exerciseHistory, {
+  const remoteHistory = useQuery(
+    api.routes.insights.queries.exerciseHistory,
+    isAuthenticated && slug ? { slug, days: null } : "skip",
+  );
+  const remoteHistorySessions = isAuthenticated
+    ? remoteHistory?.sessions
+    : undefined;
+  const history = useMergedExerciseHistory(
     slug,
-    days: null,
-  });
-  const records = useQuery(api.routes.insights.queries.exerciseRecords, {
+    null,
+    isAuthenticated ? remoteHistorySessions : undefined,
+  );
+  const records = useMergedExerciseRecords(
     slug,
-  });
+    isAuthenticated ? remoteHistorySessions : undefined,
+  );
 
   if (history === undefined || records === undefined)
     return <FullScreenLoader label="Loading exercise…" />;

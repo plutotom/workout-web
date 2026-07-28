@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+mobile/node_modules/
+
+# Next.js / build output
+.next/
+out/
+build/
+dist/
+mobile/dist/
+mobile/web-build/
+
+# Expo / native prebuild
+mobile/.expo/
+mobile/.expo-shared/
+mobile/ios/
+mobile/android/
+
+# Convex / tooling
+.convex/
+.vercel/
+.pnpm-store/
+
+# Generated / caches
+coverage/
+*.tsbuildinfo
+public/sw*
+public/swe-worker*

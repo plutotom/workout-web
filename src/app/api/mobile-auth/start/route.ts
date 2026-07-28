@@ -1,11 +1,10 @@
-import { randomUUID } from "node:crypto";
-
 import { getSignInUrl } from "@workos-inc/authkit-nextjs";
 import { NextResponse } from "next/server";
 
 import {
   mobileAuthEnabled,
   mobileAuthHeaders,
+  newMobileAuthCode,
   resolveMobileAuthCallbackOrigin,
 } from "@/lib/mobile-auth";
 
@@ -18,7 +17,7 @@ export async function GET(request: Request) {
       { status: 404, headers: mobileAuthHeaders },
     );
   }
-  const code = randomUUID();
+  const code = newMobileAuthCode();
   const requestUrl = new URL(request.url);
   const origin = requestUrl.origin;
   const callbackOrigin = resolveMobileAuthCallbackOrigin(
