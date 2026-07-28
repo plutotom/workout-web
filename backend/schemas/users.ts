@@ -14,6 +14,22 @@ export const planValidator = v.union(v.literal("free"), v.literal("pro"));
 /** App role. Missing / "user" = regular user; "admin" can grant Pro. */
 export const roleValidator = v.union(v.literal("user"), v.literal("admin"));
 
+export const onboardingGoalValidator = v.union(
+  v.literal("strength"),
+  v.literal("maintain"),
+  v.literal("habit"),
+);
+
+export type OnboardingGoal = "strength" | "maintain" | "habit";
+
+export const onboardingSettingValidator = v.union(
+  v.literal("commercial-gym"),
+  v.literal("home-gym"),
+  v.literal("bodyweight"),
+);
+
+export type OnboardingSetting = "commercial-gym" | "home-gym" | "bodyweight";
+
 export const userTables = {
   users: defineTable({
     workosId: v.string(),
@@ -41,6 +57,11 @@ export const userTables = {
     // path or skips. A legacy auto-stamp equal to createdAt is treated as
     // unfinished and cleared on bootstrap.
     onboardingCompletedAt: v.optional(v.number()),
+    // Inputs used to create the first three starter templates. Optional so
+    // existing user rows remain valid during schema evolution.
+    onboardingGoal: v.optional(onboardingGoalValidator),
+    onboardingSetting: v.optional(onboardingSettingValidator),
+    onboardingTemplatesCreatedAt: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_workosId", ["workosId"])

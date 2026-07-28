@@ -2,6 +2,8 @@ import { v } from "convex/values";
 
 import { mutation } from "../../_generated/server";
 import { requireUser } from "../../lib/auth";
+import { upsertCustomExerciseFromClient } from "../../lib/exercises";
+import { muscleGroupValidator } from "../../schemas/exercises";
 import { sessionStatusValidator } from "../../schemas/workouts";
 
 const setSnapshotValidator = v.object({
@@ -47,6 +49,65 @@ const resultValidator = v.object({
 
 const MAX_EXERCISES = 50;
 const MAX_SETS_PER_EXERCISE = 20;
+
+/**
+ * Upload one custom exercise authored offline. The phone references it locally
+ * by a provisional `custom:local-…` slug; the returned slug is the durable one
+ * and the device rewrites its rows to match before pushing templates/sessions.
+ */
+export const pushCustomExercise = mutation({
+  args: {
+    operationId: v.string(),
+    deviceId: v.string(),
+    exercise: v.object({
+      clientId: v.string(),
+      name: v.string(),
+      short: v.union(v.string(), v.null()),
+      category: muscleGroupValidator,
+      usesBar: v.boolean(),
+      archived: v.boolean(),
+    }),
+  },
+  returns: v.object({
+    remoteExerciseId: v.id("customExercises"),
+    slug: v.string(),
+    serverTime: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const user = await requireUser(ctx);
+    // The upsert is keyed by clientId, so a replayed operation is already
+    // idempotent; the receipt still records the attempt for auditing.
+    const result = await upsertCustomExerciseFromClient(ctx, user._id, {
+      clientId: args.exercise.clientId,
+      name: args.exercise.name,
+      short: args.exercise.short ?? undefined,
+      category: args.exercise.category,
+      usesBar: args.exercise.usesBar,
+      archived: args.exercise.archived,
+    });
+
+    const duplicate = await ctx.db
+      .query("iosSyncReceipts")
+      .withIndex("by_user_operation_id", (q) =>
+        q.eq("userId", user._id).eq("operationId", args.operationId),
+      )
+      .first();
+    if (!duplicate) {
+      await ctx.db.insert("iosSyncReceipts", {
+        userId: user._id,
+        operationId: args.operationId,
+        deviceId: args.deviceId,
+        appliedAt: Date.now(),
+      });
+    }
+
+    return {
+      remoteExerciseId: result.id,
+      slug: result.slug,
+      serverTime: Date.now(),
+    };
+  },
+});
 
 /**
  * Upload the latest aggregate for one locally-owned session. The operation ID
