@@ -2,19 +2,25 @@ import { randomUUID } from "expo-crypto";
 import type { SQLiteDatabase } from "expo-sqlite";
 
 import type {
+  CustomExerciseSyncSnapshot,
   IosBootstrapPayload,
   LocalActiveWorkout,
+  LocalCustomExercise,
+  LocalMuscleGroup,
   LocalPreferences,
   LocalTemplate,
   LocalWorkoutExercise,
   LocalWorkoutSession,
   LocalWorkoutSet,
+  PendingCustomExerciseSync,
   PendingSessionSync,
   SessionSyncSnapshot,
 } from "@/data/local/types";
 import {
   isUnsyncedTemplateRemoteId,
+  localCustomSlug,
   localTemplateRemoteId,
+  remoteCustomSlug,
 } from "@/data/local/types";
 
 const DEFAULT_REST_SECONDS = 75;
@@ -23,6 +29,16 @@ const MAX_EXERCISES = 50;
 const MAX_SETS = 20;
 const MAX_WEIGHT = 10_000;
 const MAX_REPS = 1_000;
+const MAX_CUSTOM_EXERCISES = 200;
+const MAX_CUSTOM_NAME_LENGTH = 80;
+const MUSCLE_GROUPS: readonly LocalMuscleGroup[] = [
+  "chest",
+  "back",
+  "legs",
+  "shoulders",
+  "arms",
+  "core",
+];
 
 type SessionRow = {
   id: string;
@@ -1064,10 +1080,351 @@ export async function getLocalExerciseNotes(
   return notes;
 }
 
+type CustomExerciseRow = {
+  id: string;
+  slug: string;
+  remote_id: string | null;
+  name: string;
+  short: string | null;
+  category: string;
+  uses_bar: number;
+  archived: number;
+  updated_at: number;
+};
+
+function mapCustomExercise(row: CustomExerciseRow): LocalCustomExercise {
+  return {
+    _id: row.id,
+    slug: row.slug,
+    remoteId: row.remote_id,
+    name: row.name,
+    short: row.short,
+    category: row.category as LocalMuscleGroup,
+    usesBar: row.uses_bar === 1,
+    archived: row.archived === 1,
+    updatedAt: row.updated_at,
+  };
+}
+
+function normalizedCustomName(value: string) {
+  const name = value.trim();
+  if (!name) throw new Error("Exercise name is required");
+  if (name.length > MAX_CUSTOM_NAME_LENGTH)
+    throw new Error(
+      `Exercise name must be at most ${MAX_CUSTOM_NAME_LENGTH} characters`,
+    );
+  return name;
+}
+
+function normalizedMuscleGroup(value: string): LocalMuscleGroup {
+  const group = MUSCLE_GROUPS.find((candidate) => candidate === value);
+  if (!group) throw new Error(`Unknown muscle group: ${value}`);
+  return group;
+}
+
+/**
+ * Every custom lift known to this device, archived ones included — the catalog
+ * needs them so historic sessions still resolve a name.
+ */
+export async function listLocalCustomExercises(
+  db: SQLiteDatabase,
+): Promise<LocalCustomExercise[]> {
+  const rows = await db.getAllAsync<CustomExerciseRow>(
+    `SELECT id, slug, remote_id, name, short, category, uses_bar, archived,
+            updated_at
+       FROM local_custom_exercises
+      ORDER BY name COLLATE NOCASE`,
+  );
+  return rows.map(mapCustomExercise);
+}
+
+async function queueCustomExerciseSnapshot(
+  db: SQLiteDatabase,
+  exerciseId: string,
+  now: number,
+) {
+  const row = await db.getFirstAsync<CustomExerciseRow>(
+    `SELECT id, slug, remote_id, name, short, category, uses_bar, archived,
+            updated_at
+       FROM local_custom_exercises
+      WHERE id = ?`,
+    exerciseId,
+  );
+  if (!row) return;
+  const snapshot: CustomExerciseSyncSnapshot = {
+    // The local row id doubles as the client id, so a retried upload resolves
+    // to the same Convex document instead of duplicating the lift.
+    clientId: row.id,
+    name: row.name,
+    short: row.short,
+    category: row.category as LocalMuscleGroup,
+    usesBar: row.uses_bar === 1,
+    archived: row.archived === 1,
+  };
+  await db.runAsync(
+    `INSERT INTO local_sync_outbox (
+       entity_type, entity_id, operation_id, payload_json, created_at, attempt_count
+     ) VALUES ('custom_exercise', ?, ?, ?, ?, 0)
+     ON CONFLICT(entity_type, entity_id) DO UPDATE SET
+       operation_id = excluded.operation_id,
+       payload_json = excluded.payload_json,
+       created_at = excluded.created_at,
+       attempt_count = 0`,
+    exerciseId,
+    randomUUID(),
+    JSON.stringify(snapshot),
+    now,
+  );
+}
+
+/** Create or edit a custom lift. Works with no connection; upload is queued. */
+export async function saveLocalCustomExercise(
+  db: SQLiteDatabase,
+  input: {
+    exerciseId?: string;
+    name: string;
+    short?: string;
+    category: string;
+    usesBar: boolean;
+  },
+): Promise<LocalCustomExercise> {
+  const name = normalizedCustomName(input.name);
+  const short = input.short?.trim()
+    ? input.short.trim().slice(0, MAX_CUSTOM_NAME_LENGTH)
+    : null;
+  const category = normalizedMuscleGroup(input.category);
+  const now = Date.now();
+  const exerciseId = input.exerciseId ?? randomUUID();
+
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    const existing = await txn.getFirstAsync<{ id: string; slug: string }>(
+      "SELECT id, slug FROM local_custom_exercises WHERE id = ?",
+      exerciseId,
+    );
+    if (existing) {
+      await txn.runAsync(
+        `UPDATE local_custom_exercises
+            SET name = ?, short = ?, category = ?, uses_bar = ?, updated_at = ?
+          WHERE id = ?`,
+        name,
+        short,
+        category,
+        input.usesBar ? 1 : 0,
+        now,
+        exerciseId,
+      );
+      return;
+    }
+
+    const { count } = (await txn.getFirstAsync<{ count: number }>(
+      "SELECT COUNT(*) AS count FROM local_custom_exercises",
+    )) ?? { count: 0 };
+    if (count >= MAX_CUSTOM_EXERCISES)
+      throw new Error(
+        `At most ${MAX_CUSTOM_EXERCISES} custom exercises are allowed`,
+      );
+
+    await txn.runAsync(
+      `INSERT INTO local_custom_exercises (
+         id, slug, remote_id, name, short, category, uses_bar, archived, updated_at
+       ) VALUES (?, ?, NULL, ?, ?, ?, ?, 0, ?)`,
+      exerciseId,
+      normalizedSlug(localCustomSlug(exerciseId)),
+      name,
+      short,
+      category,
+      input.usesBar ? 1 : 0,
+      now,
+    );
+  });
+
+  await queueCustomExerciseSnapshot(db, exerciseId, now);
+  const saved = await db.getFirstAsync<CustomExerciseRow>(
+    `SELECT id, slug, remote_id, name, short, category, uses_bar, archived,
+            updated_at
+       FROM local_custom_exercises
+      WHERE id = ?`,
+    exerciseId,
+  );
+  if (!saved) throw new Error("Custom exercise could not be saved");
+  return mapCustomExercise(saved);
+}
+
+/**
+ * Soft-delete: the lift leaves the pickers but stays resolvable so previous
+ * workouts keep rendering its name.
+ */
+export async function archiveLocalCustomExercise(
+  db: SQLiteDatabase,
+  exerciseId: string,
+) {
+  const now = Date.now();
+  await db.runAsync(
+    "UPDATE local_custom_exercises SET archived = 1, updated_at = ? WHERE id = ?",
+    now,
+    exerciseId,
+  );
+  await queueCustomExerciseSnapshot(db, exerciseId, now);
+}
+
+export async function getLocalCustomExerciseBySlug(
+  db: SQLiteDatabase,
+  slug: string,
+): Promise<LocalCustomExercise | null> {
+  const row = await db.getFirstAsync<CustomExerciseRow>(
+    `SELECT id, slug, remote_id, name, short, category, uses_bar, archived,
+            updated_at
+       FROM local_custom_exercises
+      WHERE slug = ?`,
+    slug,
+  );
+  return row ? mapCustomExercise(row) : null;
+}
+
+export async function getPendingCustomExerciseSync(
+  db: SQLiteDatabase,
+): Promise<PendingCustomExerciseSync | null> {
+  const row = await db.getFirstAsync<{
+    operation_id: string;
+    entity_id: string;
+    payload_json: string;
+    created_at: number;
+    attempt_count: number;
+  }>(
+    `SELECT operation_id, entity_id, payload_json, created_at, attempt_count
+       FROM local_sync_outbox
+      WHERE entity_type = 'custom_exercise'
+      ORDER BY created_at
+      LIMIT 1`,
+  );
+  if (!row) return null;
+  return {
+    operationId: row.operation_id,
+    exerciseId: row.entity_id,
+    snapshot: JSON.parse(row.payload_json) as CustomExerciseSyncSnapshot,
+    createdAt: row.created_at,
+    attemptCount: row.attempt_count,
+  };
+}
+
+export async function noteCustomExerciseSyncAttempt(
+  db: SQLiteDatabase,
+  operationId: string,
+) {
+  await db.runAsync(
+    `UPDATE local_sync_outbox
+        SET attempt_count = attempt_count + 1
+      WHERE operation_id = ?`,
+    operationId,
+  );
+}
+
+type SlugRemapTargets = { sessionIds: string[]; templateIds: string[] };
+
+/**
+ * Repoint every local reference from a provisional `custom:local-…` slug to the
+ * durable slug Convex assigned. Returns the sessions and templates that moved so
+ * the caller can refresh their queued payloads.
+ */
+async function remapCustomSlug(
+  txn: SQLiteDatabase,
+  oldSlug: string,
+  newSlug: string,
+): Promise<SlugRemapTargets> {
+  if (oldSlug === newSlug) return { sessionIds: [], templateIds: [] };
+
+  const sessionRows = await txn.getAllAsync<{ session_id: string }>(
+    "SELECT DISTINCT session_id FROM local_session_exercises WHERE slug = ?",
+    oldSlug,
+  );
+  const templateRows = await txn.getAllAsync<{ template_id: string }>(
+    "SELECT DISTINCT template_id FROM local_template_exercises WHERE slug = ?",
+    oldSlug,
+  );
+
+  await txn.runAsync(
+    "UPDATE local_session_exercises SET slug = ? WHERE slug = ?",
+    newSlug,
+    oldSlug,
+  );
+  await txn.runAsync(
+    "UPDATE local_template_exercises SET slug = ? WHERE slug = ?",
+    newSlug,
+    oldSlug,
+  );
+  // Notes are keyed by slug; OR REPLACE keeps the local note if the server
+  // already sent one under the durable slug.
+  await txn.runAsync(
+    "UPDATE OR REPLACE local_exercise_notes SET slug = ? WHERE slug = ?",
+    newSlug,
+    oldSlug,
+  );
+
+  return {
+    sessionIds: sessionRows.map((row) => row.session_id),
+    templateIds: templateRows.map((row) => row.template_id),
+  };
+}
+
+async function requeueRemapped(
+  db: SQLiteDatabase,
+  targets: SlugRemapTargets,
+  now: number,
+) {
+  // Payloads captured before the remap still carry the provisional slug, so the
+  // affected aggregates are re-snapshotted. Both pushes are upserts.
+  for (const sessionId of new Set(targets.sessionIds))
+    await queueSessionSnapshot(db, sessionId, now);
+  for (const templateId of new Set(targets.templateIds))
+    await queueTemplateSnapshot(db, templateId, now);
+}
+
+export async function completeCustomExerciseSync(
+  db: SQLiteDatabase,
+  operationId: string,
+  exerciseId: string,
+  remoteId: string,
+  remoteSlug: string,
+) {
+  const now = Date.now();
+  let targets: SlugRemapTargets = { sessionIds: [], templateIds: [] };
+
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    const existing = await txn.getFirstAsync<{ slug: string }>(
+      "SELECT slug FROM local_custom_exercises WHERE id = ?",
+      exerciseId,
+    );
+    if (existing && existing.slug !== remoteSlug) {
+      // Drop any row already holding the durable slug (a bootstrap that landed
+      // first) so the UNIQUE index does not reject the rename.
+      await txn.runAsync(
+        "DELETE FROM local_custom_exercises WHERE slug = ? AND id != ?",
+        remoteSlug,
+        exerciseId,
+      );
+      targets = await remapCustomSlug(txn, existing.slug, remoteSlug);
+    }
+    await txn.runAsync(
+      "UPDATE local_custom_exercises SET remote_id = ?, slug = ? WHERE id = ?",
+      remoteId,
+      remoteSlug,
+      exerciseId,
+    );
+    await txn.runAsync(
+      "DELETE FROM local_sync_outbox WHERE operation_id = ?",
+      operationId,
+    );
+  });
+
+  await requeueRemapped(db, targets, now);
+}
+
 export async function applyIosBootstrap(
   db: SQLiteDatabase,
   payload: IosBootstrapPayload,
 ) {
+  const remapTargets: SlugRemapTargets = { sessionIds: [], templateIds: [] };
+
   await db.withExclusiveTransactionAsync(async (txn) => {
     await txn.runAsync(
       `UPDATE local_preferences
@@ -1117,6 +1474,94 @@ export async function applyIosBootstrap(
       }
     }
 
+    for (const exercise of payload.customExercises) {
+      const remoteSlug = remoteCustomSlug(exercise.remoteId);
+      // `clientId` is the local row id for lifts this device authored offline,
+      // so a lift that has already been uploaded is adopted rather than
+      // duplicated. Otherwise fall back to matching an earlier bootstrap.
+      const existing =
+        (exercise.clientId
+          ? await txn.getFirstAsync<{ id: string; slug: string }>(
+              "SELECT id, slug FROM local_custom_exercises WHERE id = ?",
+              exercise.clientId,
+            )
+          : null) ??
+        (await txn.getFirstAsync<{ id: string; slug: string }>(
+          "SELECT id, slug FROM local_custom_exercises WHERE remote_id = ?",
+          exercise.remoteId,
+        ));
+
+      if (!existing) {
+        await txn.runAsync(
+          `INSERT INTO local_custom_exercises (
+             id, slug, remote_id, name, short, category, uses_bar, archived, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(slug) DO UPDATE SET
+             remote_id = excluded.remote_id,
+             name = excluded.name,
+             short = excluded.short,
+             category = excluded.category,
+             uses_bar = excluded.uses_bar,
+             archived = excluded.archived,
+             updated_at = excluded.updated_at`,
+          exercise.remoteId,
+          remoteSlug,
+          exercise.remoteId,
+          exercise.name,
+          exercise.short,
+          exercise.category,
+          exercise.usesBar ? 1 : 0,
+          exercise.archived ? 1 : 0,
+          payload.serverTime,
+        );
+        continue;
+      }
+
+      if (existing.slug !== remoteSlug) {
+        await txn.runAsync(
+          "DELETE FROM local_custom_exercises WHERE slug = ? AND id != ?",
+          remoteSlug,
+          existing.id,
+        );
+        const remapped = await remapCustomSlug(txn, existing.slug, remoteSlug);
+        remapTargets.sessionIds.push(...remapped.sessionIds);
+        remapTargets.templateIds.push(...remapped.templateIds);
+      }
+
+      // A queued edit has not reached the server yet, so only adopt the
+      // identity; the local values stay authoritative until the upload lands.
+      const pending = await txn.getFirstAsync<{ entity_id: string }>(
+        `SELECT entity_id FROM local_sync_outbox
+          WHERE entity_type = 'custom_exercise' AND entity_id = ?`,
+        existing.id,
+      );
+      if (pending) {
+        await txn.runAsync(
+          "UPDATE local_custom_exercises SET remote_id = ?, slug = ? WHERE id = ?",
+          exercise.remoteId,
+          remoteSlug,
+          existing.id,
+        );
+        continue;
+      }
+
+      await txn.runAsync(
+        `UPDATE local_custom_exercises
+            SET remote_id = ?, slug = ?, name = ?, short = ?, category = ?,
+                uses_bar = ?, archived = ?, updated_at = ?
+          WHERE id = ?`,
+        exercise.remoteId,
+        remoteSlug,
+        exercise.name,
+        exercise.short,
+        exercise.category,
+        exercise.usesBar ? 1 : 0,
+        exercise.archived ? 1 : 0,
+        payload.serverTime,
+        existing.id,
+      );
+    }
+
     for (const note of payload.exerciseNotes) {
       await txn.runAsync(
         `INSERT INTO local_exercise_notes (slug, notes, updated_at)
@@ -1136,6 +1581,8 @@ export async function applyIosBootstrap(
       String(payload.serverTime),
     );
   });
+
+  await requeueRemapped(db, remapTargets, payload.serverTime);
 }
 
 export async function getLocalPreferences(

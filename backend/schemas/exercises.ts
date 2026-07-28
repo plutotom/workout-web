@@ -30,7 +30,12 @@ export const exerciseTables = {
     category: muscleGroupValidator,
     usesBar: v.boolean(),
     archived: v.boolean(),
-  }).index("by_user", ["userId"]),
+    // Set when the lift was authored offline on a phone. Lets a retried upload
+    // resolve to the same row instead of creating a duplicate.
+    clientId: v.optional(v.string()),
+  })
+    .index("by_user", ["userId"])
+    .index("by_user_client_id", ["userId", "clientId"]),
 
   // Per-user notes keyed by exercise slug — shared across templates and workouts.
   exerciseNotes: defineTable({

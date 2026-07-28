@@ -37,6 +37,7 @@ const bootstrapResultValidator = v.union(
     customExercises: v.array(
       v.object({
         remoteId: v.id("customExercises"),
+        clientId: v.union(v.string(), v.null()),
         name: v.string(),
         short: v.union(v.string(), v.null()),
         category: v.string(),
@@ -111,6 +112,7 @@ export const get = query({
       templates: templatesWithExercises,
       customExercises: customExercises.map((exercise) => ({
         remoteId: exercise._id,
+        clientId: exercise.clientId ?? null,
         name: exercise.name,
         short: exercise.short ?? null,
         category: exercise.category,

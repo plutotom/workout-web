@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from "expo-sqlite";
 
-const DATABASE_VERSION = 1;
+const DATABASE_VERSION = 2;
 
 export async function migrateLocalDatabase(db: SQLiteDatabase) {
   await db.execAsync("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
@@ -114,6 +114,29 @@ export async function migrateLocalDatabase(db: SQLiteDatabase) {
         );
 
         PRAGMA user_version = 1;
+      `);
+    }
+
+    if (currentVersion < 2) {
+      // Custom lifts authored on the phone. `remote_id` stays NULL until the
+      // lift reaches Convex, at which point `slug` is rewritten from its
+      // provisional `custom:local-…` form to the durable `custom:<id>` form.
+      await db.execAsync(`
+        CREATE TABLE IF NOT EXISTS local_custom_exercises (
+          id TEXT PRIMARY KEY NOT NULL,
+          slug TEXT NOT NULL UNIQUE,
+          remote_id TEXT UNIQUE,
+          name TEXT NOT NULL,
+          short TEXT,
+          category TEXT NOT NULL,
+          uses_bar INTEGER NOT NULL DEFAULT 0,
+          archived INTEGER NOT NULL DEFAULT 0,
+          updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS local_custom_exercises_by_archived
+          ON local_custom_exercises(archived, name);
+
+        PRAGMA user_version = 2;
       `);
     }
   });
