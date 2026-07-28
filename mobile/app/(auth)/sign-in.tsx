@@ -12,14 +12,14 @@ export default function SignInScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (canUseApp) return <Redirect href="/(tabs)/dashboard" />;
+  if (canUseApp) return <Redirect href="/dashboard" />;
 
   async function handleSignIn() {
     setLoading(true);
     setError(null);
     try {
       await signIn();
-      router.replace("/(tabs)/dashboard");
+      router.replace("/dashboard");
     } catch {
       setError(
         "Sign-in could not be completed. Make sure the local web app is running.",
@@ -102,7 +102,7 @@ export default function SignInScreen() {
           size="lg"
           onPress={() =>
             void continueOffline().then(() =>
-              router.replace("/(tabs)/dashboard"),
+              router.replace("/dashboard"),
             )
           }
         />

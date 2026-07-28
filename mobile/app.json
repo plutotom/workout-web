@@ -6,23 +6,20 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
+    "icon": "./assets/icon.png",
     "ios": {
+      "icon": {
+        "light": "./assets/icon.png",
+        "tinted": "./assets/icon-tinted.png"
+      },
       "supportsTablet": false,
       "bundleIdentifier": "com.isaiahproctor.workout.local",
-      "infoPlist": {
-        "UIBackgroundModes": ["remote-notification"]
-      }
+      "appleTeamId": "3CVY7K9AJ6"
     },
     "plugins": [
       "expo-router",
       "expo-dev-client",
       "expo-secure-store",
-      [
-        "expo-notifications",
-        {
-          "sounds": []
-        }
-      ],
       "expo-font",
       "expo-sqlite",
       "expo-web-browser"

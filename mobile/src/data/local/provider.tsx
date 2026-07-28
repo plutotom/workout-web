@@ -16,20 +16,27 @@ import {
   addLocalSet,
   applyIosBootstrap,
   completeSessionSync,
+  completeTemplateSync,
   deleteLocalSet,
+  deleteLocalTemplate,
   deleteLocalWorkout,
   finishLocalWorkout,
   getLocalActiveWorkout,
   getLastLocalSet,
+  getLocalExerciseNotes,
   getLocalPreferences,
+  getLocalTemplate,
   getLocalTemplates,
   getLocalWorkout,
   getOrCreateDeviceId,
   getPendingSessionSync,
+  getPendingTemplateSync,
   moveLocalExercise,
   noteSessionSyncAttempt,
+  noteTemplateSyncAttempt,
   removeLocalExercise,
   saveLocalExerciseNote,
+  saveLocalTemplate,
   startLocalBlankWorkout,
   startLocalTemplateWorkout,
   updateLocalSet,
@@ -41,6 +48,12 @@ import type {
   LocalTemplate,
   LocalWorkoutSession,
 } from "@/data/local/types";
+
+type LocalTemplateInput = {
+  templateId?: string;
+  name: string;
+  exercises: Array<{ slug: string; sets: Array<{ weight: number; reps: number }> }>;
+};
 
 type LocalDataContextValue = {
   revision: number;
@@ -60,6 +73,8 @@ type LocalDataContextValue = {
   removeExercise: (sessionExerciseId: string) => Promise<void>;
   moveExercise: (sessionExerciseId: string, delta: -1 | 1) => Promise<void>;
   saveNote: (slug: string, notes: string) => Promise<void>;
+  saveTemplate: (input: LocalTemplateInput) => Promise<string>;
+  deleteTemplate: (templateId: string) => Promise<LocalTemplate | null>;
   finish: (sessionId: string) => Promise<void>;
   abandon: (sessionId: string) => Promise<void>;
   deleteSession: (sessionId: string) => Promise<void>;
@@ -114,6 +129,9 @@ function LocalDataState({ children }: { children: ReactNode }) {
         run(() => moveLocalExercise(db, sessionExerciseId, delta)),
       saveNote: (slug, notes) =>
         run(() => saveLocalExerciseNote(db, slug, notes)),
+      saveTemplate: (input) => run(() => saveLocalTemplate(db, input)),
+      deleteTemplate: (templateId) =>
+        run(() => deleteLocalTemplate(db, templateId)),
       finish: (sessionId) => run(() => finishLocalWorkout(db, sessionId)),
       abandon: (sessionId) => run(() => abandonLocalWorkout(db, sessionId)),
       deleteSession: (sessionId) =>
@@ -192,6 +210,28 @@ export function useLocalTemplates() {
   );
 }
 
+export function useLocalTemplate(templateId?: string) {
+  const db = useSQLiteContext();
+  const { revision } = useLocalData();
+  return useLocalValue<LocalTemplate | null>(
+    () =>
+      templateId
+        ? getLocalTemplate(db, templateId)
+        : Promise.resolve(null),
+    [db, revision, templateId],
+  );
+}
+
+export function useLocalExerciseNotes(slugs: string[]) {
+  const db = useSQLiteContext();
+  const { revision } = useLocalData();
+  const key = slugs.slice().sort().join("\0");
+  return useLocalValue<Record<string, string>>(
+    () => getLocalExerciseNotes(db, slugs),
+    [db, revision, key],
+  );
+}
+
 export function useLocalLastSet(slug?: string) {
   const db = useSQLiteContext();
   const { revision } = useLocalData();
@@ -207,15 +247,31 @@ export function useLocalSyncStore() {
   return useMemo(
     () => ({
       revision,
-      getPending: () => getPendingSessionSync(db),
-      noteAttempt: (operationId: string) =>
+      getPendingSession: () => getPendingSessionSync(db),
+      getPendingTemplate: () => getPendingTemplateSync(db),
+      noteSessionAttempt: (operationId: string) =>
         noteSessionSyncAttempt(db, operationId),
-      complete: async (
+      noteTemplateAttempt: (operationId: string) =>
+        noteTemplateSyncAttempt(db, operationId),
+      completeSession: async (
         operationId: string,
         sessionId: string,
         remoteSessionId: string | null,
       ) => {
         await completeSessionSync(db, operationId, sessionId, remoteSessionId);
+        refresh();
+      },
+      completeTemplate: async (
+        operationId: string,
+        templateId: string,
+        remoteTemplateId: string | null,
+      ) => {
+        await completeTemplateSync(
+          db,
+          operationId,
+          templateId,
+          remoteTemplateId,
+        );
         refresh();
       },
       getDeviceId: () => getOrCreateDeviceId(db),

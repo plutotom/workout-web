@@ -15,6 +15,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { Alert, Pressable, Text, View } from "react-native";
 
+import { useMobileAuth } from "@/auth/auth-provider";
 import { AiPromptModal } from "@/components/ai-prompt-modal";
 import { ExercisePicker } from "@/components/exercise-picker";
 import {
@@ -50,7 +51,7 @@ export function WorkoutScreen({ sessionId }: { sessionId: string }) {
   const user = useLocalPreferences();
   if (session === undefined || user === undefined)
     return <FullScreenLoader label="Loading workout…" />;
-  if (!session) return <Redirect href="/(tabs)/dashboard" />;
+  if (!session) return <Redirect href="/dashboard" />;
   if (session.status !== "in_progress")
     return <CompletedWorkout session={session} />;
   return (
@@ -93,6 +94,7 @@ function ListWorkout({
   user: LocalPreferences;
 }) {
   const catalog = useCatalog();
+  const { isAuthenticated } = useMobileAuth();
   const {
     updateSet,
     addSet,
@@ -178,16 +180,22 @@ function ListWorkout({
             />
           }
         />
-        <Button
-          label="Edit workout with AI"
-          variant="outline"
-          icon={Sparkles}
-          onPress={() => setAiOpen(true)}
-        />
+        {isAuthenticated ? (
+          <Button
+            label="Edit workout with AI"
+            variant="outline"
+            icon={Sparkles}
+            onPress={() => setAiOpen(true)}
+          />
+        ) : null}
         {!session.exercises.length ? (
           <EmptyState
             title="No exercises yet"
-            description="Add lifts as you go, or describe the session with AI."
+            description={
+              isAuthenticated
+                ? "Add lifts as you go, or describe the session with AI."
+                : "Add lifts as you go to build this session."
+            }
           />
         ) : (
           session.exercises.map((exercise, exerciseIndex) => (
@@ -363,13 +371,15 @@ function ListWorkout({
         onClose={() => setPicker(false)}
         onAdd={(slugs) => void addPicked(slugs)}
       />
-      <AiPromptModal
-        visible={aiOpen}
-        title="Reshape this workout"
-        description="Ask for additions, removals, or a new direction. You’ll review the exact draft before it changes the session."
-        onClose={() => setAiOpen(false)}
-        onGenerate={generate}
-      />
+      {isAuthenticated ? (
+        <AiPromptModal
+          visible={aiOpen}
+          title="Reshape this workout"
+          description="Ask for additions, removals, or a new direction. You’ll review the exact draft before it changes the session."
+          onClose={() => setAiOpen(false)}
+          onGenerate={generate}
+        />
+      ) : null}
     </>
   );
 }
@@ -782,7 +792,7 @@ export function WorkoutFinishController() {
               style: "destructive",
               onPress: () =>
                 void abandon(session._id).then(() =>
-                  router.replace("/(tabs)/dashboard"),
+                  router.replace("/dashboard"),
                 ),
             },
           ],
@@ -805,7 +815,7 @@ export function WorkoutFinishController() {
             style: "destructive",
             onPress: () =>
               void abandon(session._id).then(() =>
-                router.replace("/(tabs)/dashboard"),
+                router.replace("/dashboard"),
               ),
           },
           { text: "Save workout", onPress: () => void commit() },
@@ -854,7 +864,7 @@ function CompletedWorkout({ session }: { session: WorkoutSession }) {
       ))}
       <Button
         label="Done"
-        onPress={() => router.replace("/(tabs)/dashboard")}
+        onPress={() => router.replace("/dashboard")}
       />
       <Button
         label="Delete workout"
@@ -868,7 +878,7 @@ function CompletedWorkout({ session }: { session: WorkoutSession }) {
               style: "destructive",
               onPress: () =>
                 void deleteSession(session._id).then(() =>
-                  router.replace("/(tabs)/insights"),
+                  router.replace("/insights"),
                 ),
             },
           ])

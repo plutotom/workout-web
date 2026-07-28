@@ -4,6 +4,7 @@ import { router } from "expo-router";
 import { Dumbbell, Play } from "lucide-react-native";
 import { Pressable, Text, View } from "react-native";
 
+import { useMobileAuth } from "@/auth/auth-provider";
 import { useCatalog } from "@/providers/catalog-provider";
 import {
   buildMuscleSegments,
@@ -19,6 +20,7 @@ import {
   SectionTitle,
 } from "@/components/ui";
 import { useLocalTemplates } from "@/data/local/provider";
+import { useMergedInsightsOverview } from "@/data/local/use-local-insights";
 import { greeting } from "@/lib/format";
 import { useStartWorkout } from "@/lib/start-workout";
 import { colors } from "@/theme";
@@ -27,22 +29,47 @@ const WEEKLY_GOAL = 4;
 
 export default function DashboardScreen() {
   const catalog = useCatalog();
-  const recent = useQuery(api.routes.workouts.queries.recent);
-  const remoteTemplates = useQuery(api.routes.templates.queries.list);
+  const { isAuthenticated } = useMobileAuth();
+  const recent = useQuery(
+    api.routes.workouts.queries.recent,
+    isAuthenticated ? {} : "skip",
+  );
+  const remoteTemplates = useQuery(
+    api.routes.templates.queries.list,
+    isAuthenticated ? {} : "skip",
+  );
   const localTemplates = useLocalTemplates();
-  const templates =
-    remoteTemplates ??
-    localTemplates?.map((template) => ({
-      _id: template.remoteId,
-      name: template.name,
-      updatedAt: template.updatedAt,
-      lastSessionAt: null,
-      exercises: template.exercises.map((exercise) => ({
-        slug: exercise.slug,
-        setCount: exercise.sets.length,
-      })),
-    }));
-  const overview = useQuery(api.routes.insights.queries.overview, { days: 7 });
+  const templates = isAuthenticated
+    ? (remoteTemplates ??
+      localTemplates?.map((template) => ({
+        _id: template.remoteId || template._id,
+        name: template.name,
+        updatedAt: template.updatedAt,
+        lastSessionAt: null as number | null,
+        exercises: template.exercises.map((exercise) => ({
+          slug: exercise.slug,
+          setCount: exercise.sets.length,
+        })),
+      })))
+    : localTemplates?.map((template) => ({
+        _id: template._id,
+        name: template.name,
+        updatedAt: template.updatedAt,
+        lastSessionAt: null as number | null,
+        exercises: template.exercises.map((exercise) => ({
+          slug: exercise.slug,
+          setCount: exercise.sets.length,
+        })),
+      }));
+  // Fetch enough history to cover this week + prior week for momentum.
+  const remoteSessions = useQuery(
+    api.routes.insights.queries.sessionHistory,
+    isAuthenticated ? { days: 30 } : "skip",
+  );
+  const overview = useMergedInsightsOverview(
+    7,
+    isAuthenticated ? remoteSessions : undefined,
+  );
   const { active, begin } = useStartWorkout();
   const today = templates?.[0];
   const weekCount = overview?.stats.workoutCount ?? 0;
@@ -219,7 +246,7 @@ export default function DashboardScreen() {
               size="sm"
               variant="ghost"
               label="All templates"
-              onPress={() => router.push("/(tabs)/templates")}
+              onPress={() => router.push("/templates")}
             />
           }
         />
@@ -273,11 +300,12 @@ export default function DashboardScreen() {
         )}
       </View>
 
-      {(recent?.total ?? 0) > 0 ? (
+      {(recent?.total ?? overview?.stats.workoutCount ?? 0) > 0 ? (
         <Text
           style={{ color: colors.faint, textAlign: "center", fontSize: 11 }}
         >
-          {recent?.total} workouts logged
+          {Math.max(recent?.total ?? 0, overview?.stats.workoutCount ?? 0)}{" "}
+          workouts logged
         </Text>
       ) : null}
     </Screen>

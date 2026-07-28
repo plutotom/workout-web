@@ -7,13 +7,7 @@ AI (templates + in-session reshape) and Pro billing (Polar) env vars are listed 
 First, run the development server:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
 pnpm dev
-# or
-bun dev
 ```
 
 Open [http://localhost:4271](http://localhost:4271) with your browser to see the result.
@@ -76,6 +70,26 @@ Useful development shortcuts:
 - `Cmd-R` in Simulator reloads the app.
 - `Cmd-D` in Simulator opens the development menu.
 - `r` in the Expo terminal reloads the app.
+
+### Environment for physical devices (preview / staging)
+
+Simulator and local dev use **`.env.local`** (via `pnpm ios` / `pnpm dev:ios`). Values are read at **build or Metro start** and baked into `EXPO_PUBLIC_CONVEX_URL` and `EXPO_PUBLIC_WEB_URL`.
+
+For a **real iPhone** (no localhost), use a separate file:
+
+```bash
+cp .env.mobile.preview.example .env.mobile.preview
+# Edit .env.mobile.preview — preview Convex URL + HTTPS app redirect URI
+```
+
+| Command | Env file | Use |
+| -------- | -------- | --- |
+| `pnpm dev:ios` | `.env.local` | Simulator + local worktree backend |
+| `pnpm dev:ios:preview` | `.env.mobile.preview` | Simulator against preview backends |
+| `pnpm ios:device:preview` | `.env.mobile.preview` | Debug install on device |
+| `pnpm ios:device:preview:release` | `.env.mobile.preview` | Release install (no Metro; ~7 days on Personal Team) |
+
+Override the file path anytime: `MOBILE_ENV_FILE=.env.mobile.preview pnpm ios -- --device`.
 
 ### Metro connection recovery
 

@@ -343,7 +343,7 @@ export default function WorkoutRecapScreen() {
       <Button
         label="Done"
         variant="ghost"
-        onPress={() => router.replace("/(tabs)/dashboard")}
+        onPress={() => router.replace("/dashboard")}
       />
     </Screen>
   );

@@ -3,12 +3,12 @@ import { z } from "zod";
 import {
   mobileAuthEnabled,
   mobileAuthHeaders,
-  takeMobileAuthSession,
+  redeemMobileAuthExchangeTicket,
 } from "@/lib/mobile-auth";
 
 export const runtime = "nodejs";
 
-const bodySchema = z.object({ code: z.string().uuid() });
+const bodySchema = z.object({ code: z.string().min(1) });
 
 export async function POST(request: Request) {
   if (!mobileAuthEnabled()) {
@@ -24,7 +24,7 @@ export async function POST(request: Request) {
       { status: 400, headers: mobileAuthHeaders },
     );
   }
-  const result = takeMobileAuthSession(parsed.data.code);
+  const result = await redeemMobileAuthExchangeTicket(parsed.data.code);
   if (!result) {
     return Response.json(
       { error: "The exchange code is invalid or expired" },

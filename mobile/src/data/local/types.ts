@@ -62,6 +62,17 @@ export type LocalTemplate = {
   exercises: LocalTemplateExercise[];
 };
 
+/** Unsynced phone-only templates use this remote id prefix until Convex create succeeds. */
+export const LOCAL_TEMPLATE_REMOTE_PREFIX = "local:";
+
+export function isUnsyncedTemplateRemoteId(remoteId: string) {
+  return remoteId.startsWith(LOCAL_TEMPLATE_REMOTE_PREFIX);
+}
+
+export function localTemplateRemoteId(templateId: string) {
+  return `${LOCAL_TEMPLATE_REMOTE_PREFIX}${templateId}`;
+}
+
 export type LocalPreferences = {
   unit: "lb" | "kg";
   barWeightLb: number;

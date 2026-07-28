@@ -3,31 +3,48 @@ import type { Id } from "@backend/dataModel";
 import { useQuery } from "convex/react";
 import { useLocalSearchParams } from "expo-router";
 
+import { useMobileAuth } from "@/auth/auth-provider";
 import { TemplateEditor } from "@/components/templates/template-editor";
 import { FullScreenLoader } from "@/components/ui";
+import { useLocalTemplate } from "@/data/local/provider";
 
 export default function TemplateEditorScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const templateId = id === "new" ? undefined : (id as Id<"workoutTemplates">);
-  const template = useQuery(
+  const templateId = id === "new" ? undefined : id;
+  const { isAuthenticated } = useMobileAuth();
+  const localTemplate = useLocalTemplate(templateId);
+  const remoteTemplate = useQuery(
     api.routes.templates.queries.get,
-    templateId ? { templateId } : "skip",
+    isAuthenticated && templateId
+      ? { templateId: templateId as Id<"workoutTemplates"> }
+      : "skip",
   );
 
-  if (templateId && template === undefined)
-    return <FullScreenLoader label="Loading template…" />;
-  const initial = template ?? { name: "", exercises: [] };
+  if (templateId) {
+    if (isAuthenticated && remoteTemplate === undefined && localTemplate === undefined) {
+      return <FullScreenLoader label="Loading template…" />;
+    }
+    if (!isAuthenticated && localTemplate === undefined) {
+      return <FullScreenLoader label="Loading template…" />;
+    }
+  }
+
+  const source = remoteTemplate ?? localTemplate;
+  const initial = source
+    ? {
+        name: source.name,
+        exercises: source.exercises.map((exercise) => ({
+          slug: exercise.slug,
+          sets: exercise.sets,
+        })),
+      }
+    : { name: "", exercises: [] };
+
   return (
     <TemplateEditor
       key={templateId ?? "new"}
       templateId={templateId}
-      initial={{
-        name: initial.name,
-        exercises: initial.exercises.map((exercise) => ({
-          slug: exercise.slug,
-          sets: exercise.sets,
-        })),
-      }}
+      initial={initial}
     />
   );
 }
