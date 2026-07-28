@@ -419,14 +419,30 @@ a,
     scroll-behavior: auto !important;
   }
 
-  /* The looping tour demos have no fill-mode, so the rule above drops them
-     back to their *declared* style rather than a sensible resting frame:
-     the tap ripple lands at full opacity on top of the button it was
-     decorating, and both halves of the sets counter render at once. Pin the
-     resting state for anything whose keyframes start hidden. */
+  /* The looping tour demos have no fill-mode, so the rule above lands them on
+     their *declared* style rather than a sensible frame: the tap ripple ends
+     up at full opacity on top of the button it was decorating, and both
+     halves of the sets counter render at once. Don't infer a resting state
+     from a 0.01ms iteration — state it. */
+  .ob-ripple,
+  .ob-tick,
+  .ob-swap-out,
+  .ob-swap-in,
+  .ob-press {
+    animation: none !important;
+    transform: none !important;
+  }
+
+  /* The tap cue is pure decoration; without motion there is no tap to show. */
   .ob-ripple,
   .ob-swap-in {
-    opacity: 0;
+    opacity: 0 !important;
+  }
+
+  /* Checks stay struck, and the counter shows one legible current value. */
+  .ob-tick,
+  .ob-swap-out {
+    opacity: 1 !important;
   }
 
   /* Mid-range of the ob-drift keyframe, rather than the undimmed default. */
