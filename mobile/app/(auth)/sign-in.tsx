@@ -1,25 +1,41 @@
 import { Dumbbell } from "lucide-react-native";
 import { useState } from "react";
 import { Text, View } from "react-native";
-import { Redirect, router } from "expo-router";
+import { Redirect, router, useLocalSearchParams } from "expo-router";
+import type { Href } from "expo-router";
 
 import { useMobileAuth } from "@/auth/auth-provider";
 import { Button, Screen } from "@/components/ui";
 import { colors } from "@/theme";
 
+/**
+ * Only in-app paths are honoured, so a deep link can't use `next` to bounce a
+ * freshly signed-in user somewhere unexpected.
+ */
+function safeNext(raw: string | undefined): Href {
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) {
+    return "/(tabs)/dashboard";
+  }
+  return raw as Href;
+}
+
 export default function SignInScreen() {
   const { isAuthenticated, signIn } = useMobileAuth();
+  // Set when sign-in was triggered from somewhere that should be returned to —
+  // e.g. a share link opened while signed out.
+  const { next } = useLocalSearchParams<{ next?: string }>();
+  const destination = safeNext(next);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (isAuthenticated) return <Redirect href="/(tabs)/dashboard" />;
+  if (isAuthenticated) return <Redirect href={destination} />;
 
   async function handleSignIn() {
     setLoading(true);
     setError(null);
     try {
       await signIn();
-      router.replace("/(tabs)/dashboard");
+      router.replace(destination);
     } catch {
       setError(
         "Sign-in could not be completed. Make sure the local web app is running.",

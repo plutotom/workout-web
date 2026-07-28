@@ -9,6 +9,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.isaiahproctor.workout.local",
+      "associatedDomains": ["applinks:workout.plutotom.com"],
       "infoPlist": {
         "UIBackgroundModes": ["remote-notification"]
       }
@@ -23,7 +24,9 @@
           "sounds": []
         }
       ],
-      "expo-font"
+      "expo-font",
+      "expo-file-system",
+      "expo-sharing"
     ]
   }
 }

@@ -6,8 +6,8 @@ import { muscleGroupValidator } from "../schemas/exercises";
 
 export type MuscleGroup = Infer<typeof muscleGroupValidator>;
 
-const MAX_NAME_LENGTH = 64;
-const MAX_CUSTOM_EXERCISES_PER_USER = 200;
+export const MAX_NAME_LENGTH = 64;
+export const MAX_CUSTOM_EXERCISES_PER_USER = 200;
 
 /** Synthetic slug used to reference a custom exercise from templates/sessions. */
 export const customSlug = (id: Id<"customExercises">) => `custom:${id}`;
@@ -34,7 +34,7 @@ function normalizeName(name: string): string {
   return trimmed;
 }
 
-function normalizeShort(short: string | undefined): string | undefined {
+export function normalizeShort(short: string | undefined): string | undefined {
   const trimmed = short?.trim();
   return trimmed ? trimmed.slice(0, MAX_NAME_LENGTH) : undefined;
 }

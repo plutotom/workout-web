@@ -2,6 +2,7 @@ import { defineSchema } from "convex/server";
 
 import { exerciseTables } from "./schemas/exercises";
 import { mcpTables } from "./schemas/mcp";
+import { shareTables } from "./schemas/portable";
 import { securityTables } from "./schemas/security";
 import { userTables } from "./schemas/users";
 import { templateTables } from "./schemas/templates";
@@ -12,6 +13,7 @@ export default defineSchema({
   ...exerciseTables,
   ...templateTables,
   ...workoutTables,
+  ...shareTables,
   ...mcpTables,
   ...securityTables,
 });
