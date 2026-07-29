@@ -119,7 +119,7 @@ export async function POST(request: Request) {
       system: SESSION_GENERATE_SYSTEM_PROMPT,
       prompt: userParts.join("\n\n"),
       temperature: 0.3,
-      maxOutputTokens: 2_000,
+      maxOutputTokens: 10_000,
     });
   } catch (error) {
     console.error("AI session generation failed", error);
