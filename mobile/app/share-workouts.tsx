@@ -1,6 +1,5 @@
 import { api } from "@backend/api";
-import type { Id } from "@backend/dataModel";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation } from "convex/react";
 import { useLocalSearchParams } from "expo-router";
 import { Check, Copy, FileJson, Link2, Share2 } from "lucide-react-native";
 import { useMemo, useState } from "react";
@@ -16,6 +15,12 @@ import {
   SectionTitle,
 } from "@/components/ui";
 import { useMobileAuth } from "@/auth/auth-provider";
+import {
+  useLocalCustomExercises,
+  useLocalExerciseNotes,
+  useLocalPreferences,
+  useLocalTemplates,
+} from "@/data/local/provider";
 import { requirePublicConfig } from "@/lib/config";
 import {
   copyBundleCode,
@@ -28,6 +33,7 @@ import {
   describeBundle,
   shareUrl,
   toBundle,
+  type TemplateExportData,
   type WorkoutExportBundle,
 } from "@shared/workout-export";
 
@@ -35,13 +41,21 @@ import {
  * Export screen. Offers the same three transports as the web app: a share
  * link, a `.json` file through the iOS share sheet, and a self-contained code.
  *
- * `templateId` narrows the export to one template; omitting it exports all.
+ * File and code are built from local SQLite so they work offline and without
+ * sign-in. Creating a share link still needs an account — the server snapshots
+ * the bundle and mints a bearer token the sender can later revoke.
+ *
+ * `templateId` narrows the export to one local template; omitting it exports all.
  */
 export default function ShareWorkoutsScreen() {
   const { templateId } = useLocalSearchParams<{ templateId?: string }>();
   const { isAuthenticated } = useMobileAuth();
   const catalog = useCatalog();
   const createShare = useMutation(api.routes.shares.mutations.create);
+
+  const templates = useLocalTemplates();
+  const preferences = useLocalPreferences();
+  const customExercises = useLocalCustomExercises();
 
   const [link, setLink] = useState<string | null>(null);
   const [creatingLink, setCreatingLink] = useState(false);
@@ -50,27 +64,74 @@ export default function ShareWorkoutsScreen() {
   // sender's email is never put on a public page.
   const [sharedBy, setSharedBy] = useState("");
 
-  // Export reads from the server, so it is skipped in local-only mode rather
-  // than left subscribing forever. Building a bundle from the local SQLite
-  // repository is follow-up work; until then this screen says so instead of
-  // spinning.
-  const data = useQuery(
-    api.routes.templates.queries.exportData,
-    isAuthenticated
-      ? {
-          templateIds: templateId
-            ? [templateId as Id<"workoutTemplates">]
-            : undefined,
-        }
-      : "skip",
-  );
+  const selectedTemplates = useMemo(() => {
+    if (!templates) return undefined;
+    if (!templateId) return templates;
+    return templates.filter((template) => template._id === templateId);
+  }, [templates, templateId]);
 
-  // Derived, not stored: the bundle is a pure function of the query result and
-  // the catalog, so there is nothing to synchronize in an effect.
-  const bundle: WorkoutExportBundle | null = useMemo(
-    () => (data && data.templates.length > 0 ? toBundle(data, catalog) : null),
-    [data, catalog],
-  );
+  const referencedSlugs = useMemo(() => {
+    if (!selectedTemplates) return [];
+    const slugs = new Set<string>();
+    for (const template of selectedTemplates) {
+      for (const exercise of template.exercises) slugs.add(exercise.slug);
+    }
+    return [...slugs];
+  }, [selectedTemplates]);
+
+  const notes = useLocalExerciseNotes(referencedSlugs);
+
+  // Derived, not stored: the bundle is a pure function of local templates,
+  // notes, customs, and the catalog.
+  const bundle: WorkoutExportBundle | null = useMemo(() => {
+    if (
+      !selectedTemplates ||
+      !preferences ||
+      !customExercises ||
+      notes === undefined
+    ) {
+      return null;
+    }
+    if (selectedTemplates.length === 0) return null;
+
+    const referenced = new Set(referencedSlugs);
+    const data: TemplateExportData = {
+      unit: preferences.unit,
+      templates: selectedTemplates.map((template) => ({
+        name: template.name,
+        exercises: [...template.exercises]
+          .sort((a, b) => a.orderIndex - b.orderIndex)
+          .map((exercise) => ({
+            slug: exercise.slug,
+            sets: exercise.sets.map((set) => ({ ...set })),
+            ...(notes[exercise.slug] ? { notes: notes[exercise.slug] } : {}),
+          })),
+      })),
+      customExercises: customExercises
+        .filter((exercise) => referenced.has(exercise.slug))
+        .map((exercise) => ({
+          slug: exercise.slug,
+          name: exercise.name,
+          category: exercise.category,
+          usesBar: exercise.usesBar,
+          ...(exercise.short ? { short: exercise.short } : {}),
+        })),
+    };
+    return toBundle(data, catalog);
+  }, [
+    selectedTemplates,
+    preferences,
+    customExercises,
+    notes,
+    referencedSlugs,
+    catalog,
+  ]);
+
+  const loading =
+    templates === undefined ||
+    preferences === undefined ||
+    customExercises === undefined ||
+    notes === undefined;
 
   function flashCopied(which: "link" | "code") {
     setCopied(which);
@@ -78,7 +139,7 @@ export default function ShareWorkoutsScreen() {
   }
 
   async function handleCreateLink() {
-    if (!bundle) return;
+    if (!bundle || !isAuthenticated) return;
     setCreatingLink(true);
     try {
       const { token } = await createShare({
@@ -113,19 +174,7 @@ export default function ShareWorkoutsScreen() {
     flashCopied("code");
   }
 
-  if (!isAuthenticated) {
-    return (
-      <Screen>
-        <PageHeader back title="Share workouts" />
-        <Text style={{ color: colors.dim }}>
-          Sharing needs a connection. Sign in and reconnect to export your
-          templates.
-        </Text>
-      </Screen>
-    );
-  }
-
-  if (data === undefined) return <FullScreenLoader label="Preparing export…" />;
+  if (loading) return <FullScreenLoader label="Preparing export…" />;
 
   if (!bundle) {
     return (
@@ -170,49 +219,59 @@ export default function ShareWorkoutsScreen() {
       </Card>
 
       <SectionTitle title="Send a link" />
-      <Text style={{ color: colors.dim, fontSize: 12 }}>
-        Anyone with the link can import these templates. It expires in 30 days
-        and can be revoked from the web app.
-      </Text>
-      {link ? (
-        <Card>
-          <Text
-            selectable
-            style={{ color: colors.dim, fontSize: 12 }}
-            numberOfLines={2}
-          >
-            {link}
-          </Text>
-          <Button
-            label={copied === "link" ? "Copied" : "Copy link"}
-            variant="outline"
-            icon={copied === "link" ? Check : Copy}
-            onPress={async () => {
-              await copyText(link);
-              flashCopied("link");
-            }}
-          />
-        </Card>
-      ) : (
+      {isAuthenticated ? (
         <>
-          <Field
-            value={sharedBy}
-            onChangeText={setSharedBy}
-            placeholder="Your name (optional)"
-            maxLength={60}
-          />
-          <Button
-            label={creatingLink ? "Creating…" : "Create share link"}
-            icon={Link2}
-            disabled={creatingLink}
-            onPress={handleCreateLink}
-          />
+          <Text style={{ color: colors.dim, fontSize: 12 }}>
+            Anyone with the link can import these templates. It expires in 30
+            days and can be revoked from the web app.
+          </Text>
+          {link ? (
+            <Card>
+              <Text
+                selectable
+                style={{ color: colors.dim, fontSize: 12 }}
+                numberOfLines={2}
+              >
+                {link}
+              </Text>
+              <Button
+                label={copied === "link" ? "Copied" : "Copy link"}
+                variant="outline"
+                icon={copied === "link" ? Check : Copy}
+                onPress={async () => {
+                  await copyText(link);
+                  flashCopied("link");
+                }}
+              />
+            </Card>
+          ) : (
+            <>
+              <Field
+                value={sharedBy}
+                onChangeText={setSharedBy}
+                placeholder="Your name (optional)"
+                maxLength={60}
+              />
+              <Button
+                label={creatingLink ? "Creating…" : "Create share link"}
+                icon={Link2}
+                disabled={creatingLink}
+                onPress={handleCreateLink}
+              />
+            </>
+          )}
         </>
+      ) : (
+        <Text style={{ color: colors.dim, fontSize: 12 }}>
+          Sign in to create a share link. The link stores a snapshot on the
+          server so anyone can open it — file and code below work without an
+          account.
+        </Text>
       )}
 
       <SectionTitle title="Or send a file / code" />
       <Text style={{ color: colors.dim, fontSize: 12 }}>
-        Never expires, and imports without a connection.
+        Never expires, and works offline — no sign-in required.
       </Text>
       <Button
         label="Share .json file"

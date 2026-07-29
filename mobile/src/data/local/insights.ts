@@ -501,3 +501,236 @@ export function getLocalExerciseRecords(all: LoadedSession[], slug: string) {
     repLadder,
   };
 }
+
+/**
+ * Post-workout recap, ported from the server's `getWorkoutRecap` so the story
+ * screen renders offline. Same inputs (completed sessions, oldest to newest)
+ * produce the same beats the web app shows.
+ */
+
+/** Sets that count toward recap totals. Weight may be 0 (bodyweight). */
+function isLoggedSet(set: { completed: boolean; reps: number }): boolean {
+  return set.completed && set.reps > 0;
+}
+
+type BestSet = { weight: number; reps: number };
+
+/** Prefer heavier weight; at equal weight, prefer more reps. */
+function compareBestSets(a: BestSet, b: BestSet): number {
+  if (a.weight !== b.weight) return a.weight - b.weight;
+  return a.reps - b.reps;
+}
+
+function betterBestSet(a: BestSet | null, b: BestSet): BestSet {
+  if (!a || compareBestSets(b, a) > 0) return b;
+  return a;
+}
+
+function bestSetForSlug(
+  session: LoadedSession,
+  slug: string,
+): (BestSet & { est1RM: number }) | null {
+  let best: BestSet | null = null;
+  for (const exercise of session.exercises) {
+    if (exercise.slug !== slug) continue;
+    for (const set of exercise.sets) {
+      if (!isLoggedSet(set)) continue;
+      best = betterBestSet(best, { weight: set.weight, reps: set.reps });
+    }
+  }
+  if (!best) return null;
+  return { ...best, est1RM: estimate1RM(best.weight, best.reps) };
+}
+
+function hasLoggedWork(session: LoadedSession): boolean {
+  return session.exercises.some((exercise) => exercise.sets.some(isLoggedSet));
+}
+
+export type RecapProgressionPoint = {
+  completedAt: number;
+  weight: number;
+  reps: number;
+  est1RM: number;
+  sameTemplate: boolean;
+};
+
+export type RecapProgressionStory = {
+  slug: string;
+  scopedToTemplate: boolean;
+  isBaseline: boolean;
+  points: RecapProgressionPoint[];
+  today: { weight: number; reps: number; est1RM: number } | null;
+  previous: {
+    weight: number;
+    reps: number;
+    est1RM: number;
+    completedAt: number;
+  } | null;
+  vsPreviousWeight: number | null;
+};
+
+export type WorkoutRecap = {
+  session: { templateName: string; startedAt: number; completedAt: number };
+  totals: {
+    volume: number;
+    durationMs: number;
+    completedSets: number;
+    exerciseCount: number;
+  };
+  standout: {
+    slug: string;
+    weight: number;
+    reps: number;
+    est1RM: number;
+    isPr: boolean;
+    priorBest: BestSet | null;
+  } | null;
+  muscleSets: Array<{ slug: string; sets: number }>;
+  progressionStory: RecapProgressionStory | null;
+  consistency: {
+    sessionsThisWeek: number;
+    weeklyGoal: number;
+    weekStreak: number;
+    /** Mon–Sun: true if at least one logged workout that day. */
+    daysWorked: boolean[];
+  };
+};
+
+const WEEKLY_GOAL = 4;
+/** Points plotted in the progression beat. */
+const PROGRESSION_POINTS = 7;
+
+export function getLocalWorkoutRecap(
+  all: LoadedSession[],
+  sessionId: string,
+): WorkoutRecap | null {
+  const session = all.find((candidate) => candidate.sessionId === sessionId);
+  if (!session) return null;
+
+  const completedAt = session.completedAt;
+  const doneSets = session.exercises.flatMap((exercise) =>
+    exercise.sets.filter(isLoggedSet).map((set) => ({
+      slug: exercise.slug,
+      weight: set.weight,
+      reps: set.reps,
+    })),
+  );
+  const volume = doneSets.reduce((sum, set) => sum + set.weight * set.reps, 0);
+  // Heavier weight wins; among weight-0 (bodyweight / unset) sets, more reps.
+  const standout =
+    [...doneSets].sort((a, b) => compareBestSets(b, a))[0] ?? null;
+
+  // Everything up to and including today, oldest first, so the lineage below
+  // reads left to right.
+  const history = all
+    .filter(
+      (candidate) =>
+        candidate.completedAt <= completedAt && hasLoggedWork(candidate),
+    )
+    .sort((a, b) => a.completedAt - b.completedAt);
+
+  const weekStart = startOfWeekMonday(completedAt);
+  const weekEnd = weekStart + MS_PER_WEEK;
+  const weekAts = history
+    .map((candidate) => candidate.completedAt)
+    .filter((ts) => ts >= weekStart && ts < weekEnd);
+  const daysWorked = [false, false, false, false, false, false, false];
+  for (const ts of weekAts) {
+    const day = new Date(ts).getDay(); // 0 = Sun
+    daysWorked[day === 0 ? 6 : day - 1] = true;
+  }
+
+  const allPoints: RecapProgressionPoint[] = [];
+  let priorBest: BestSet | null = null;
+  if (standout) {
+    for (const candidate of history) {
+      const best = bestSetForSlug(candidate, standout.slug);
+      if (!best) continue;
+      if (
+        candidate.sessionId !== sessionId &&
+        candidate.completedAt < completedAt
+      ) {
+        priorBest = betterBestSet(priorBest, best);
+      }
+      allPoints.push({
+        completedAt: candidate.completedAt,
+        weight: best.weight,
+        reps: best.reps,
+        est1RM: best.est1RM,
+        sameTemplate:
+          session.templateId !== null &&
+          candidate.templateId === session.templateId,
+      });
+    }
+  }
+
+  // Prefer same-template lineage when there are at least 2 points (today + prior).
+  const sameTemplatePoints = allPoints.filter((point) => point.sameTemplate);
+  const scopedToTemplate = sameTemplatePoints.length >= 2;
+  const points = (scopedToTemplate ? sameTemplatePoints : allPoints).slice(
+    -PROGRESSION_POINTS,
+  );
+  const today = points[points.length - 1] ?? null;
+  const previous = points.length >= 2 ? points[points.length - 2] : null;
+
+  return {
+    session: {
+      templateName: session.templateName,
+      startedAt: session.startedAt,
+      completedAt,
+    },
+    totals: {
+      volume,
+      durationMs: Math.max(0, completedAt - session.startedAt),
+      completedSets: doneSets.length,
+      exerciseCount: session.exercises.filter((exercise) =>
+        exercise.sets.some(isLoggedSet),
+      ).length,
+    },
+    standout: standout
+      ? {
+          slug: standout.slug,
+          weight: standout.weight,
+          reps: standout.reps,
+          est1RM: estimate1RM(standout.weight, standout.reps),
+          isPr: priorBest ? compareBestSets(standout, priorBest) > 0 : true,
+          priorBest,
+        }
+      : null,
+    muscleSets: session.exercises.map((exercise) => ({
+      slug: exercise.slug,
+      sets: exercise.sets.filter(isLoggedSet).length,
+    })),
+    progressionStory:
+      standout && points.length > 0
+        ? {
+            slug: standout.slug,
+            scopedToTemplate,
+            isBaseline: points.length < 2,
+            points,
+            today: today
+              ? { weight: today.weight, reps: today.reps, est1RM: today.est1RM }
+              : null,
+            previous: previous
+              ? {
+                  weight: previous.weight,
+                  reps: previous.reps,
+                  est1RM: previous.est1RM,
+                  completedAt: previous.completedAt,
+                }
+              : null,
+            vsPreviousWeight:
+              today && previous ? today.weight - previous.weight : null,
+          }
+        : null,
+    consistency: {
+      sessionsThisWeek: weekAts.length,
+      weeklyGoal: WEEKLY_GOAL,
+      weekStreak: computeWeekStreak(
+        history.map((candidate) => candidate.completedAt),
+        completedAt,
+      ),
+      daysWorked,
+    },
+  };
+}

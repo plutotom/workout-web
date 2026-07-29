@@ -22,6 +22,7 @@ import {
   localTemplateRemoteId,
   remoteCustomSlug,
 } from "@/data/local/types";
+import type { WorkoutExportBundle } from "@shared/workout-export";
 
 const DEFAULT_REST_SECONDS = 75;
 const DEFAULT_SET_ROWS = 3;
@@ -31,6 +32,11 @@ const MAX_WEIGHT = 10_000;
 const MAX_REPS = 1_000;
 const MAX_CUSTOM_EXERCISES = 200;
 const MAX_CUSTOM_NAME_LENGTH = 80;
+const MAX_TEMPLATES_PER_IMPORT = 50;
+const CUSTOM_SLUG_PREFIX = "custom:";
+const LB_PER_KG = 2.2046226218;
+/** Orphan `custom:` lifts with no definition fall back to chest / no bar. */
+const ORPHAN_FALLBACK_CATEGORY: LocalMuscleGroup = "chest";
 const MUSCLE_GROUPS: readonly LocalMuscleGroup[] = [
   "chest",
   "back",
@@ -449,7 +455,10 @@ export async function startLocalTemplateWorkout(
        ) VALUES (?, ?, ?, ?, 'in_progress', ?, ?)`,
       sessionId,
       template._id,
-      template.remoteId,
+      // A template that has not synced yet only has a `local:` placeholder, and
+      // `pushSession` rejects anything that is not a real Convex id. Stay NULL
+      // until `completeTemplateSync` backfills the durable one.
+      isUnsyncedTemplateRemoteId(template.remoteId) ? null : template.remoteId,
       template.name,
       now,
       now,
@@ -918,6 +927,373 @@ export async function saveLocalTemplate(
   return templateId;
 }
 
+/** Sets carry no unit of their own, so a cross-unit import converts them. */
+function convertImportWeight(
+  weight: number,
+  from: "lb" | "kg",
+  to: "lb" | "kg",
+): number {
+  if (from === to || weight === 0) return weight;
+  const converted = from === "kg" ? weight * LB_PER_KG : weight / LB_PER_KG;
+  return Math.round(converted);
+}
+
+/** `Push Day` + an existing `Push Day` becomes `Push Day (2)`. */
+function uniqueImportName(name: string, taken: Set<string>): string {
+  const base = name.trim() || "Untitled";
+  if (!taken.has(base.toLowerCase())) {
+    taken.add(base.toLowerCase());
+    return base;
+  }
+  for (let n = 2; n < 1000; n++) {
+    const candidate = `${base} (${n})`;
+    if (!taken.has(candidate.toLowerCase())) {
+      taken.add(candidate.toLowerCase());
+      return candidate;
+    }
+  }
+  return `${base} (${Date.now()})`;
+}
+
+export type LocalImportResult = {
+  templateIds: string[];
+  templatesImported: number;
+  customExercisesCreated: number;
+  notesImported: number;
+  names: string[];
+};
+
+/**
+ * Write a portable bundle into local SQLite. Mirrors the server import:
+ * additive only, name collisions get a `(2)` suffix, custom lifts match by
+ * name (reviving archived ones), and notes only fill empty gaps.
+ *
+ * New rows queue into the sync outbox, so a later sign-in uploads them.
+ */
+export async function importLocalBundle(
+  db: SQLiteDatabase,
+  bundle: WorkoutExportBundle,
+  options: { includeNotes?: boolean } = {},
+): Promise<LocalImportResult> {
+  const { includeNotes = true } = options;
+
+  if (bundle.templates.length === 0) {
+    throw new Error("This export contains no templates");
+  }
+  if (bundle.templates.length > MAX_TEMPLATES_PER_IMPORT) {
+    throw new Error(
+      `Imports are limited to ${MAX_TEMPLATES_PER_IMPORT} templates at a time`,
+    );
+  }
+
+  const preferences = await getLocalPreferences(db);
+  const targetUnit = preferences.unit;
+  const existingCustoms = await listLocalCustomExercises(db);
+  const customsBefore = existingCustoms.length;
+  const byName = new Map(
+    existingCustoms.map((exercise) => [
+      exercise.name.trim().toLowerCase(),
+      exercise,
+    ]),
+  );
+  const slugMap = new Map<string, string>();
+  let customCount = existingCustoms.length;
+
+  for (const entry of bundle.customExercises) {
+    const name = entry.name.trim().slice(0, MAX_CUSTOM_NAME_LENGTH);
+    if (!name) continue;
+
+    const match = byName.get(name.toLowerCase());
+    if (match) {
+      if (match.archived) {
+        const now = Date.now();
+        await db.runAsync(
+          "UPDATE local_custom_exercises SET archived = 0, updated_at = ? WHERE id = ?",
+          now,
+          match._id,
+        );
+        await queueCustomExerciseSnapshot(db, match._id, now);
+        match.archived = false;
+      }
+      slugMap.set(entry.slug, match.slug);
+      continue;
+    }
+
+    if (customCount >= MAX_CUSTOM_EXERCISES) {
+      throw new Error(
+        `This import would exceed the limit of ${MAX_CUSTOM_EXERCISES} custom exercises`,
+      );
+    }
+
+    const created = await saveLocalCustomExercise(db, {
+      name,
+      short: entry.short,
+      category: entry.category,
+      usesBar: entry.usesBar,
+    });
+    customCount++;
+    byName.set(name.toLowerCase(), created);
+    slugMap.set(entry.slug, created.slug);
+  }
+
+  const orphanCache = new Map<string, string>();
+  async function resolveCustomSlug(
+    senderSlug: string,
+    displayName: string,
+  ): Promise<string | null> {
+    const mapped = slugMap.get(senderSlug);
+    if (mapped) return mapped;
+
+    const trimmed = displayName.trim().slice(0, MAX_CUSTOM_NAME_LENGTH);
+    if (!trimmed || trimmed.startsWith(CUSTOM_SLUG_PREFIX)) return null;
+
+    const key = trimmed.toLowerCase();
+    const cached = orphanCache.get(key);
+    if (cached) return cached;
+
+    const match = byName.get(key);
+    if (match) {
+      if (match.archived) {
+        const now = Date.now();
+        await db.runAsync(
+          "UPDATE local_custom_exercises SET archived = 0, updated_at = ? WHERE id = ?",
+          now,
+          match._id,
+        );
+        await queueCustomExerciseSnapshot(db, match._id, now);
+        match.archived = false;
+      }
+      orphanCache.set(key, match.slug);
+      return match.slug;
+    }
+
+    if (customCount >= MAX_CUSTOM_EXERCISES) {
+      throw new Error(
+        `This import would exceed the limit of ${MAX_CUSTOM_EXERCISES} custom exercises`,
+      );
+    }
+
+    const created = await saveLocalCustomExercise(db, {
+      name: trimmed,
+      category: ORPHAN_FALLBACK_CATEGORY,
+      usesBar: false,
+    });
+    customCount++;
+    byName.set(key, created);
+    orphanCache.set(key, created.slug);
+    return created.slug;
+  }
+
+  const existingTemplates = await getLocalTemplates(db);
+  const takenNames = new Set(
+    existingTemplates.map((template) => template.name.trim().toLowerCase()),
+  );
+
+  const templateIds: string[] = [];
+  const names: string[] = [];
+  const notesToWrite = new Map<string, string>();
+
+  for (const template of bundle.templates) {
+    const exercises: Array<{
+      slug: string;
+      sets: Array<{ weight: number; reps: number }>;
+    }> = [];
+
+    for (const exercise of template.exercises) {
+      let slug = exercise.slug.trim();
+      if (!slug) continue;
+
+      if (slug.startsWith(CUSTOM_SLUG_PREFIX)) {
+        const mapped = await resolveCustomSlug(slug, exercise.name);
+        if (!mapped) continue;
+        slug = mapped;
+      }
+
+      exercises.push({
+        slug,
+        sets: exercise.sets.map((set) => ({
+          weight: convertImportWeight(set.weight, bundle.unit, targetUnit),
+          reps: set.reps,
+        })),
+      });
+
+      const note = exercise.notes?.trim();
+      if (includeNotes && note) notesToWrite.set(slug, note);
+    }
+
+    if (exercises.length === 0) continue;
+
+    const name = uniqueImportName(template.name, takenNames);
+    const templateId = await saveLocalTemplate(db, { name, exercises });
+    templateIds.push(templateId);
+    names.push(name);
+  }
+
+  if (templateIds.length === 0) {
+    throw new Error("This export contains no usable exercises");
+  }
+
+  let notesImported = 0;
+  if (includeNotes && notesToWrite.size > 0) {
+    for (const [slug, notes] of notesToWrite) {
+      const existing = await db.getFirstAsync<{ notes: string }>(
+        "SELECT notes FROM local_exercise_notes WHERE slug = ?",
+        normalizedSlug(slug),
+      );
+      if (existing?.notes?.trim()) continue;
+      await saveLocalExerciseNote(db, slug, notes.slice(0, 500));
+      notesImported++;
+    }
+  }
+
+  const customsAfter = await listLocalCustomExercises(db);
+  return {
+    templateIds,
+    templatesImported: templateIds.length,
+    customExercisesCreated: customsAfter.length - customsBefore,
+    notesImported,
+    names,
+  };
+}
+
+/**
+ * Logged rows as template presets. Mirrors the server's `normalizeTemplateSets`:
+ * an exercise always keeps at least one set row.
+ */
+function templateSetsFromSession(
+  sets: Array<{ weight: number; reps: number }>,
+): Array<{ weight: number; reps: number }> {
+  const cleaned = sets.map((set) => ({
+    weight: boundedWhole(set.weight, MAX_WEIGHT, "Weight"),
+    reps: boundedWhole(set.reps, MAX_REPS, "Reps"),
+  }));
+  return cleaned.length ? cleaned : [{ weight: 0, reps: 0 }];
+}
+
+/**
+ * True when what was logged differs from the template's presets, for any
+ * exercise still on the template. Every logged row counts, checked or not —
+ * the checkmark is a progress aid, and the write-back stores them all.
+ * Mirrors `templateDiffersFromSession` in the web finish flow.
+ */
+export function localTemplateDiffersFromSession(
+  session: LocalWorkoutSession,
+  template: LocalTemplate | null,
+): boolean {
+  if (!template) return false;
+
+  const sessionSlugs = session.exercises.map((exercise) => exercise.slug);
+  const templateSlugs = template.exercises.map((exercise) => exercise.slug);
+  if (sessionSlugs.length !== templateSlugs.length) return true;
+  if (sessionSlugs.some((slug, index) => slug !== templateSlugs[index]))
+    return true;
+
+  const bySlug = new Map(
+    template.exercises.map((exercise) => [exercise.slug, exercise.sets]),
+  );
+  for (const exercise of session.exercises) {
+    const preset = bySlug.get(exercise.slug);
+    if (!preset) continue;
+    if (
+      exercise.sets.length !== preset.length ||
+      exercise.sets.some(
+        (set, index) =>
+          set.weight !== preset[index].weight ||
+          set.reps !== preset[index].reps,
+      )
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Convenience for the finish flow: does this session's template need updating? */
+export async function localSessionTemplateDiffers(
+  db: SQLiteDatabase,
+  sessionId: string,
+): Promise<boolean> {
+  const session = await getLocalWorkout(db, sessionId);
+  if (!session?.templateId) return false;
+  const template = await getLocalTemplate(db, session.templateId);
+  return localTemplateDiffersFromSession(session, template);
+}
+
+/**
+ * Push today's numbers back onto the template this session came from. Exercises
+ * dropped from the session keep their presets and move to the end, matching
+ * `templates.mutations.syncFromSession` on the server.
+ */
+export async function syncLocalTemplateFromSession(
+  db: SQLiteDatabase,
+  sessionId: string,
+): Promise<void> {
+  const session = await getLocalWorkout(db, sessionId);
+  if (!session) throw new Error("Session not found");
+  if (!session.templateId) throw new Error("Session has no template");
+  const template = await getLocalTemplate(db, session.templateId);
+  if (!template) throw new Error("Template not found");
+
+  const sessionSlugs = new Set(
+    session.exercises.map((exercise) => exercise.slug),
+  );
+  const exercises = session.exercises.map((exercise) => ({
+    slug: exercise.slug,
+    sets: templateSetsFromSession(exercise.sets),
+  }));
+  for (const exercise of template.exercises) {
+    if (sessionSlugs.has(exercise.slug)) continue;
+    exercises.push({ slug: exercise.slug, sets: exercise.sets });
+  }
+
+  await saveLocalTemplate(db, {
+    templateId: template._id,
+    name: template.name,
+    exercises,
+  });
+}
+
+/**
+ * Turn a finished quick-start session into a reusable template and link the two,
+ * like `templates.mutations.createFromSession`. `remote_template_id` stays NULL
+ * until the template itself reaches Convex — the session validator only accepts
+ * a real Convex id, so `completeTemplateSync` backfills it.
+ */
+export async function createLocalTemplateFromSession(
+  db: SQLiteDatabase,
+  sessionId: string,
+  name: string,
+): Promise<string> {
+  const session = await getLocalWorkout(db, sessionId);
+  if (!session) throw new Error("Session not found");
+  if (session.status !== "completed")
+    throw new Error("Only completed workouts can be saved as templates");
+  if (session.templateId) throw new Error("Workout already has a template");
+  if (!session.exercises.length)
+    throw new Error("Add at least one exercise before saving a template");
+
+  const templateId = await saveLocalTemplate(db, {
+    name,
+    exercises: session.exercises.map((exercise) => ({
+      slug: exercise.slug,
+      sets: templateSetsFromSession(exercise.sets),
+    })),
+  });
+
+  const now = Date.now();
+  await db.runAsync(
+    `UPDATE local_sessions
+        SET template_id = ?, template_name = ?, updated_at = ?
+      WHERE id = ?`,
+    templateId,
+    name.trim(),
+    now,
+    sessionId,
+  );
+  await queueSessionSnapshot(db, sessionId, now);
+  return templateId;
+}
+
 async function queueTemplateSnapshot(
   db: SQLiteDatabase,
   templateId: string,
@@ -1025,6 +1401,19 @@ export async function completeTemplateSync(
   templateId: string,
   remoteTemplateId: string | null,
 ) {
+  // Sessions attached to a template that had not reached Convex yet carry no
+  // remote template id, because `pushSession` only accepts a real Convex id.
+  // Now that one exists, adopt it and re-upload so the link lands server-side.
+  const relinked = remoteTemplateId
+    ? await db.getAllAsync<{ id: string }>(
+        `SELECT id FROM local_sessions
+          WHERE template_id = ? AND remote_template_id IS NOT ?`,
+        templateId,
+        remoteTemplateId,
+      )
+    : [];
+  const now = Date.now();
+
   await db.withExclusiveTransactionAsync(async (txn) => {
     if (remoteTemplateId) {
       await txn.runAsync(
@@ -1032,12 +1421,23 @@ export async function completeTemplateSync(
         remoteTemplateId,
         templateId,
       );
+      await txn.runAsync(
+        `UPDATE local_sessions
+            SET remote_template_id = ?, updated_at = ?
+          WHERE template_id = ? AND remote_template_id IS NOT ?`,
+        remoteTemplateId,
+        now,
+        templateId,
+        remoteTemplateId,
+      );
     }
     await txn.runAsync(
       "DELETE FROM local_sync_outbox WHERE operation_id = ?",
       operationId,
     );
   });
+
+  for (const row of relinked) await queueSessionSnapshot(db, row.id, now);
 }
 
 export async function deleteLocalTemplate(

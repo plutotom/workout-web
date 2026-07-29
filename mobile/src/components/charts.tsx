@@ -1,9 +1,19 @@
 import { Text, View } from "react-native";
+import { useEffect } from "react";
+import Animated, {
+  Easing,
+  useAnimatedProps,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 import Svg, { Circle, Path } from "react-native-svg";
 
 import type { ExerciseCatalog, MuscleGroup } from "@shared/exercises";
 import { MUSCLE_GROUPS } from "@shared/exercises";
 import { colors } from "@/theme";
+
+const AnimatedPath = Animated.createAnimatedComponent(Path);
+const PATH_LENGTH = 160;
 
 export type MuscleSegment = {
   id: MuscleGroup;
@@ -157,29 +167,66 @@ export function ProgressRing({
   );
 }
 
-export function Sparkline({ values }: { values: number[] }) {
+export function Sparkline({
+  values,
+  animate = true,
+}: {
+  values: number[];
+  animate?: boolean;
+}) {
   const usable = values.length ? values : [0, 0, 0, 0, 0, 0, 0];
   const min = Math.min(...usable);
   const max = Math.max(...usable);
   const range = max - min || 1;
+  const padX = 2;
+  const padY = 4;
+  const width = 120 - padX * 2;
+  const height = 40 - padY * 2;
   const path = usable
     .map((value, index) => {
       const x =
-        2 + (usable.length === 1 ? 0 : (index / (usable.length - 1)) * 116);
-      const y = 36 - ((value - min) / range) * 32;
+        padX +
+        (usable.length === 1 ? 0 : (index / (usable.length - 1)) * width);
+      const y = 40 - padY - ((value - min) / range) * height;
       return `${index ? "L" : "M"}${x} ${y}`;
     })
     .join(" ");
+
+  const dashOffset = useSharedValue(animate ? PATH_LENGTH : 0);
+
+  useEffect(() => {
+    if (!animate) {
+      dashOffset.value = 0;
+      return;
+    }
+    dashOffset.value = PATH_LENGTH;
+    dashOffset.value = withTiming(0, {
+      duration: 900,
+      easing: Easing.bezier(0.22, 1, 0.36, 1),
+    });
+  }, [animate, dashOffset, path]);
+
+  const animatedProps = useAnimatedProps(() => ({
+    strokeDashoffset: dashOffset.value,
+  }));
+
   return (
-    <View style={{ height: 46 }}>
-      <Svg width="100%" height="100%" viewBox="0 0 120 40">
-        <Path
+    <View style={{ height: 48, width: "100%" }}>
+      <Svg
+        width="100%"
+        height="100%"
+        viewBox="0 0 120 40"
+        preserveAspectRatio="none"
+      >
+        <AnimatedPath
           d={path}
           fill="none"
           stroke={colors.text}
-          strokeWidth="3.5"
+          strokeWidth="2.25"
           strokeLinecap="round"
           strokeLinejoin="round"
+          strokeDasharray={`${PATH_LENGTH} ${PATH_LENGTH}`}
+          animatedProps={animatedProps}
         />
       </Svg>
     </View>

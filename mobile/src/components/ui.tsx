@@ -14,7 +14,7 @@ import {
   type ViewStyle,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { ChevronLeft, type LucideIcon } from "lucide-react-native";
 import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
@@ -188,15 +188,19 @@ export function PageHeader({
 
 export function Field({
   label,
+  hint,
   value,
   onChangeText,
   placeholder,
   keyboardType,
   multiline,
   editable = true,
+  onFocus,
+  onBlur,
   ...props
 }: {
   label?: string;
+  hint?: string;
   value: string;
   onChangeText?: (value: string) => void;
   placeholder?: string;
@@ -204,6 +208,7 @@ export function Field({
   multiline?: boolean;
   editable?: boolean;
 } & Omit<TextInputProps, "style">) {
+  const [focused, setFocused] = useState(false);
   return (
     <View style={{ gap: 7 }}>
       {label ? <Text style={styles.label}>{label}</Text> : null}
@@ -216,8 +221,17 @@ export function Field({
         multiline={multiline}
         editable={editable}
         selectionColor={colors.text}
+        onFocus={(event) => {
+          setFocused(true);
+          onFocus?.(event);
+        }}
+        onBlur={(event) => {
+          setFocused(false);
+          onBlur?.(event);
+        }}
         style={[
           styles.input,
+          focused && editable && styles.inputFocused,
           multiline && {
             minHeight: 100,
             paddingTop: 13,
@@ -227,6 +241,7 @@ export function Field({
         ]}
         {...props}
       />
+      {hint ? <Text style={styles.hint}>{hint}</Text> : null}
     </View>
   );
 }
@@ -390,15 +405,20 @@ const styles = StyleSheet.create({
   subtitle: { color: colors.dim, fontSize: 13, lineHeight: 19, marginTop: 5 },
   label: { color: colors.text, fontSize: 13, fontWeight: "600" },
   input: {
-    minHeight: 46,
+    minHeight: 48,
     borderWidth: 1,
     borderColor: colors.input,
-    backgroundColor: colors.bg,
+    backgroundColor: colors.surface,
     color: colors.text,
     borderRadius: radius.md,
     paddingHorizontal: 13,
     fontSize: 16,
   },
+  inputFocused: {
+    borderColor: colors.action,
+    backgroundColor: colors.surface2,
+  },
+  hint: { color: colors.faint, fontSize: 11, lineHeight: 15 },
   segmented: { flexDirection: "row", gap: 8 },
   segment: {
     flex: 1,

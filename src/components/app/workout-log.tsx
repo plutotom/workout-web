@@ -7,6 +7,7 @@ import { useMutation } from "convex/react";
 import { useQuery } from "convex-helpers/react/cache/hooks";
 import {
   Check,
+  ChevronDown,
   Clock,
   GripVertical,
   MoreHorizontal,
@@ -107,6 +108,11 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
   const [removingExercise, setRemovingExercise] = useState(false);
   const [noteOpenSignals, setNoteOpenSignals] = useState<
     Partial<Record<Id<"sessionExercises">, number>>
+  >({});
+  // Collapsed cards are opt-in and independent, so a session can mix open and
+  // closed exercises. Absent id means expanded.
+  const [collapsed, setCollapsed] = useState<
+    Partial<Record<Id<"sessionExercises">, true>>
   >({});
   const [now, setNow] = useState(() => Date.now());
   const { rest, startRest, clearRest, addSeconds } = useWorkoutRest();
@@ -407,6 +413,8 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
         const maxWeight = Math.max(...exercise.sets.map((s) => s.weight), 0);
         const repSummary = summarizeReps(exercise.sets.map((s) => s.reps));
         const exerciseName = catalog.name(exercise.slug);
+        const isCollapsed = Boolean(collapsed[exercise._id]);
+        const doneSets = exercise.sets.filter((s) => s.completed).length;
         return (
           <Card
             key={exercise._id}
@@ -425,19 +433,49 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
             <CardHeader
               className={cn(
                 "flex flex-row items-start justify-between gap-3 space-y-0",
-                isReordering ? "px-3 py-3" : "pb-2",
+                isReordering ? "px-3 py-3" : isCollapsed ? "pb-0" : "pb-2",
               )}
             >
-              <div className="min-w-0 flex-1">
-                <CardTitle className="truncate text-base">
-                  {exerciseName}
-                </CardTitle>
+              <button
+                type="button"
+                className="flex min-w-0 flex-1 items-start gap-2 text-left"
+                aria-expanded={!isCollapsed}
+                aria-controls={`session-ex-body-${exercise._id}`}
+                disabled={isReordering}
+                onClick={() => {
+                  hapticTap();
+                  setCollapsed((current) => {
+                    const next = { ...current };
+                    if (next[exercise._id]) delete next[exercise._id];
+                    else next[exercise._id] = true;
+                    return next;
+                  });
+                }}
+              >
                 {!isReordering ? (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {exercise.sets.length} × {repSummary} · up to {maxWeight} lb
-                  </p>
+                  <ChevronDown
+                    className={cn(
+                      "text-muted-foreground mt-0.5 size-4 shrink-0 transition-transform duration-200",
+                      isCollapsed && "-rotate-90",
+                    )}
+                    aria-hidden
+                  />
                 ) : null}
-              </div>
+                <div className="min-w-0 flex-1">
+                  <CardTitle className="truncate text-base">
+                    {exerciseName}
+                  </CardTitle>
+                  {!isReordering ? (
+                    <p className="text-muted-foreground mt-1 text-xs">
+                      {exercise.sets.length} × {repSummary} · up to {maxWeight}{" "}
+                      lb
+                      {isCollapsed
+                        ? ` · ${doneSets}/${exercise.sets.length} done`
+                        : ""}
+                    </p>
+                  ) : null}
+                </div>
+              </button>
               {editable ? (
                 <div className="flex shrink-0 items-center">
                   <Button
@@ -489,8 +527,11 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
                 </div>
               ) : null}
             </CardHeader>
-            {!isReordering ? (
-              <CardContent className="flex flex-col gap-3">
+            {!isReordering && !isCollapsed ? (
+              <CardContent
+                id={`session-ex-body-${exercise._id}`}
+                className="flex flex-col gap-3"
+              >
                 <ExerciseNoteField
                   key={`${exercise.slug}-${exercise.notes ?? ""}`}
                   exerciseSlug={exercise.slug}
@@ -635,6 +676,14 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
               onClick={() => {
                 if (!exerciseMenu) return;
                 const id = exerciseMenu.id;
+                // The note lives in the card body, so a collapsed card has to
+                // open or the signal lands on nothing.
+                setCollapsed((current) => {
+                  if (!current[id]) return current;
+                  const next = { ...current };
+                  delete next[id];
+                  return next;
+                });
                 setNoteOpenSignals((prev) => ({
                   ...prev,
                   [id]: (prev[id] ?? 0) + 1,

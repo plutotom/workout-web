@@ -68,3 +68,5 @@ mobile/*.p8
 mobile/*.p12
 mobile/*.key
 mobile/*.mobileprovision
+
+./claude/headroom_wrap_marker.json

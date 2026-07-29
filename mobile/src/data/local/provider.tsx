@@ -19,6 +19,7 @@ import {
   completeCustomExerciseSync,
   completeSessionSync,
   completeTemplateSync,
+  createLocalTemplateFromSession,
   deleteLocalSet,
   deleteLocalTemplate,
   deleteLocalWorkout,
@@ -34,7 +35,9 @@ import {
   getPendingCustomExerciseSync,
   getPendingSessionSync,
   getPendingTemplateSync,
+  importLocalBundle,
   listLocalCustomExercises,
+  localSessionTemplateDiffers,
   moveLocalExercise,
   noteCustomExerciseSyncAttempt,
   noteSessionSyncAttempt,
@@ -45,6 +48,7 @@ import {
   saveLocalTemplate,
   startLocalBlankWorkout,
   startLocalTemplateWorkout,
+  syncLocalTemplateFromSession,
   updateLocalSet,
 } from "@/data/local/repository";
 import type {
@@ -55,6 +59,7 @@ import type {
   LocalTemplate,
   LocalWorkoutSession,
 } from "@/data/local/types";
+import type { WorkoutExportBundle } from "@shared/workout-export";
 
 type LocalTemplateInput = {
   templateId?: string;
@@ -92,11 +97,21 @@ type LocalDataContextValue = {
   moveExercise: (sessionExerciseId: string, delta: -1 | 1) => Promise<void>;
   saveNote: (slug: string, notes: string) => Promise<void>;
   saveTemplate: (input: LocalTemplateInput) => Promise<string>;
+  /** Quick-start session → new template, linked to the session. */
+  saveTemplateFromSession: (sessionId: string, name: string) => Promise<string>;
+  /** Write today's exercises, order and weights back onto the session's template. */
+  updateTemplateFromSession: (sessionId: string) => Promise<void>;
+  /** Read-only: whether the session's template presets have drifted. */
+  templateNeedsUpdate: (sessionId: string) => Promise<boolean>;
   deleteTemplate: (templateId: string) => Promise<LocalTemplate | null>;
   saveCustomExercise: (
     input: LocalCustomExerciseInput,
   ) => Promise<LocalCustomExercise>;
   archiveCustomExercise: (exerciseId: string) => Promise<void>;
+  /** Additive local import — works offline; sync uploads later if signed in. */
+  importBundle: (
+    bundle: WorkoutExportBundle,
+  ) => Promise<Awaited<ReturnType<typeof importLocalBundle>>>;
   finish: (sessionId: string) => Promise<void>;
   abandon: (sessionId: string) => Promise<void>;
   deleteSession: (sessionId: string) => Promise<void>;
@@ -152,12 +167,20 @@ function LocalDataState({ children }: { children: ReactNode }) {
       saveNote: (slug, notes) =>
         run(() => saveLocalExerciseNote(db, slug, notes)),
       saveTemplate: (input) => run(() => saveLocalTemplate(db, input)),
+      saveTemplateFromSession: (sessionId, name) =>
+        run(() => createLocalTemplateFromSession(db, sessionId, name)),
+      updateTemplateFromSession: (sessionId) =>
+        run(() => syncLocalTemplateFromSession(db, sessionId)),
+      // A read, so it deliberately skips `run` and its refresh.
+      templateNeedsUpdate: (sessionId) =>
+        localSessionTemplateDiffers(db, sessionId),
       deleteTemplate: (templateId) =>
         run(() => deleteLocalTemplate(db, templateId)),
       saveCustomExercise: (input) =>
         run(() => saveLocalCustomExercise(db, input)),
       archiveCustomExercise: (exerciseId) =>
         run(() => archiveLocalCustomExercise(db, exerciseId)),
+      importBundle: (bundle) => run(() => importLocalBundle(db, bundle)),
       finish: (sessionId) => run(() => finishLocalWorkout(db, sessionId)),
       abandon: (sessionId) => run(() => abandonLocalWorkout(db, sessionId)),
       deleteSession: (sessionId) =>

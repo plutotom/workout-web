@@ -1,11 +1,10 @@
 import { api } from "@backend/api";
-import { useMutation, useQuery } from "convex/react";
+import { useQuery } from "convex/react";
 import { router, useLocalSearchParams } from "expo-router";
-import { Check, Link2Off, LogIn, Upload } from "lucide-react-native";
+import { Check, Link2Off, Upload } from "lucide-react-native";
 import { useState } from "react";
 import { Alert, Text } from "react-native";
 
-import { useMobileAuth } from "@/auth/auth-provider";
 import { BundlePreview } from "@/components/bundle-preview";
 import {
   Button,
@@ -14,8 +13,12 @@ import {
   PageHeader,
   Screen,
 } from "@/components/ui";
+import { useLocalData } from "@/data/local/provider";
 import { colors } from "@/theme";
-import { validateBundle } from "@shared/workout-export";
+import {
+  validateBundle,
+  type WorkoutExportBundle,
+} from "@shared/workout-export";
 
 /**
  * Deep-link target for a shared workout.
@@ -23,25 +26,22 @@ import { validateBundle } from "@shared/workout-export";
  * Reached from a universal link (`https://workout.plutotom.com/share/<token>`,
  * claimed via `associatedDomains` in app.json) or the `workout://share/<token>`
  * scheme. Expo Router matches the path, so no manual link parsing is needed.
+ *
+ * Fetching the preview needs a connection (the snapshot lives on the server).
+ * Saving does not — the bundle is written to local SQLite and syncs later.
  */
 export default function SharedWorkoutScreen() {
   const { token } = useLocalSearchParams<{ token: string }>();
-  // A share link can land here with no session at all — the preview query is
-  // public, so the workout is still shown and sign-in is only asked for at the
-  // point of importing.
-  const { loading: authLoading, isAuthenticated } = useMobileAuth();
+  const { importBundle } = useLocalData();
   const share = useQuery(api.routes.shares.queries.preview, { token });
-  const importFromToken = useMutation(
-    api.routes.shares.mutations.importFromToken,
-  );
 
   const [importing, setImporting] = useState(false);
   const [done, setDone] = useState(false);
 
-  async function handleImport() {
+  async function handleImport(bundle: WorkoutExportBundle) {
     setImporting(true);
     try {
-      const result = await importFromToken({ token });
+      const result = await importBundle(bundle);
       setDone(true);
       Alert.alert(
         "Imported",
@@ -106,47 +106,18 @@ export default function SharedWorkoutScreen() {
         }
       />
       <BundlePreview bundle={parsed.bundle} />
-      {authLoading ? (
-        <Button label="Checking your account…" disabled />
-      ) : isAuthenticated ? (
-        <>
-          <Button
-            label={
-              done
-                ? "Imported"
-                : importing
-                  ? "Importing…"
-                  : "Add to my templates"
-            }
-            icon={done ? Check : Upload}
-            disabled={importing || done}
-            onPress={handleImport}
-          />
-          <Text
-            style={{ color: colors.dim, fontSize: 11, textAlign: "center" }}
-          >
-            Added as new templates — nothing you already have is changed.
-          </Text>
-        </>
-      ) : (
-        <>
-          <Button
-            label="Sign in to import"
-            icon={LogIn}
-            onPress={() =>
-              router.push({
-                pathname: "/(auth)/sign-in",
-                params: { next: `/share/${token}` },
-              })
-            }
-          />
-          <Text
-            style={{ color: colors.dim, fontSize: 11, textAlign: "center" }}
-          >
-            You&apos;ll come straight back here after signing in.
-          </Text>
-        </>
-      )}
+      <Button
+        label={
+          done ? "Imported" : importing ? "Importing…" : "Add to my templates"
+        }
+        icon={done ? Check : Upload}
+        disabled={importing || done}
+        onPress={() => handleImport(parsed.bundle)}
+      />
+      <Text style={{ color: colors.dim, fontSize: 11, textAlign: "center" }}>
+        Added as new templates — nothing you already have is changed. Works
+        without signing in; syncs when you reconnect.
+      </Text>
     </Screen>
   );
 }

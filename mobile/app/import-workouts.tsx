@@ -1,13 +1,11 @@
-import { api } from "@backend/api";
-import { useMutation } from "convex/react";
 import { router } from "expo-router";
 import { Check, ClipboardPaste, FileUp, Upload } from "lucide-react-native";
 import { useState } from "react";
 import { Alert, Text } from "react-native";
 
-import { useMobileAuth } from "@/auth/auth-provider";
 import { BundlePreview } from "@/components/bundle-preview";
 import { Button, Field, PageHeader, Screen } from "@/components/ui";
+import { useLocalData } from "@/data/local/provider";
 import {
   pasteBundleFromClipboard,
   pickBundleFile,
@@ -18,12 +16,11 @@ import { parseBundle, type WorkoutExportBundle } from "@shared/workout-export";
 /**
  * Import from a file, the clipboard, or a typed code.
  *
- * Everything except the final write works offline — the bundle is
- * self-contained, so parsing and previewing never touch the network.
+ * The bundle is self-contained, so parse / preview / save all work offline —
+ * templates land in local SQLite and sync up later if the user signs in.
  */
 export default function ImportWorkoutsScreen() {
-  const { isAuthenticated } = useMobileAuth();
-  const importBundle = useMutation(api.routes.templates.mutations.importBundle);
+  const { importBundle } = useLocalData();
 
   const [text, setText] = useState("");
   const [bundle, setBundle] = useState<WorkoutExportBundle | null>(null);
@@ -71,7 +68,7 @@ export default function ImportWorkoutsScreen() {
     if (!bundle) return;
     setImporting(true);
     try {
-      const result = await importBundle({ bundle });
+      const result = await importBundle(bundle);
       Alert.alert(
         "Imported",
         result.templatesImported === 1
@@ -129,14 +126,13 @@ export default function ImportWorkoutsScreen() {
         <>
           <BundlePreview bundle={bundle} />
           <Text style={{ color: colors.dim, fontSize: 11 }}>
-            {isAuthenticated
-              ? "These are added as new templates — nothing you already have is changed or replaced."
-              : "You can read this export offline, but saving it needs a connection. Sign in and reconnect to finish importing."}
+            These are added as new templates — nothing you already have is
+            changed or replaced. Works offline; syncs when you sign in.
           </Text>
           <Button
             label={importing ? "Importing…" : "Import"}
             icon={importing ? Check : Upload}
-            disabled={importing || !isAuthenticated}
+            disabled={importing}
             onPress={handleImport}
           />
         </>

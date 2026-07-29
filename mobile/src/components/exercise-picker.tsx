@@ -3,8 +3,11 @@ import { useMemo, useState } from "react";
 import {
   Alert,
   FlatList,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
+  ScrollView,
   Text,
   TextInput,
   View,
@@ -298,10 +301,13 @@ function CreateExercise({
   const [category, setCategory] = useState<MuscleGroup>("chest");
   const [usesBar, setUsesBar] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function save() {
-    if (!name.trim()) return;
+    if (!name.trim() || saving) return;
     setSaving(true);
+    setError(null);
+    let slug: string;
     try {
       // Saved to this phone straight away; the upload is queued and runs the
       // next time an account is connected.
@@ -311,21 +317,40 @@ function CreateExercise({
         category,
         usesBar,
       });
-      onCreated(result.slug);
-    } catch {
-      Alert.alert("Couldn’t create exercise", "Try a different name.");
+      slug = result.slug;
+    } catch (cause) {
+      // Show what actually went wrong — the old copy blamed the name, which is
+      // never the reason (custom lift names are not unique).
+      const message =
+        cause instanceof Error && cause.message
+          ? cause.message
+          : "Something went wrong saving this exercise.";
+      console.warn("[custom-exercise] save failed", cause);
+      setError(message);
+      return;
     } finally {
       setSaving(false);
     }
+    // Outside the try so a throw from the caller can't be reported as a failed
+    // save when the lift is already on the device.
+    onCreated(slug);
   }
 
   return (
-    <View style={{ flex: 1, padding: 16, gap: 18 }}>
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+    >
       <View
         style={{
           flexDirection: "row",
           alignItems: "center",
           justifyContent: "space-between",
+          paddingHorizontal: 16,
+          paddingTop: 16,
+          paddingBottom: 14,
+          borderBottomWidth: 1,
+          borderBottomColor: colors.line,
         }}
       >
         <Text style={{ color: colors.text, fontSize: 24, fontWeight: "700" }}>
@@ -335,66 +360,108 @@ function CreateExercise({
           <X color={colors.text} size={23} />
         </Pressable>
       </View>
-      <Field
-        label="Name"
-        value={name}
-        onChangeText={setName}
-        placeholder="Cable Y Raise"
-        autoFocus
-      />
-      <Field
-        label="Short name (optional)"
-        value={short}
-        onChangeText={setShort}
-        placeholder="Y Raise"
-      />
-      <View style={{ gap: 8 }}>
-        <Text style={{ color: colors.text, fontSize: 13, fontWeight: "600" }}>
-          Muscle group
-        </Text>
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 7 }}>
-          {MUSCLE_GROUPS.map((group) => (
-            <Pressable
-              key={group.id}
-              onPress={() => setCategory(group.id)}
-              style={{
-                paddingHorizontal: 12,
-                paddingVertical: 8,
-                borderRadius: 99,
-                borderWidth: 1,
-                borderColor:
-                  category === group.id ? colors.action : colors.input,
-                backgroundColor:
-                  category === group.id ? colors.action : "transparent",
-              }}
-            >
-              <Text
+
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ padding: 16, gap: 20 }}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+        showsVerticalScrollIndicator={false}
+      >
+        <Field
+          label="Name"
+          value={name}
+          onChangeText={(value) => {
+            setName(value);
+            if (error) setError(null);
+          }}
+          placeholder="Cable Y Raise"
+          autoFocus
+          autoCapitalize="words"
+          autoCorrect={false}
+          returnKeyType="done"
+          maxLength={80}
+          onSubmitEditing={() => void save()}
+        />
+        <Field
+          label="Short name"
+          hint="Optional — used where space is tight, like the set list."
+          value={short}
+          onChangeText={setShort}
+          placeholder="Y Raise"
+          autoCapitalize="words"
+          autoCorrect={false}
+          returnKeyType="done"
+          maxLength={80}
+        />
+        <View style={{ gap: 9 }}>
+          <Text style={{ color: colors.text, fontSize: 13, fontWeight: "600" }}>
+            Muscle group
+          </Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 7 }}>
+            {MUSCLE_GROUPS.map((group) => (
+              <Pressable
+                key={group.id}
+                onPress={() => setCategory(group.id)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: category === group.id }}
                 style={{
-                  color: category === group.id ? colors.actionText : colors.dim,
-                  fontWeight: "600",
-                  fontSize: 12,
+                  minHeight: 38,
+                  justifyContent: "center",
+                  paddingHorizontal: 14,
+                  borderRadius: radius.pill,
+                  borderWidth: 1,
+                  borderColor:
+                    category === group.id ? colors.action : colors.input,
+                  backgroundColor:
+                    category === group.id ? colors.action : "transparent",
                 }}
               >
-                {group.label}
-              </Text>
-            </Pressable>
-          ))}
+                <Text
+                  style={{
+                    color:
+                      category === group.id ? colors.actionText : colors.dim,
+                    fontWeight: "600",
+                    fontSize: 13,
+                  }}
+                >
+                  {group.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
         </View>
-      </View>
-      <View style={{ gap: 8 }}>
-        <Text style={{ color: colors.text, fontSize: 13, fontWeight: "600" }}>
-          Equipment
-        </Text>
-        <Segmented
-          value={usesBar}
-          options={[
-            { value: false, label: "No bar" },
-            { value: true, label: "Uses bar" },
-          ]}
-          onChange={setUsesBar}
-        />
-      </View>
-      <View style={{ marginTop: "auto", gap: 9 }}>
+        <View style={{ gap: 9 }}>
+          <Text style={{ color: colors.text, fontSize: 13, fontWeight: "600" }}>
+            Equipment
+          </Text>
+          <Segmented
+            value={usesBar}
+            options={[
+              { value: false, label: "No bar" },
+              { value: true, label: "Uses bar" },
+            ]}
+            onChange={setUsesBar}
+          />
+        </View>
+        {error ? (
+          <Text style={{ color: colors.danger, fontSize: 13, lineHeight: 18 }}>
+            {error}
+          </Text>
+        ) : null}
+      </ScrollView>
+
+      <View
+        style={{
+          gap: 9,
+          paddingHorizontal: 16,
+          paddingTop: 12,
+          paddingBottom: 12,
+          borderTopWidth: 1,
+          borderTopColor: colors.line,
+          backgroundColor: colors.bg,
+        }}
+      >
         <Button
           label={saving ? "Creating…" : "Create exercise"}
           size="lg"
@@ -403,6 +470,6 @@ function CreateExercise({
         />
         <Button label="Cancel" variant="ghost" onPress={onCancel} />
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 }

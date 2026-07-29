@@ -33,6 +33,7 @@ export default function RootLayout() {
             <Stack.Screen name="insights/lifts" />
             <Stack.Screen name="insights/sessions" />
             <Stack.Screen name="insights/exercise/[slug]" />
+            <Stack.Screen name="week" />
             <Stack.Screen name="+not-found" />
           </Stack>
         </AppProviders>
