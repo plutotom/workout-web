@@ -112,7 +112,7 @@ export async function POST(request: Request) {
       system: GENERATE_SYSTEM_PROMPT,
       prompt: userParts.join("\n\n"),
       temperature: 0.4,
-      maxOutputTokens: 2_000,
+      maxOutputTokens: 10_000,
     });
   } catch (error) {
     console.error("AI template generation failed", error);
