@@ -135,41 +135,51 @@ export default function DashboardPage() {
       )}
 
       <div className="grid grid-cols-2 gap-3">
-        <Card className="animate-rise-in bg-[var(--surface)]">
-          <CardContent className="flex items-center gap-3 p-4">
-            <ProgressRing
-              value={Math.min(1, weekCount / WEEKLY_GOAL)}
-              label={`${weekCount}/${WEEKLY_GOAL}`}
-            />
-            <div>
-              <p className="text-sm font-medium">This week</p>
-              <p className="text-xs text-muted-foreground">
-                of {WEEKLY_GOAL} sessions
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="animate-rise-in overflow-hidden bg-[var(--surface)]">
-          <CardContent className="grid h-full min-h-36 grid-rows-[auto_1fr] gap-2 p-4">
-            <div>
-              <p className="text-muted-foreground text-xs font-semibold tracking-[0.18em] uppercase">
-                Momentum
-              </p>
-              <p className="mt-2 text-3xl font-semibold tracking-tight">
-                {momentum.value}
-              </p>
-              <p className="text-sm leading-tight text-muted-foreground">
-                volume, vs
-                <br />
-                last week
-              </p>
-            </div>
-            <MiniSparkline
-              values={volumeTrend}
-              className="self-end text-foreground"
-            />
-          </CardContent>
-        </Card>
+        <Link
+          href="/dashboard/week"
+          className="block rounded-xl transition-transform active:scale-[0.98]"
+        >
+          <Card className="animate-rise-in h-full bg-[var(--surface)]">
+            <CardContent className="flex items-center gap-3 p-4">
+              <ProgressRing
+                value={Math.min(1, weekCount / WEEKLY_GOAL)}
+                label={`${weekCount}/${WEEKLY_GOAL}`}
+              />
+              <div>
+                <p className="text-sm font-medium">This week</p>
+                <p className="text-xs text-muted-foreground">
+                  of {WEEKLY_GOAL} sessions
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
+        <Link
+          href="/dashboard/week"
+          className="block rounded-xl transition-transform active:scale-[0.98]"
+        >
+          <Card className="animate-rise-in h-full overflow-hidden bg-[var(--surface)]">
+            <CardContent className="grid h-full min-h-36 grid-rows-[auto_1fr] gap-2 p-4">
+              <div>
+                <p className="text-muted-foreground text-xs font-semibold tracking-[0.18em] uppercase">
+                  Momentum
+                </p>
+                <p className="mt-2 text-3xl font-semibold tracking-tight">
+                  {momentum.value}
+                </p>
+                <p className="text-sm leading-tight text-muted-foreground">
+                  volume, vs
+                  <br />
+                  last week
+                </p>
+              </div>
+              <MiniSparkline
+                values={volumeTrend}
+                className="self-end text-foreground"
+              />
+            </CardContent>
+          </Card>
+        </Link>
       </div>
 
       <div className="flex flex-col gap-3">

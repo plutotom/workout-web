@@ -14,8 +14,7 @@
       },
       "supportsTablet": false,
       "bundleIdentifier": "com.isaiahproctor.workout.local",
-      "appleTeamId": "3CVY7K9AJ6",
-      "associatedDomains": ["applinks:workout.plutotom.com"]
+      "appleTeamId": "3CVY7K9AJ6"
     },
     "plugins": [
       "expo-router",
@@ -25,7 +24,9 @@
       "expo-sqlite",
       "expo-web-browser",
       "expo-file-system",
-      "expo-sharing"
+      "expo-sharing",
+      "expo-notifications",
+      "./plugins/strip-signing-capabilities.js"
     ]
   }
 }

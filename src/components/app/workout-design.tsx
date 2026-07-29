@@ -127,7 +127,8 @@ export function MiniSparkline({
   return (
     <svg
       viewBox="0 0 120 40"
-      className={cn("h-full w-full overflow-visible", className)}
+      preserveAspectRatio="none"
+      className={cn("h-full w-full", className)}
       aria-hidden
     >
       <path
@@ -136,7 +137,7 @@ export function MiniSparkline({
         stroke="currentColor"
         strokeLinecap="round"
         strokeLinejoin="round"
-        strokeWidth="3.5"
+        strokeWidth="2.25"
         pathLength={160}
         className="animate-line-draw"
       />
@@ -149,17 +150,20 @@ function sparklinePath(values: number[] | undefined): string {
   const min = Math.min(...usable);
   const max = Math.max(...usable);
   const range = max - min || 1;
-  const width = 116;
-  const height = 32;
+  // Inset so round caps aren't clipped when the svg fills the card.
+  const padX = 2;
+  const padY = 4;
+  const width = 120 - padX * 2;
+  const height = 40 - padY * 2;
   const points = usable.map((value, index) => {
     const x =
-      2 + (usable.length === 1 ? 0 : (index / (usable.length - 1)) * width);
-    const y = 36 - ((value - min) / range) * height;
+      padX + (usable.length === 1 ? 0 : (index / (usable.length - 1)) * width);
+    const y = 40 - padY - ((value - min) / range) * height;
     return { x, y };
   });
 
   if (points.length === 1) {
-    return `M2 ${points[0].y} L118 ${points[0].y}`;
+    return `M${padX} ${points[0].y} L${120 - padX} ${points[0].y}`;
   }
 
   return points

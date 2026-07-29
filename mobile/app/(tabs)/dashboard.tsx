@@ -203,39 +203,53 @@ export default function DashboardScreen() {
       )}
 
       <View style={{ flexDirection: "row", gap: 10 }}>
-        <Card style={{ flex: 1, minHeight: 146, justifyContent: "center" }}>
-          <ProgressRing
-            value={weekCount / WEEKLY_GOAL}
-            label={`${weekCount}/${WEEKLY_GOAL}`}
-          />
-          <Text style={{ color: colors.text, fontWeight: "600", fontSize: 13 }}>
-            This week
-          </Text>
-          <Text style={{ color: colors.dim, fontSize: 11 }}>
-            of {WEEKLY_GOAL} sessions
-          </Text>
-        </Card>
-        <Card style={{ flex: 1, minHeight: 146, paddingBottom: 8 }}>
-          <Text
-            style={{
-              color: colors.dim,
-              fontSize: 10,
-              fontWeight: "700",
-              letterSpacing: 1.8,
-            }}
-          >
-            MOMENTUM
-          </Text>
-          <Text style={{ color: colors.text, fontSize: 30, fontWeight: "700" }}>
-            {momentum}
-          </Text>
-          <Text style={{ color: colors.dim, fontSize: 11 }}>
-            volume, vs last week
-          </Text>
-          <Sparkline
-            values={overview?.volumeTrend.map((point) => point.volume) ?? []}
-          />
-        </Card>
+        <Pressable
+          onPress={() => router.push("/week")}
+          style={({ pressed }) => [{ flex: 1, opacity: pressed ? 0.85 : 1 }]}
+        >
+          <Card style={{ flex: 1, minHeight: 146, justifyContent: "center" }}>
+            <ProgressRing
+              value={weekCount / WEEKLY_GOAL}
+              label={`${weekCount}/${WEEKLY_GOAL}`}
+            />
+            <Text
+              style={{ color: colors.text, fontWeight: "600", fontSize: 13 }}
+            >
+              This week
+            </Text>
+            <Text style={{ color: colors.dim, fontSize: 11 }}>
+              of {WEEKLY_GOAL} sessions
+            </Text>
+          </Card>
+        </Pressable>
+        <Pressable
+          onPress={() => router.push("/week")}
+          style={({ pressed }) => [{ flex: 1, opacity: pressed ? 0.85 : 1 }]}
+        >
+          <Card style={{ flex: 1, minHeight: 146, paddingBottom: 8 }}>
+            <Text
+              style={{
+                color: colors.dim,
+                fontSize: 10,
+                fontWeight: "700",
+                letterSpacing: 1.8,
+              }}
+            >
+              MOMENTUM
+            </Text>
+            <Text
+              style={{ color: colors.text, fontSize: 30, fontWeight: "700" }}
+            >
+              {momentum}
+            </Text>
+            <Text style={{ color: colors.dim, fontSize: 11 }}>
+              volume, vs last week
+            </Text>
+            <Sparkline
+              values={overview?.volumeTrend.map((point) => point.volume) ?? []}
+            />
+          </Card>
+        </Pressable>
       </View>
 
       <View style={{ gap: 12 }}>

@@ -7,10 +7,12 @@ import {
   getLocalLifts,
   getLocalOverview,
   getLocalSessionHistory,
+  getLocalWorkoutRecap,
   mergeLocalAndRemoteSessions,
   type InsightsDays,
   type InsightsOverview,
   type InsightsSessionSummary,
+  type WorkoutRecap,
 } from "@/data/local/insights";
 import { useLocalData } from "@/data/local/provider";
 import {
@@ -239,6 +241,23 @@ export function useMergedInsightsOverview(
     );
     return merged === undefined ? undefined : getLocalOverview(merged, days);
   }, [days, localSessions, remoteSessions]);
+}
+
+/**
+ * Recap for one finished session. `undefined` while loading, `null` when the
+ * session isn't a completed local workout.
+ */
+export function useLocalWorkoutRecap(
+  sessionId: string,
+): WorkoutRecap | null | undefined {
+  const sessions = useLocalCompletedSessions();
+  return useMemo(
+    () =>
+      sessions === undefined
+        ? undefined
+        : getLocalWorkoutRecap(sessions, sessionId),
+    [sessionId, sessions],
+  );
 }
 
 export function useLocalInsightsLifts(days: InsightsDays) {

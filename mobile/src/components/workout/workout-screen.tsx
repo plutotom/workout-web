@@ -1,3 +1,6 @@
+import { api } from "@backend/api";
+import type { Id } from "@backend/dataModel";
+import { useQuery } from "convex/react";
 import { Redirect, router } from "expo-router";
 import { useKeepAwake } from "expo-keep-awake";
 import * as Haptics from "expo-haptics";
@@ -13,7 +16,17 @@ import {
   Trash2,
 } from "lucide-react-native";
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Pressable, Text, View } from "react-native";
+import {
+  Alert,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useMobileAuth } from "@/auth/auth-provider";
 import { AiPromptModal } from "@/components/ai-prompt-modal";
@@ -30,6 +43,7 @@ import {
 import { PlateModal } from "@/components/workout/plate-modal";
 import { RestBar } from "@/components/workout/rest-bar";
 import { useAiGeneration } from "@/lib/ai";
+import { formatDate, formatWeight } from "@/lib/format";
 import {
   useLocalData,
   useLocalLastSet,
@@ -45,19 +59,65 @@ type WorkoutSession = LocalWorkoutSession;
 type WorkoutExercise = WorkoutSession["exercises"][number];
 type WorkoutSet = WorkoutExercise["sets"][number];
 
+/**
+ * What the read-only view needs, and no more, so it renders a session from
+ * SQLite or one fetched from Convex without either side pretending to be the
+ * other.
+ */
+type PastWorkout = {
+  _id: string;
+  status: string;
+  templateName: string;
+  startedAt: number;
+  completedAt?: number;
+  exercises: Array<{
+    _id: string;
+    slug: string;
+    notes?: string;
+    sets: Array<{
+      _id: string;
+      weight: number;
+      reps: number;
+      completed: boolean;
+    }>;
+  }>;
+};
+
 export function WorkoutScreen({ sessionId }: { sessionId: string }) {
   useKeepAwake();
   const session = useLocalWorkout(sessionId);
   const user = useLocalPreferences();
+  const { isAuthenticated } = useMobileAuth();
+  // Workouts logged on the web never land in SQLite — the bootstrap only
+  // carries templates, notes and preferences — so a local miss falls back to
+  // the server rather than bouncing the user to the dashboard.
+  const remote = useQuery(
+    api.routes.workouts.queries.get,
+    session === null && isAuthenticated
+      ? { sessionId: sessionId as Id<"workoutSessions"> }
+      : "skip",
+  );
+
   if (session === undefined || user === undefined)
     return <FullScreenLoader label="Loading workout…" />;
-  if (!session) return <Redirect href="/dashboard" />;
-  if (session.status !== "in_progress")
-    return <CompletedWorkout session={session} />;
+  if (!session) {
+    if (!isAuthenticated || remote === null)
+      return <Redirect href="/dashboard" />;
+    if (remote === undefined)
+      return <FullScreenLoader label="Loading workout…" />;
+    // Remote-only sessions are read-only here: editing and deleting both go
+    // through the local store, which has never seen them.
+    return <CompletedWorkout session={remote} canDelete={false} />;
+  }
+  // The controller stays mounted across the finish transition: its post-finish
+  // prompts open once the session is already `completed`, and unmounting here
+  // would tear them down before the user could answer.
   return (
     <>
       <WorkoutFinishController />
-      {user.activeWorkoutMode === "focus" ? (
+      {session.status !== "in_progress" ? (
+        <CompletedWorkout session={session} canDelete />
+      ) : user.activeWorkoutMode === "focus" ? (
         <FocusWorkout session={session} user={user} />
       ) : (
         <ListWorkout session={session} user={user} />
@@ -106,8 +166,21 @@ function ListWorkout({
   } = useLocalData();
   const [picker, setPicker] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
+  // Collapsed cards are opt-in and independent, so a session can mix open and
+  // closed exercises. Missing id means expanded.
+  const [collapsed, setCollapsed] = useState<Record<string, true>>({});
   const rest = useRestTimer();
   const { generateSession } = useAiGeneration();
+
+  function toggleCollapsed(exerciseId: string) {
+    void Haptics.selectionAsync();
+    setCollapsed((current) => {
+      const next = { ...current };
+      if (next[exerciseId]) delete next[exerciseId];
+      else next[exerciseId] = true;
+      return next;
+    });
+  }
 
   async function addPicked(slugs: string[]) {
     for (const exerciseSlug of slugs)
@@ -206,24 +279,48 @@ function ListWorkout({
                 <View
                   style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
                 >
-                  <View style={{ flex: 1 }}>
-                    <Text
-                      style={{
-                        color: colors.text,
-                        fontSize: 17,
-                        fontWeight: "700",
-                      }}
-                    >
-                      {catalog.name(exercise.slug)}
-                    </Text>
-                    <Text
-                      style={{ color: colors.dim, fontSize: 11, marginTop: 3 }}
-                    >
-                      {exercise.sets.filter((set) => set.completed).length}/
-                      {exercise.sets.length} sets complete ·{" "}
-                      {exercise.restSeconds}s rest
-                    </Text>
-                  </View>
+                  <Pressable
+                    style={{
+                      flex: 1,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 8,
+                    }}
+                    hitSlop={7}
+                    accessibilityRole="button"
+                    accessibilityState={{
+                      expanded: !collapsed[exercise._id],
+                    }}
+                    onPress={() => toggleCollapsed(exercise._id)}
+                  >
+                    {collapsed[exercise._id] ? (
+                      <ChevronRight size={18} color={colors.dim} />
+                    ) : (
+                      <ChevronDown size={18} color={colors.dim} />
+                    )}
+                    <View style={{ flex: 1 }}>
+                      <Text
+                        style={{
+                          color: colors.text,
+                          fontSize: 17,
+                          fontWeight: "700",
+                        }}
+                      >
+                        {catalog.name(exercise.slug)}
+                      </Text>
+                      <Text
+                        style={{
+                          color: colors.dim,
+                          fontSize: 11,
+                          marginTop: 3,
+                        }}
+                      >
+                        {exercise.sets.filter((set) => set.completed).length}/
+                        {exercise.sets.length} sets complete ·{" "}
+                        {exercise.restSeconds}s rest
+                      </Text>
+                    </View>
+                  </Pressable>
                   <Pressable
                     disabled={exerciseIndex === 0}
                     hitSlop={7}
@@ -249,102 +346,106 @@ function ListWorkout({
                     />
                   </Pressable>
                 </View>
-                <NoteField
-                  initial={exercise.notes ?? ""}
-                  onSave={(notes) => saveNote(exercise.slug, notes)}
-                />
+                {collapsed[exercise._id] ? null : (
+                  <NoteField
+                    initial={exercise.notes ?? ""}
+                    onSave={(notes) => saveNote(exercise.slug, notes)}
+                  />
+                )}
               </View>
-              <View
-                style={{
-                  borderTopWidth: 1,
-                  borderTopColor: colors.line,
-                  padding: 12,
-                  gap: 9,
-                }}
-              >
+              {collapsed[exercise._id] ? null : (
                 <View
                   style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    paddingHorizontal: 4,
+                    borderTopWidth: 1,
+                    borderTopColor: colors.line,
+                    padding: 12,
+                    gap: 9,
                   }}
                 >
-                  <Text
+                  <View
                     style={{
-                      color: colors.dim,
-                      fontSize: 10,
-                      width: 35,
-                      textAlign: "center",
+                      flexDirection: "row",
+                      alignItems: "center",
+                      paddingHorizontal: 4,
                     }}
                   >
-                    SET
-                  </Text>
-                  <Text style={{ color: colors.dim, fontSize: 10, flex: 1 }}>
-                    WEIGHT
-                  </Text>
-                  <Text style={{ color: colors.dim, fontSize: 10, flex: 1 }}>
-                    REPS
-                  </Text>
-                  <View style={{ width: 44 }} />
-                </View>
-                {exercise.sets.map((set, setIndex) => (
-                  <SetRow
-                    key={set._id}
-                    set={set}
-                    index={setIndex}
-                    unit={user.unit}
-                    barWeight={
-                      user.unit === "lb"
-                        ? (user.barWeightLb ?? 45)
-                        : (user.barWeightKg ?? 20)
-                    }
-                    usesBar={catalog.usesBar(exercise.slug)}
-                    onCommit={(values) => updateSet(set._id, values)}
-                    onComplete={(completed, values) => {
-                      void updateSet(set._id, { ...values, completed });
-                      if (completed) {
-                        void Haptics.notificationAsync(
-                          Haptics.NotificationFeedbackType.Success,
-                        );
-                        if (user.restTimerEnabled ?? true)
-                          void rest.start(
-                            exercise.restSeconds,
-                            `Next: ${catalog.short(exercise.slug)} · set ${setIndex + 2}`,
-                          );
+                    <Text
+                      style={{
+                        color: colors.dim,
+                        fontSize: 10,
+                        width: 35,
+                        textAlign: "center",
+                      }}
+                    >
+                      SET
+                    </Text>
+                    <Text style={{ color: colors.dim, fontSize: 10, flex: 1 }}>
+                      WEIGHT
+                    </Text>
+                    <Text style={{ color: colors.dim, fontSize: 10, flex: 1 }}>
+                      REPS
+                    </Text>
+                    <View style={{ width: 44 }} />
+                  </View>
+                  {exercise.sets.map((set, setIndex) => (
+                    <SetRow
+                      key={set._id}
+                      set={set}
+                      index={setIndex}
+                      unit={user.unit}
+                      barWeight={
+                        user.unit === "lb"
+                          ? (user.barWeightLb ?? 45)
+                          : (user.barWeightKg ?? 20)
                       }
+                      usesBar={catalog.usesBar(exercise.slug)}
+                      onCommit={(values) => updateSet(set._id, values)}
+                      onComplete={(completed, values) => {
+                        void updateSet(set._id, { ...values, completed });
+                        if (completed) {
+                          void Haptics.notificationAsync(
+                            Haptics.NotificationFeedbackType.Success,
+                          );
+                          if (user.restTimerEnabled ?? true)
+                            void rest.start(
+                              exercise.restSeconds,
+                              `Next: ${catalog.short(exercise.slug)} · set ${setIndex + 2}`,
+                            );
+                        }
+                      }}
+                      onDelete={() => void deleteSet(set._id)}
+                      canDelete={exercise.sets.length > 1}
+                    />
+                  ))}
+                  <Button
+                    label="Add set"
+                    variant="outline"
+                    icon={Plus}
+                    onPress={async () => {
+                      await addSet(exercise._id);
                     }}
-                    onDelete={() => void deleteSet(set._id)}
-                    canDelete={exercise.sets.length > 1}
                   />
-                ))}
-                <Button
-                  label="Add set"
-                  variant="outline"
-                  icon={Plus}
-                  onPress={async () => {
-                    await addSet(exercise._id);
-                  }}
-                />
-                <Button
-                  label="Remove exercise"
-                  variant="ghost"
-                  icon={Trash2}
-                  onPress={() =>
-                    Alert.alert(
-                      "Remove exercise?",
-                      catalog.name(exercise.slug),
-                      [
-                        { text: "Cancel", style: "cancel" },
-                        {
-                          text: "Remove",
-                          style: "destructive",
-                          onPress: () => void removeExercise(exercise._id),
-                        },
-                      ],
-                    )
-                  }
-                />
-              </View>
+                  <Button
+                    label="Remove exercise"
+                    variant="ghost"
+                    icon={Trash2}
+                    onPress={() =>
+                      Alert.alert(
+                        "Remove exercise?",
+                        catalog.name(exercise.slug),
+                        [
+                          { text: "Cancel", style: "cancel" },
+                          {
+                            text: "Remove",
+                            style: "destructive",
+                            onPress: () => void removeExercise(exercise._id),
+                          },
+                        ],
+                      )
+                    }
+                  />
+                </View>
+              )}
             </Card>
           ))
         )}
@@ -770,8 +871,47 @@ async function finishWorkout(session: WorkoutSession) {
 
 let finishController: ((session: WorkoutSession) => void) | null = null;
 
+/** Matches the web finish flow's default: "Mar 4, 2026". */
+function defaultTemplateName() {
+  return new Date().toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+/** Replaces the workout screen with its recap, so Back doesn't reopen the log. */
+function showRecap(sessionId: string) {
+  router.replace({
+    pathname: "/workout/recap/[sessionId]",
+    params: { sessionId },
+  });
+}
+
 export function WorkoutFinishController() {
-  const { finish, abandon } = useLocalData();
+  const {
+    finish,
+    abandon,
+    saveTemplateFromSession,
+    updateTemplateFromSession,
+    templateNeedsUpdate,
+  } = useLocalData();
+  const [savePrompt, setSavePrompt] = useState<{ sessionId: string } | null>(
+    null,
+  );
+  const [templateName, setTemplateName] = useState("");
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  // Navigating while the sheet is still on screen tears it down mid-dismissal,
+  // so the recap waits for `onDismiss` (iOS fires it once the sheet is gone).
+  const [recapAfterSave, setRecapAfterSave] = useState<string | null>(null);
+
+  function closeSavePrompt() {
+    if (!savePrompt) return;
+    if (Platform.OS === "ios") setRecapAfterSave(savePrompt.sessionId);
+    setSavePrompt(null);
+    if (Platform.OS !== "ios") showRecap(savePrompt.sessionId);
+  }
 
   useEffect(() => {
     finishController = (session) => {
@@ -801,9 +941,52 @@ export function WorkoutFinishController() {
       }
 
       const commit = async () => {
+        // Read the drift before finishing, while the template is still the one
+        // the session was started from.
+        const willPromptSync = session.templateId
+          ? await templateNeedsUpdate(session._id)
+          : false;
         await finish(session._id);
         await Haptics.notificationAsync(
           Haptics.NotificationFeedbackType.Success,
+        );
+
+        // Quick start: offer to keep it. Template-based: offer to write today's
+        // numbers back, but only when they actually differ. Either way the
+        // recap comes after the prompt, matching the web finish flow.
+        if (!session.templateId) {
+          setTemplateName(defaultTemplateName());
+          setSaveError(null);
+          setSavePrompt({ sessionId: session._id });
+          return;
+        }
+        if (willPromptSync) promptUpdateTemplate(session);
+        else showRecap(session._id);
+      };
+
+      const promptUpdateTemplate = (finished: WorkoutSession) => {
+        Alert.alert(
+          "Update template?",
+          `Update ${finished.templateName} to match the exercises, order, and weights you just logged?`,
+          [
+            {
+              text: "Keep as is",
+              style: "cancel",
+              onPress: () => showRecap(finished._id),
+            },
+            {
+              text: "Update template",
+              onPress: () =>
+                void updateTemplateFromSession(finished._id)
+                  .catch(() =>
+                    Alert.alert(
+                      "Couldn’t update template",
+                      "Your workout was still saved.",
+                    ),
+                  )
+                  .then(() => showRecap(finished._id)),
+            },
+          ],
         );
       };
 
@@ -825,62 +1008,449 @@ export function WorkoutFinishController() {
     return () => {
       finishController = null;
     };
-  }, [abandon, finish]);
-  return null;
+  }, [
+    abandon,
+    finish,
+    saveTemplateFromSession,
+    templateNeedsUpdate,
+    updateTemplateFromSession,
+  ]);
+
+  async function confirmSaveTemplate() {
+    if (!savePrompt || savingTemplate) return;
+    const name = templateName.trim();
+    if (!name) {
+      setSaveError("Give your template a name.");
+      return;
+    }
+    setSavingTemplate(true);
+    setSaveError(null);
+    try {
+      await saveTemplateFromSession(savePrompt.sessionId, name);
+    } catch (cause) {
+      setSavingTemplate(false);
+      setSaveError(
+        cause instanceof Error && cause.message
+          ? cause.message
+          : "Couldn’t save template. Your workout was still saved.",
+      );
+      return;
+    }
+    setSavingTemplate(false);
+    closeSavePrompt();
+  }
+
+  return (
+    <Modal
+      visible={savePrompt !== null}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={() => {
+        if (!savingTemplate) closeSavePrompt();
+      }}
+      onDismiss={() => {
+        if (!recapAfterSave) return;
+        showRecap(recapAfterSave);
+        setRecapAfterSave(null);
+      }}
+    >
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+        >
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={{ padding: 16, gap: 18 }}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <Text
+              style={{ color: colors.text, fontSize: 24, fontWeight: "700" }}
+            >
+              Save as template?
+            </Text>
+            <Text style={{ color: colors.dim, fontSize: 14, lineHeight: 20 }}>
+              Keep this workout so you can start it again next time.
+            </Text>
+            <Field
+              label="Template name"
+              value={templateName}
+              onChangeText={(value) => {
+                setTemplateName(value);
+                if (saveError) setSaveError(null);
+              }}
+              placeholder="e.g. Push day"
+              autoFocus
+              autoCapitalize="words"
+              returnKeyType="done"
+              maxLength={80}
+              onSubmitEditing={() => void confirmSaveTemplate()}
+            />
+            {saveError ? (
+              <Text
+                style={{ color: colors.danger, fontSize: 13, lineHeight: 18 }}
+              >
+                {saveError}
+              </Text>
+            ) : null}
+          </ScrollView>
+          <View
+            style={{
+              gap: 9,
+              paddingHorizontal: 16,
+              paddingTop: 12,
+              paddingBottom: 12,
+              borderTopWidth: 1,
+              borderTopColor: colors.line,
+              backgroundColor: colors.bg,
+            }}
+          >
+            <Button
+              label={savingTemplate ? "Saving…" : "Save template"}
+              size="lg"
+              disabled={savingTemplate || !templateName.trim()}
+              onPress={confirmSaveTemplate}
+            />
+            <Button
+              label="No thanks"
+              variant="outline"
+              disabled={savingTemplate}
+              onPress={closeSavePrompt}
+            />
+          </View>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </Modal>
+  );
 }
 
-function CompletedWorkout({ session }: { session: WorkoutSession }) {
+/** Read-only row in a past workout, mirroring the live `SetRow` columns. */
+function CompletedSetRow({
+  set,
+  index,
+  unit,
+}: {
+  set: PastWorkout["exercises"][number]["sets"][number];
+  index: number;
+  unit: string;
+}) {
+  const dim = !set.completed;
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+      <Text
+        style={{
+          color: dim ? colors.faint : colors.dim,
+          fontSize: 12,
+          width: 35,
+          textAlign: "center",
+        }}
+      >
+        {index + 1}
+      </Text>
+      <Text
+        style={{
+          color: dim ? colors.faint : colors.text,
+          fontSize: 15,
+          fontWeight: "600",
+          flex: 1,
+        }}
+      >
+        {set.weight > 0 ? `${set.weight} ${unit}` : "—"}
+      </Text>
+      <Text
+        style={{
+          color: dim ? colors.faint : colors.text,
+          fontSize: 15,
+          fontWeight: "600",
+          flex: 1,
+        }}
+      >
+        {set.reps > 0 ? `${set.reps} reps` : "—"}
+      </Text>
+      <View style={{ width: 44, alignItems: "center" }}>
+        {set.completed ? (
+          <Check size={17} color={colors.success} />
+        ) : (
+          <Text style={{ color: colors.faint, fontSize: 11 }}>skipped</Text>
+        )}
+      </View>
+    </View>
+  );
+}
+
+/**
+ * A finished (or abandoned) session, read-only. Same beats as the web log view
+ * in its non-editable state: recap link, session totals, then the exercises as
+ * they were logged.
+ */
+function CompletedWorkout({
+  session,
+  canDelete,
+}: {
+  session: PastWorkout;
+  canDelete: boolean;
+}) {
   const catalog = useCatalog();
   const { deleteSession } = useLocalData();
+  const user = useLocalPreferences();
+  // Cards start expanded, and each one toggles independently, matching the
+  // live view.
+  const [collapsed, setCollapsed] = useState<Record<string, true>>({});
+
+  const totalSets = session.exercises.reduce(
+    (sum, exercise) => sum + exercise.sets.length,
+    0,
+  );
+  const doneSets = session.exercises.reduce(
+    (sum, exercise) =>
+      sum + exercise.sets.filter((set) => set.completed).length,
+    0,
+  );
+  const volume = session.exercises.reduce(
+    (sum, exercise) =>
+      sum +
+      exercise.sets.reduce(
+        (setSum, set) =>
+          set.completed ? setSum + set.weight * set.reps : setSum,
+        0,
+      ),
+    0,
+  );
+  const endedAt = session.completedAt ?? session.startedAt;
+  const isCompleted = session.status === "completed";
+  const unit = user?.unit ?? "lb";
+
+  function toggleCollapsed(exerciseId: string) {
+    void Haptics.selectionAsync();
+    setCollapsed((current) => {
+      const next = { ...current };
+      if (next[exerciseId]) delete next[exerciseId];
+      else next[exerciseId] = true;
+      return next;
+    });
+  }
+
   return (
     <Screen>
       <PageHeader
         back
         title={session.templateName}
-        subtitle={
-          session.completedAt
-            ? new Date(session.completedAt).toLocaleString()
-            : "Finished workout"
+        subtitle={`${formatDate(endedAt)} · ${new Date(
+          endedAt,
+        ).toLocaleTimeString(undefined, {
+          hour: "numeric",
+          minute: "2-digit",
+        })}`}
+        action={
+          isCompleted ? (
+            <Button
+              size="sm"
+              variant="outline"
+              label="View recap"
+              onPress={() =>
+                router.push({
+                  pathname: "/workout/recap/[sessionId]",
+                  params: { sessionId: session._id },
+                })
+              }
+            />
+          ) : undefined
         }
       />
-      {session.exercises.map((exercise) => (
-        <Card key={exercise._id}>
-          <Text style={{ color: colors.text, fontSize: 16, fontWeight: "700" }}>
-            {catalog.name(exercise.slug)}
-          </Text>
-          {exercise.sets.map((set, index) => (
+
+      <Card style={{ gap: 10 }}>
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "flex-end",
+            justifyContent: "space-between",
+            gap: 12,
+          }}
+        >
+          <View style={{ flex: 1 }}>
             <Text
-              key={set._id}
               style={{
-                color: set.completed ? colors.text : colors.faint,
-                fontSize: 13,
+                color: colors.dim,
+                fontSize: 10,
+                fontWeight: "700",
+                letterSpacing: 1.5,
               }}
             >
-              Set {index + 1} · {set.weight} × {set.reps}
-              {set.completed ? " ✓" : ""}
+              SESSION
             </Text>
-          ))}
-        </Card>
-      ))}
+            <Text style={{ color: colors.dim, fontSize: 12, marginTop: 4 }}>
+              This workout is {isCompleted ? "complete" : "no longer active"}.
+            </Text>
+          </View>
+          <View style={{ alignItems: "flex-end" }}>
+            <Text
+              style={{
+                color: colors.text,
+                fontSize: 20,
+                fontWeight: "700",
+                fontVariant: ["tabular-nums"],
+              }}
+            >
+              {formatClock(
+                Math.max(0, Math.floor((endedAt - session.startedAt) / 1000)),
+              )}
+            </Text>
+            <Text style={{ color: colors.dim, fontSize: 11, marginTop: 2 }}>
+              {doneSets}/{totalSets} sets · {formatWeight(volume, unit)} moved
+            </Text>
+          </View>
+        </View>
+        <View
+          style={{
+            height: 6,
+            borderRadius: 3,
+            overflow: "hidden",
+            backgroundColor: colors.surface2,
+          }}
+        >
+          <View
+            style={{
+              height: "100%",
+              borderRadius: 3,
+              backgroundColor: colors.success,
+              width: `${totalSets ? (doneSets / totalSets) * 100 : 0}%`,
+            }}
+          />
+        </View>
+      </Card>
+
+      {session.exercises.length ? (
+        session.exercises.map((exercise) => {
+          const exerciseDone = exercise.sets.filter(
+            (set) => set.completed,
+          ).length;
+          const isCollapsed = Boolean(collapsed[exercise._id]);
+          return (
+            <Card
+              key={exercise._id}
+              style={{ padding: 0, overflow: "hidden", gap: 0 }}
+            >
+              <Pressable
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: 14,
+                }}
+                hitSlop={7}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: !isCollapsed }}
+                onPress={() => toggleCollapsed(exercise._id)}
+              >
+                {isCollapsed ? (
+                  <ChevronRight size={18} color={colors.dim} />
+                ) : (
+                  <ChevronDown size={18} color={colors.dim} />
+                )}
+                <View style={{ flex: 1 }}>
+                  <Text
+                    style={{
+                      color: colors.text,
+                      fontSize: 17,
+                      fontWeight: "700",
+                    }}
+                  >
+                    {catalog.name(exercise.slug)}
+                  </Text>
+                  <Text
+                    style={{ color: colors.dim, fontSize: 11, marginTop: 3 }}
+                  >
+                    {exerciseDone}/{exercise.sets.length} sets complete
+                  </Text>
+                </View>
+              </Pressable>
+              {isCollapsed ? null : (
+                <View
+                  style={{
+                    borderTopWidth: 1,
+                    borderTopColor: colors.line,
+                    padding: 12,
+                    gap: 9,
+                  }}
+                >
+                  {exercise.notes ? (
+                    <Text
+                      style={{
+                        color: colors.dim,
+                        fontSize: 13,
+                        lineHeight: 19,
+                      }}
+                    >
+                      {exercise.notes}
+                    </Text>
+                  ) : null}
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      paddingHorizontal: 4,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: colors.dim,
+                        fontSize: 10,
+                        width: 35,
+                        textAlign: "center",
+                      }}
+                    >
+                      SET
+                    </Text>
+                    <Text style={{ color: colors.dim, fontSize: 10, flex: 1 }}>
+                      WEIGHT
+                    </Text>
+                    <Text style={{ color: colors.dim, fontSize: 10, flex: 1 }}>
+                      REPS
+                    </Text>
+                    <View style={{ width: 44 }} />
+                  </View>
+                  {exercise.sets.map((set, setIndex) => (
+                    <CompletedSetRow
+                      key={set._id}
+                      set={set}
+                      index={setIndex}
+                      unit={unit}
+                    />
+                  ))}
+                </View>
+              )}
+            </Card>
+          );
+        })
+      ) : (
+        <EmptyState
+          title="No exercises logged"
+          description="This workout finished without any lifts."
+        />
+      )}
+
       <Button label="Done" onPress={() => router.replace("/dashboard")} />
-      <Button
-        label="Delete workout"
-        variant="ghost"
-        icon={Trash2}
-        onPress={() =>
-          Alert.alert("Delete this workout?", "This cannot be undone.", [
-            { text: "Cancel", style: "cancel" },
-            {
-              text: "Delete",
-              style: "destructive",
-              onPress: () =>
-                void deleteSession(session._id).then(() =>
-                  router.replace("/insights"),
-                ),
-            },
-          ])
-        }
-      />
+      {canDelete ? (
+        <Button
+          label="Delete workout"
+          variant="ghost"
+          icon={Trash2}
+          onPress={() =>
+            Alert.alert("Delete this workout?", "This cannot be undone.", [
+              { text: "Cancel", style: "cancel" },
+              {
+                text: "Delete",
+                style: "destructive",
+                onPress: () =>
+                  void deleteSession(session._id).then(() =>
+                    router.replace("/insights"),
+                  ),
+              },
+            ])
+          }
+        />
+      ) : null}
     </Screen>
   );
 }
