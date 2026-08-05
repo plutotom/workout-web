@@ -3,6 +3,13 @@ import { File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
 
 import {
+  backupFileName,
+  parseBackup,
+  serializeBackup,
+  type BackupParseResult,
+  type WorkoutBackupSnapshot,
+} from "@/data/local/backup";
+import {
   bundleFileName,
   encodeBundleCode,
   parseBundle,
@@ -60,6 +67,49 @@ export async function pickBundleFile(): Promise<ParseResult | null> {
 
   try {
     return parseBundle(await picked.result.text());
+  } catch {
+    return { ok: false, error: "Couldn't read that file" };
+  }
+}
+
+/**
+ * Same share sheet, different payload: a full backup snapshot rather than a
+ * portable bundle. "Save to Files" → iCloud Drive is the point of this one, and
+ * that destination needs no entitlement — the user picks it.
+ */
+export async function shareBackupFile(
+  snapshot: WorkoutBackupSnapshot,
+): Promise<{ shared: boolean; reason?: string }> {
+  if (!(await Sharing.isAvailableAsync())) {
+    return { shared: false, reason: "Sharing isn't available on this device" };
+  }
+
+  const file = new File(Paths.cache, backupFileName(snapshot));
+  try {
+    if (file.exists) file.delete();
+    file.create();
+    file.write(serializeBackup(snapshot));
+
+    await Sharing.shareAsync(file.uri, {
+      mimeType: "application/json",
+      UTI: "public.json",
+      dialogTitle: "Save backup",
+    });
+    return { shared: true };
+  } catch {
+    return { shared: false, reason: "Couldn't create the backup file" };
+  }
+}
+
+/** Open the system file picker and parse whatever the user chose as a backup. */
+export async function pickBackupFile(): Promise<BackupParseResult | null> {
+  const picked = await File.pickFileAsync({
+    mimeTypes: ["application/json", "text/plain", "application/octet-stream"],
+  });
+  if (picked.canceled) return null;
+
+  try {
+    return parseBackup(await picked.result.text());
   } catch {
     return { ok: false, error: "Couldn't read that file" };
   }

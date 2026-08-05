@@ -5,7 +5,9 @@ import * as Clipboard from "expo-clipboard";
 import { router } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
 import {
+  ChevronDown,
   CircleDot,
+  CloudCheck,
   Copy,
   Crown,
   Download,
@@ -31,7 +33,10 @@ import {
   Segmented,
 } from "@/components/ui";
 import { PlateModal } from "@/components/workout/plate-modal";
+import { useBackupStatus, useLocalData } from "@/data/local/provider";
 import { requirePublicConfig } from "@/lib/config";
+import { formatRelativeDay } from "@/lib/format";
+import { pickBackupFile, shareBackupFile } from "@/lib/workout-transfer";
 import { colors } from "@/theme";
 
 const unitOptions = [
@@ -95,6 +100,7 @@ function OfflineSettingsScreen() {
           onPress={() => void connectAccount()}
         />
       </Card>
+      <BackupCard signedIn={false} />
       <Card>
         <Sparkles color={colors.text} size={22} />
         <SectionTitle title="AI workouts" />
@@ -337,9 +343,10 @@ function SettingsContent({
         </Card>
         <Card>
           <Share2 color={colors.text} size={22} strokeWidth={2.3} />
-          <SectionTitle title="Share & transfer" />
+          <SectionTitle title="Share with someone" />
           <Text style={{ color: colors.dim, fontSize: 13, lineHeight: 19 }}>
             Send your templates to a friend, or bring in someone else&apos;s.
+            This moves templates only — for your logged workouts, use Backup.
           </Text>
           <Button
             label="Export templates"
@@ -354,6 +361,7 @@ function SettingsContent({
             onPress={() => router.push("/import-workouts")}
           />
         </Card>
+        <BackupCard signedIn />
         <PlanCard />
         <AdminCard />
         <McpCard />
@@ -382,6 +390,188 @@ function SettingsContent({
         onClose={() => setPlateCalculatorOpen(false)}
       />
     </>
+  );
+}
+
+/**
+ * A backup nobody repeats isn't a backup, so the card leads with *state* —
+ * "last backup 3 weeks ago" — rather than with prose. That line is the whole
+ * feature: it's glanceable, it nags without nagging, and it's the only thing
+ * standing between someone and a nine-month-old file.
+ *
+ * The iOS device-backup explanation is true but unactionable from here, so it
+ * sits behind a disclosure instead of above the button. And the attention state
+ * is expressed in brightness, not colour: this palette keeps green and red for
+ * success and danger, and a stale backup is neither.
+ */
+function BackupCard({ signedIn }: { signedIn: boolean }) {
+  const { createBackup, restoreBackup, noteBackupSaved } = useLocalData();
+  // `undefined` while loading — render nothing rather than flash "no backup".
+  const backup = useBackupStatus();
+  const [busy, setBusy] = useState<"save" | "restore" | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+
+  const saveBackup = async () => {
+    setBusy("save");
+    try {
+      const snapshot = await createBackup();
+      if (
+        snapshot.sessions.length === 0 &&
+        snapshot.templates.length === 0 &&
+        snapshot.customExercises.length === 0 &&
+        snapshot.exerciseNotes.length === 0
+      ) {
+        Alert.alert(
+          "Nothing to back up yet",
+          "Log a workout or save a template first.",
+        );
+        return;
+      }
+      const result = await shareBackupFile(snapshot);
+      if (!result.shared) {
+        if (result.reason) Alert.alert("Couldn't save backup", result.reason);
+        return;
+      }
+      await noteBackupSaved();
+    } catch (caught) {
+      Alert.alert(
+        "Couldn't save backup",
+        caught instanceof Error ? caught.message : "Please try again.",
+      );
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const restoreFromFile = async () => {
+    setBusy("restore");
+    try {
+      const parsed = await pickBackupFile();
+      if (!parsed) return;
+      if (!parsed.ok) {
+        Alert.alert("Couldn't read that backup", parsed.error);
+        return;
+      }
+
+      const { snapshot } = parsed;
+      const saved = new Date(snapshot.createdAt).toLocaleDateString();
+      const confirmed = await new Promise<boolean>((resolve) => {
+        Alert.alert(
+          `Restore backup from ${saved}?`,
+          `${snapshot.sessions.length} workouts and ${snapshot.templates.length} templates. Anything already on this phone is kept as-is — nothing gets overwritten.`,
+          [
+            { text: "Cancel", style: "cancel", onPress: () => resolve(false) },
+            { text: "Restore", onPress: () => resolve(true) },
+          ],
+        );
+      });
+      if (!confirmed) return;
+
+      const result = await restoreBackup(snapshot);
+      const added = [
+        result.sessionsAdded === 1
+          ? "1 workout"
+          : `${result.sessionsAdded} workouts`,
+        result.templatesAdded === 1
+          ? "1 template"
+          : `${result.templatesAdded} templates`,
+      ].join(", ");
+      Alert.alert(
+        "Restored",
+        result.skipped > 0
+          ? `Added ${added}. ${result.skipped} were already on this phone and were left alone.`
+          : `Added ${added}.`,
+      );
+    } catch (caught) {
+      Alert.alert(
+        "Couldn't restore",
+        caught instanceof Error ? caught.message : "Please try again.",
+      );
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <Card>
+      <CloudCheck color={colors.text} size={22} strokeWidth={2.3} />
+      <SectionTitle title="Backup" />
+
+      {signedIn ? (
+        <Text style={{ color: colors.dim, fontSize: 13, lineHeight: 19 }}>
+          Everything syncs to your account, so signing in on a new phone brings
+          it all back. Keeping your own copy is optional.
+        </Text>
+      ) : (
+        <>
+          {backup ? (
+            <Text
+              style={{
+                color: backup.stale ? colors.text : colors.dim,
+                fontSize: backup.stale ? 15 : 13,
+                fontWeight: backup.stale ? "600" : "400",
+                lineHeight: backup.stale ? 21 : 19,
+              }}
+            >
+              {backup.at === null
+                ? "You haven’t saved a backup yet."
+                : `Last backup ${formatRelativeDay(backup.at, backup.checkedAt)}.`}
+            </Text>
+          ) : null}
+          <Text style={{ color: colors.dim, fontSize: 13, lineHeight: 19 }}>
+            Your workouts live on this phone. Save a backup file — choose iCloud
+            Drive from the share sheet — and it survives deleting the app or
+            moving to a new phone.
+          </Text>
+        </>
+      )}
+
+      <Button
+        variant="outline"
+        icon={Download}
+        label={busy === "save" ? "Preparing…" : "Save a backup"}
+        disabled={busy !== null}
+        onPress={() => void saveBackup()}
+      />
+      <Text style={{ color: colors.faint, fontSize: 12, lineHeight: 17 }}>
+        The file isn&apos;t encrypted — anyone who opens it can read your
+        training log.
+      </Text>
+
+      {/* Rare and high-stakes, so it stays quiet next to the routine action. */}
+      <Button
+        variant="ghost"
+        size="sm"
+        label={busy === "restore" ? "Restoring…" : "Restore from a file"}
+        disabled={busy !== null}
+        onPress={() => void restoreFromFile()}
+      />
+
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => setDetailsOpen((open) => !open)}
+        style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
+      >
+        <Text style={{ color: colors.faint, fontSize: 12 }}>
+          What about iCloud?
+        </Text>
+        <ChevronDown
+          size={14}
+          color={colors.faint}
+          style={
+            detailsOpen ? { transform: [{ rotate: "180deg" }] } : undefined
+          }
+        />
+      </Pressable>
+      {detailsOpen ? (
+        <Text style={{ color: colors.faint, fontSize: 12, lineHeight: 18 }}>
+          This phone&apos;s copy is already inside your iPhone&apos;s iCloud
+          backup (Settings › your name › iCloud › iCloud Backup). That comes
+          back when you set up a new iPhone from that backup — but not when you
+          reinstall the app, which is why a file is worth keeping.
+        </Text>
+      ) : null}
+    </Card>
   );
 }
 

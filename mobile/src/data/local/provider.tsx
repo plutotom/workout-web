@@ -9,6 +9,15 @@ import {
   type ReactNode,
 } from "react";
 
+import {
+  BACKUP_STALE_AFTER_MS,
+  createLocalBackup,
+  getLastBackupAt,
+  markBackupSaved,
+  restoreLocalBackup,
+  type LocalRestoreResult,
+  type WorkoutBackupSnapshot,
+} from "@/data/local/backup";
 import { migrateLocalDatabase } from "@/data/local/migrations";
 import {
   abandonLocalWorkout,
@@ -112,6 +121,14 @@ type LocalDataContextValue = {
   importBundle: (
     bundle: WorkoutExportBundle,
   ) => Promise<Awaited<ReturnType<typeof importLocalBundle>>>;
+  /** Whole-database snapshot for the file backup. */
+  createBackup: () => Promise<WorkoutBackupSnapshot>;
+  /** Additive, idempotent merge — existing rows always win. */
+  restoreBackup: (
+    snapshot: WorkoutBackupSnapshot,
+  ) => Promise<LocalRestoreResult>;
+  /** Stamps the backup status line — see `markBackupSaved` on its accuracy. */
+  noteBackupSaved: () => Promise<void>;
   finish: (sessionId: string) => Promise<void>;
   abandon: (sessionId: string) => Promise<void>;
   deleteSession: (sessionId: string) => Promise<void>;
@@ -181,6 +198,10 @@ function LocalDataState({ children }: { children: ReactNode }) {
       archiveCustomExercise: (exerciseId) =>
         run(() => archiveLocalCustomExercise(db, exerciseId)),
       importBundle: (bundle) => run(() => importLocalBundle(db, bundle)),
+      // A read, so it deliberately skips `run` and its refresh.
+      createBackup: () => createLocalBackup(db),
+      restoreBackup: (snapshot) => run(() => restoreLocalBackup(db, snapshot)),
+      noteBackupSaved: () => run(() => markBackupSaved(db)),
       finish: (sessionId) => run(() => finishLocalWorkout(db, sessionId)),
       abandon: (sessionId) => run(() => abandonLocalWorkout(db, sessionId)),
       deleteSession: (sessionId) =>
@@ -248,6 +269,30 @@ export function useLocalPreferences() {
     () => getLocalPreferences(db),
     [db, revision],
   );
+}
+
+export type BackupStatus = {
+  /** `null` when nothing has ever been backed up on this install. */
+  at: number | null;
+  stale: boolean;
+  /** The clock reading `stale` was derived from, so callers can format
+   *  against the same instant instead of calling `Date.now()` in render. */
+  checkedAt: number;
+};
+
+/** `undefined` while still loading. */
+export function useBackupStatus() {
+  const db = useSQLiteContext();
+  const { revision } = useLocalData();
+  return useLocalValue<BackupStatus>(async () => {
+    const at = await getLastBackupAt(db);
+    const checkedAt = Date.now();
+    return {
+      at,
+      stale: at === null || checkedAt - at > BACKUP_STALE_AFTER_MS,
+      checkedAt,
+    };
+  }, [db, revision]);
 }
 
 export function useLocalTemplates() {

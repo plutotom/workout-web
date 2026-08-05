@@ -120,6 +120,12 @@ This project uses [`next/font`](https://nextjs.org/docs/app/building-your-applic
 
 Run the iOS app from the `workout-ios-v1` worktree with two terminals. The mobile app uses a custom Expo development client rather than Expo Go.
 
+### To load onto your or your friends phone:
+
+run `open mobile/ios/Workout.xcworkspace` when your phone is plugged in to let xcode index it 2. Run `pnpm ios:device:preview:release` to build and install the app on your phone
+should be good.
+you may need to go to settings -> general -> VPN & Device managment -> Trust developer.
+
 ### Terminal 1 — backend and web services
 
 From the worktree root, run:

@@ -332,7 +332,8 @@ function snapshotFromSession(
   };
 }
 
-async function queueSessionSnapshot(
+/** Exported for `backup.ts`, which queues restored rows for a later sign-in. */
+export async function queueSessionSnapshot(
   db: SQLiteDatabase,
   sessionId: string,
   createdAt = Date.now(),
@@ -1294,7 +1295,8 @@ export async function createLocalTemplateFromSession(
   return templateId;
 }
 
-async function queueTemplateSnapshot(
+/** Exported for `backup.ts` — see `queueSessionSnapshot`. */
+export async function queueTemplateSnapshot(
   db: SQLiteDatabase,
   templateId: string,
   now: number,
@@ -1538,7 +1540,8 @@ export async function listLocalCustomExercises(
   return rows.map(mapCustomExercise);
 }
 
-async function queueCustomExerciseSnapshot(
+/** Exported for `backup.ts` — see `queueSessionSnapshot`. */
+export async function queueCustomExerciseSnapshot(
   db: SQLiteDatabase,
   exerciseId: string,
   now: number,
