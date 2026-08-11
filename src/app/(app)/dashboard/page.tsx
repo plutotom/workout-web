@@ -91,18 +91,23 @@ export default function DashboardPage() {
         </Card>
       ) : today ? (
         <Card className="animate-rise-in overflow-hidden border-[var(--line)] bg-[var(--surface)]">
-          <CardHeader>
-            <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
-              Today
-            </p>
-            <CardTitle className="text-2xl">{today.name}</CardTitle>
-            <CardDescription>
-              {today.exercises.length} exercises · ~
-              {today.exercises.reduce((sum, ex) => sum + ex.setCount, 0) * 3 +
-                today.exercises.length * 2}{" "}
-              min
-            </CardDescription>
-          </CardHeader>
+          <Link
+            href={`/templates/${today._id}`}
+            className="block transition-colors active:bg-muted/40"
+          >
+            <CardHeader>
+              <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
+                Today
+              </p>
+              <CardTitle className="text-2xl">{today.name}</CardTitle>
+              <CardDescription>
+                {today.exercises.length} exercises · ~
+                {today.exercises.reduce((sum, ex) => sum + ex.setCount, 0) * 3 +
+                  today.exercises.length * 2}{" "}
+                min
+              </CardDescription>
+            </CardHeader>
+          </Link>
           <CardContent className="grid gap-4">
             <MuscleBand segments={muscleSegments} />
             <StartWorkoutButton templateId={today._id} />
@@ -219,15 +224,22 @@ export default function DashboardPage() {
                       : "h-full bg-[var(--surface)]"
                   }
                 >
-                  <CardHeader>
-                    <CardTitle className="text-base">{template.name}</CardTitle>
-                    <CardDescription>
-                      {template.exercises.length} exercises ·{" "}
-                      {template.lastSessionAt
-                        ? `last ${new Date(template.lastSessionAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
-                        : "not trained yet"}
-                    </CardDescription>
-                  </CardHeader>
+                  <Link
+                    href={`/templates/${template._id}`}
+                    className="block transition-colors active:bg-muted/40"
+                  >
+                    <CardHeader>
+                      <CardTitle className="text-base">
+                        {template.name}
+                      </CardTitle>
+                      <CardDescription>
+                        {template.exercises.length} exercises ·{" "}
+                        {template.lastSessionAt
+                          ? `last ${new Date(template.lastSessionAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
+                          : "not trained yet"}
+                      </CardDescription>
+                    </CardHeader>
+                  </Link>
                   <CardContent>
                     <StartWorkoutButton templateId={template._id} />
                   </CardContent>

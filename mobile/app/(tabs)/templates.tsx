@@ -10,7 +10,7 @@ import {
   Play,
   Share2,
 } from "lucide-react-native";
-import { Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 
 import { useMobileAuth } from "@/auth/auth-provider";
 import { Button, Card, EmptyState, PageHeader, Screen } from "@/components/ui";
@@ -134,47 +134,59 @@ export default function TemplatesScreen() {
       ) : (
         templates.map((template) => (
           <Card key={template._id}>
-            <Text
-              style={{ color: colors.text, fontSize: 17, fontWeight: "600" }}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Preview ${template.name}`}
+              onPress={() =>
+                router.push({
+                  pathname: "/template/preview/[id]",
+                  params: { id: String(template._id) },
+                })
+              }
+              style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1, gap: 8 })}
             >
-              {template.name}
-            </Text>
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
-              {template.exercises.slice(0, 4).map((exercise) => (
-                <Text
-                  key={exercise.slug}
-                  style={{
-                    color: colors.dim,
-                    fontSize: 11,
-                    backgroundColor: colors.surface2,
-                    paddingHorizontal: 9,
-                    paddingVertical: 5,
-                    borderRadius: 99,
-                  }}
-                >
-                  {catalog.short(exercise.slug)}
-                </Text>
-              ))}
-              {template.exercises.length > 4 ? (
-                <Text
-                  style={{
-                    color: colors.dim,
-                    fontSize: 11,
-                    backgroundColor: colors.surface2,
-                    paddingHorizontal: 9,
-                    paddingVertical: 5,
-                    borderRadius: 99,
-                  }}
-                >
-                  +{template.exercises.length - 4} more
-                </Text>
-              ) : null}
-            </View>
-            <Text style={{ color: colors.dim, fontSize: 11 }}>
-              {template.lastSessionAt
-                ? `Last: ${new Date(template.lastSessionAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
-                : "No sessions yet"}
-            </Text>
+              <Text
+                style={{ color: colors.text, fontSize: 17, fontWeight: "600" }}
+              >
+                {template.name}
+              </Text>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+                {template.exercises.slice(0, 4).map((exercise) => (
+                  <Text
+                    key={exercise.slug}
+                    style={{
+                      color: colors.dim,
+                      fontSize: 11,
+                      backgroundColor: colors.surface2,
+                      paddingHorizontal: 9,
+                      paddingVertical: 5,
+                      borderRadius: 99,
+                    }}
+                  >
+                    {catalog.short(exercise.slug)}
+                  </Text>
+                ))}
+                {template.exercises.length > 4 ? (
+                  <Text
+                    style={{
+                      color: colors.dim,
+                      fontSize: 11,
+                      backgroundColor: colors.surface2,
+                      paddingHorizontal: 9,
+                      paddingVertical: 5,
+                      borderRadius: 99,
+                    }}
+                  >
+                    +{template.exercises.length - 4} more
+                  </Text>
+                ) : null}
+              </View>
+              <Text style={{ color: colors.dim, fontSize: 11 }}>
+                {template.lastSessionAt
+                  ? `Last: ${new Date(template.lastSessionAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
+                  : "No sessions yet"}
+              </Text>
+            </Pressable>
             <Button
               label="Start workout"
               icon={Play}

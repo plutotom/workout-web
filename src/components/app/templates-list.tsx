@@ -80,27 +80,32 @@ export function TemplatesList() {
         <div className="flex flex-col gap-3">
           {templates.map((t) => (
             <Card key={t._id} className="overflow-hidden bg-[var(--surface)]">
-              <CardHeader>
-                <CardTitle className="text-base">{t.name}</CardTitle>
-                <div className="flex flex-wrap gap-1.5">
-                  {t.exercises.slice(0, 4).map((exercise) => (
-                    <span
-                      key={exercise.slug}
-                      className="rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground"
-                    >
-                      {catalog.short(exercise.slug)}
-                    </span>
-                  ))}
-                  {t.exercises.length > 4 ? (
-                    <span className="rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground">
-                      +{t.exercises.length - 4} more
-                    </span>
-                  ) : null}
-                </div>
-                <p className="text-muted-foreground text-xs">
-                  {formatLast(t.lastSessionAt)}
-                </p>
-              </CardHeader>
+              <Link
+                href={`/templates/${t._id}`}
+                className="block rounded-t-xl transition-colors active:bg-muted/40"
+              >
+                <CardHeader>
+                  <CardTitle className="text-base">{t.name}</CardTitle>
+                  <div className="flex flex-wrap gap-1.5">
+                    {t.exercises.slice(0, 4).map((exercise) => (
+                      <span
+                        key={exercise.slug}
+                        className="rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground"
+                      >
+                        {catalog.short(exercise.slug)}
+                      </span>
+                    ))}
+                    {t.exercises.length > 4 ? (
+                      <span className="rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground">
+                        +{t.exercises.length - 4} more
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="text-muted-foreground text-xs">
+                    {formatLast(t.lastSessionAt)}
+                  </p>
+                </CardHeader>
+              </Link>
               <CardContent className="flex flex-col gap-2">
                 <StartWorkoutButton templateId={t._id} />
                 <div className="grid grid-cols-3 gap-2">
