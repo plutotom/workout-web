@@ -140,36 +140,48 @@ export default function DashboardScreen() {
         </Card>
       ) : today ? (
         <Card>
-          <Text
-            style={{
-              color: colors.dim,
-              fontWeight: "700",
-              fontSize: 11,
-              letterSpacing: 2,
-            }}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Preview ${today.name}`}
+            onPress={() =>
+              router.push({
+                pathname: "/template/preview/[id]",
+                params: { id: String(today._id) },
+              })
+            }
+            style={({ pressed }) => ({ opacity: pressed ? 0.75 : 1, gap: 6 })}
           >
-            TODAY
-          </Text>
-          <Text
-            style={{
-              color: colors.text,
-              fontWeight: "700",
-              fontSize: 25,
-              letterSpacing: -0.5,
-            }}
-          >
-            {today.name}
-          </Text>
-          <Text style={{ color: colors.dim, fontSize: 13 }}>
-            {today.exercises.length} exercises · ~
-            {today.exercises.reduce(
-              (sum, exercise) => sum + exercise.setCount,
-              0,
-            ) *
-              3 +
-              today.exercises.length * 2}{" "}
-            min
-          </Text>
+            <Text
+              style={{
+                color: colors.dim,
+                fontWeight: "700",
+                fontSize: 11,
+                letterSpacing: 2,
+              }}
+            >
+              TODAY
+            </Text>
+            <Text
+              style={{
+                color: colors.text,
+                fontWeight: "700",
+                fontSize: 25,
+                letterSpacing: -0.5,
+              }}
+            >
+              {today.name}
+            </Text>
+            <Text style={{ color: colors.dim, fontSize: 13 }}>
+              {today.exercises.length} exercises · ~
+              {today.exercises.reduce(
+                (sum, exercise) => sum + exercise.setCount,
+                0,
+              ) *
+                3 +
+                today.exercises.length * 2}{" "}
+              min
+            </Text>
+          </Pressable>
           <MuscleBand segments={segments} />
           <Button
             label="Start workout"
@@ -281,34 +293,43 @@ export default function DashboardScreen() {
         ) : (
           <View style={{ gap: 10 }}>
             {templates.slice(0, 3).map((template) => (
-              <Pressable
-                key={template._id}
-                onPress={() => begin(template._id)}
-                style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
-              >
-                <Card style={{ flexDirection: "row", alignItems: "center" }}>
-                  <View style={{ flex: 1 }}>
-                    <Text
-                      style={{
-                        color: colors.text,
-                        fontSize: 15,
-                        fontWeight: "600",
-                      }}
-                    >
-                      {template.name}
-                    </Text>
-                    <Text
-                      style={{ color: colors.dim, fontSize: 11, marginTop: 4 }}
-                    >
-                      {template.exercises.length} exercises ·{" "}
-                      {template.lastSessionAt
-                        ? `last ${new Date(template.lastSessionAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
-                        : "not trained yet"}
-                    </Text>
-                  </View>
-                  <Play size={18} color={colors.text} />
-                </Card>
-              </Pressable>
+              <Card key={template._id}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Preview ${template.name}`}
+                  onPress={() =>
+                    router.push({
+                      pathname: "/template/preview/[id]",
+                      params: { id: String(template._id) },
+                    })
+                  }
+                  style={({ pressed }) => ({
+                    opacity: pressed ? 0.75 : 1,
+                    gap: 4,
+                  })}
+                >
+                  <Text
+                    style={{
+                      color: colors.text,
+                      fontSize: 15,
+                      fontWeight: "600",
+                    }}
+                  >
+                    {template.name}
+                  </Text>
+                  <Text style={{ color: colors.dim, fontSize: 11 }}>
+                    {template.exercises.length} exercises ·{" "}
+                    {template.lastSessionAt
+                      ? `last ${new Date(template.lastSessionAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
+                      : "not trained yet"}
+                  </Text>
+                </Pressable>
+                <Button
+                  label="Start workout"
+                  icon={Play}
+                  onPress={() => begin(template._id)}
+                />
+              </Card>
             ))}
           </View>
         )}
