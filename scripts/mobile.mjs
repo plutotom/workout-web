@@ -55,11 +55,33 @@ console.log(
   `[mobile] Using ${envLabel} → EXPO_PUBLIC_WEB_URL=${mobileEnvironment.EXPO_PUBLIC_WEB_URL}`,
 );
 
+function wantsPhysicalDevice(extra) {
+  return extra.some(
+    (arg) => arg === "--device" || arg === "-d" || arg.startsWith("--device="),
+  );
+}
+
+function childEnv(extra) {
+  const env = { ...process.env, ...mobileEnvironment };
+  if (!wantsPhysicalDevice(extra)) {
+    return env;
+  }
+  // Expo will not pass -allowProvisioningUpdates when appleTeamId already
+  // wrote DEVELOPMENT_TEAM. Prepend a shim so xcodebuild can mint a free
+  // Personal Team profile for the connected phone.
+  const shimDir = path.join(root, "scripts", "ios-signing-shim");
+  env.PATH = `${shimDir}${path.delimiter}${env.PATH ?? ""}`;
+  console.log(
+    "[mobile] Device build: automatic signing updates enabled (Personal Team, no paid profile)",
+  );
+  return env;
+}
+
 const command = process.argv[2] ?? "start";
 const extra = process.argv.slice(3);
 const child = spawn("pnpm", ["--dir", "mobile", command, ...extra], {
   cwd: root,
-  env: { ...process.env, ...mobileEnvironment },
+  env: childEnv(extra),
   stdio: "inherit",
 });
 

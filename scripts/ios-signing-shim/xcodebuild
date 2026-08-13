@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# Expo skips -allowProvisioningUpdates when DEVELOPMENT_TEAM is already set
+# (from app.json appleTeamId). Physical-device installs then fail because
+# Xcode will not mint a Personal Team profile. Forward to the real xcodebuild
+# and add those flags on actual project builds.
+set -euo pipefail
+
+REAL_XCODEBUILD=/usr/bin/xcodebuild
+
+is_project_build=0
+for arg in "$@"; do
+  case "$arg" in
+    -workspace|-project|-scheme)
+      is_project_build=1
+      ;;
+  esac
+done
+
+if [[ "$is_project_build" -eq 1 ]]; then
+  extras=()
+  joined=" $* "
+  if [[ "$joined" != *" -allowProvisioningUpdates "* ]]; then
+    extras+=(-allowProvisioningUpdates)
+  fi
+  if [[ "$joined" != *" -allowProvisioningDeviceRegistration "* ]]; then
+    extras+=(-allowProvisioningDeviceRegistration)
+  fi
+  if [[ "$joined" != *" CODE_SIGN_STYLE="* ]]; then
+    extras+=(CODE_SIGN_STYLE=Automatic)
+  fi
+  exec "$REAL_XCODEBUILD" "$@" "${extras[@]}"
+fi
+
+exec "$REAL_XCODEBUILD" "$@"
