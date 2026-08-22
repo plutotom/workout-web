@@ -26,6 +26,14 @@
       "expo-file-system",
       "expo-sharing",
       "expo-notifications",
+      [
+        "@kingstinct/react-native-healthkit",
+        {
+          "NSHealthShareUsageDescription": "Workout reads your Apple Health workouts so you can import a run, ride, swim, walk, or other activity into your training log.",
+          "NSHealthUpdateUsageDescription": "Workout can save workouts you finish in this app to Apple Health. Saving is off until you turn on export.",
+          "background": false
+        }
+      ],
       "./plugins/strip-signing-capabilities.js"
     ]
   }

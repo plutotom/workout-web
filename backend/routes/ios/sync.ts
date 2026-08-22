@@ -3,8 +3,12 @@ import { v } from "convex/values";
 import { mutation } from "../../_generated/server";
 import { requireUser } from "../../lib/auth";
 import { upsertCustomExerciseFromClient } from "../../lib/exercises";
+import { deleteWorkout } from "../../lib/workouts";
 import { muscleGroupValidator } from "../../schemas/exercises";
-import { sessionStatusValidator } from "../../schemas/workouts";
+import {
+  sessionKindValidator,
+  sessionStatusValidator,
+} from "../../schemas/workouts";
 
 const setSnapshotValidator = v.object({
   clientId: v.string(),
@@ -34,6 +38,17 @@ const sessionSnapshotValidator = v.object({
   startedAt: v.number(),
   completedAt: v.union(v.number(), v.null()),
   updatedAt: v.number(),
+  sessionKind: v.optional(sessionKindValidator),
+  countsTowardGoals: v.optional(v.boolean()),
+  externalProvider: v.optional(v.union(v.literal("apple_health"), v.null())),
+  externalId: v.optional(v.union(v.string(), v.null())),
+  activityType: v.optional(v.union(v.string(), v.null())),
+  sourceName: v.optional(v.union(v.string(), v.null())),
+  sourceBundleId: v.optional(v.union(v.string(), v.null())),
+  durationSeconds: v.optional(v.union(v.number(), v.null())),
+  energyKcal: v.optional(v.union(v.number(), v.null())),
+  distanceMeters: v.optional(v.union(v.number(), v.null())),
+  importedAt: v.optional(v.union(v.number(), v.null())),
   exercises: v.array(exerciseSnapshotValidator),
 });
 
@@ -157,12 +172,42 @@ export const pushSession = mutation({
       );
     }
 
-    const existing = await ctx.db
+    const existingByClient = await ctx.db
       .query("workoutSessions")
       .withIndex("by_user_client_id", (q) =>
         q.eq("userId", user._id).eq("clientId", args.session.clientId),
       )
       .first();
+    const externalProvider = args.session.externalProvider;
+    const externalId = args.session.externalId;
+    const existingByExternal =
+      externalProvider && externalId
+        ? await ctx.db
+            .query("workoutSessions")
+            .withIndex("by_user_external", (q) =>
+              q
+                .eq("userId", user._id)
+                .eq("externalProvider", externalProvider)
+                .eq("externalId", externalId),
+            )
+            .first()
+        : null;
+    const existing = existingByClient ?? existingByExternal;
+    if (existing && existingByClient === null) {
+      // Same Health UUID already imported from another device. Do not create
+      // a second session or replace a linked detailed workout.
+      await ctx.db.insert("iosSyncReceipts", {
+        userId: user._id,
+        operationId: args.operationId,
+        deviceId: args.deviceId,
+        appliedAt: Date.now(),
+      });
+      return {
+        status: "duplicate" as const,
+        remoteSessionId: existing._id,
+        serverTime: Date.now(),
+      };
+    }
     if (
       existing?.clientUpdatedAt !== undefined &&
       existing.clientUpdatedAt > args.session.updatedAt
@@ -182,6 +227,17 @@ export const pushSession = mutation({
       startedAt: args.session.startedAt,
       completedAt: args.session.completedAt ?? undefined,
       templateId: args.session.remoteTemplateId ?? undefined,
+      sessionKind: args.session.sessionKind ?? "tracked",
+      countsTowardGoals: args.session.countsTowardGoals ?? true,
+      externalProvider: args.session.externalProvider ?? undefined,
+      externalId: args.session.externalId ?? undefined,
+      activityType: args.session.activityType ?? undefined,
+      sourceName: args.session.sourceName ?? undefined,
+      sourceBundleId: args.session.sourceBundleId ?? undefined,
+      durationSeconds: args.session.durationSeconds ?? undefined,
+      energyKcal: args.session.energyKcal ?? undefined,
+      distanceMeters: args.session.distanceMeters ?? undefined,
+      importedAt: args.session.importedAt ?? undefined,
     };
     const sessionId = existing
       ? existing._id
@@ -279,5 +335,79 @@ export const pushSession = mutation({
       remoteSessionId: sessionId,
       serverTime: Date.now(),
     };
+  },
+});
+
+const deleteSnapshotValidator = v.object({
+  clientId: v.string(),
+  remoteId: v.union(v.string(), v.null()),
+  externalProvider: v.union(v.literal("apple_health"), v.null()),
+  externalId: v.union(v.string(), v.null()),
+});
+
+/**
+ * Idempotent delete for a locally-owned session. Never touches Apple Health.
+ */
+export const deleteSession = mutation({
+  args: {
+    operationId: v.string(),
+    deviceId: v.string(),
+    session: deleteSnapshotValidator,
+  },
+  returns: v.object({
+    status: v.union(v.literal("applied"), v.literal("duplicate")),
+    serverTime: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const user = await requireUser(ctx);
+    const duplicate = await ctx.db
+      .query("iosSyncReceipts")
+      .withIndex("by_user_operation_id", (q) =>
+        q.eq("userId", user._id).eq("operationId", args.operationId),
+      )
+      .first();
+    if (duplicate) {
+      return { status: "duplicate" as const, serverTime: Date.now() };
+    }
+
+    let existing = await ctx.db
+      .query("workoutSessions")
+      .withIndex("by_user_client_id", (q) =>
+        q.eq("userId", user._id).eq("clientId", args.session.clientId),
+      )
+      .first();
+    if (!existing && args.session.remoteId) {
+      const remoteId = ctx.db.normalizeId(
+        "workoutSessions",
+        args.session.remoteId,
+      );
+      if (remoteId) {
+        const byRemote = await ctx.db.get(remoteId);
+        if (byRemote && byRemote.userId === user._id) existing = byRemote;
+      }
+    }
+    const deleteProvider = args.session.externalProvider;
+    const deleteExternalId = args.session.externalId;
+    if (!existing && deleteProvider && deleteExternalId) {
+      existing = await ctx.db
+        .query("workoutSessions")
+        .withIndex("by_user_external", (q) =>
+          q
+            .eq("userId", user._id)
+            .eq("externalProvider", deleteProvider)
+            .eq("externalId", deleteExternalId),
+        )
+        .first();
+    }
+
+    if (existing) await deleteWorkout(ctx, user._id, existing._id);
+
+    await ctx.db.insert("iosSyncReceipts", {
+      userId: user._id,
+      operationId: args.operationId,
+      deviceId: args.deviceId,
+      appliedAt: Date.now(),
+    });
+    return { status: "applied" as const, serverTime: Date.now() };
   },
 });

@@ -9,6 +9,13 @@ export const sessionStatusValidator = v.union(
   v.literal("abandoned"),
 );
 
+export const sessionKindValidator = v.union(
+  v.literal("tracked"),
+  v.literal("health_summary"),
+);
+
+export const externalProviderValidator = v.literal("apple_health");
+
 const aiUndoSetValidator = v.object({
   orderIndex: v.number(),
   weight: v.number(),
@@ -50,10 +57,22 @@ export const workoutTables = {
     completedAt: v.optional(v.number()),
     // Last AI reshape batch — used to restore removed exercises on Undo.
     aiUndoBatch: v.optional(aiUndoBatchValidator),
+    sessionKind: v.optional(sessionKindValidator),
+    externalProvider: v.optional(externalProviderValidator),
+    externalId: v.optional(v.string()),
+    activityType: v.optional(v.string()),
+    sourceName: v.optional(v.string()),
+    sourceBundleId: v.optional(v.string()),
+    durationSeconds: v.optional(v.number()),
+    energyKcal: v.optional(v.number()),
+    distanceMeters: v.optional(v.number()),
+    countsTowardGoals: v.optional(v.boolean()),
+    importedAt: v.optional(v.number()),
   })
     .index("by_user", ["userId"])
     .index("by_user_status", ["userId", "status"])
-    .index("by_user_client_id", ["userId", "clientId"]),
+    .index("by_user_client_id", ["userId", "clientId"])
+    .index("by_user_external", ["userId", "externalProvider", "externalId"]),
 
   sessionExercises: defineTable({
     sessionId: v.id("workoutSessions"),

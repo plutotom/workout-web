@@ -41,6 +41,11 @@ const emptyOverview = {
     completedAt: number;
     durationMs: number;
     volume: number;
+    sessionKind: "tracked" | "health_summary";
+    sourceName: string | null;
+    activityType: string | null;
+    distanceMeters: number | null;
+    energyKcal: number | null;
     exercises: { slug: string; completedCount: number }[];
   }[],
 };

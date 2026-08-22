@@ -6,6 +6,7 @@ const {
   withFinalizedMod,
   withXcodeProject,
 } = require("expo/config-plugins");
+const plist = require("@expo/plist");
 
 /**
  * Local / Personal Team builds cannot use paid Apple capabilities.
@@ -14,20 +15,15 @@ const {
  * need *local* notifications — those work without it. Associated Domains are
  * production-only (AASA claims workout.plutotom.com).
  *
- * Entitlements mods from other plugins can re-add keys after a normal
- * `withEntitlementsPlist` pass, so we also rewrite the file in a finalized mod.
+ * HealthKit is a free capability and must survive prebuild: the HealthKit
+ * config plugin writes its keys, then later plugins can re-add paid keys.
+ * Strip only the unsupported local capabilities instead of emptying the file.
  *
  * `appleTeamId` in app.json writes DEVELOPMENT_TEAM during prebuild. Expo then
  * treats signing as "already configured" and skips CODE_SIGN_STYLE=Automatic
  * plus `-allowProvisioningUpdates`. Device installs need both so Xcode can
  * mint a free Personal Team profile — no paid provisioning required.
  */
-const EMPTY_ENTITLEMENTS = `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-  <dict/>
-</plist>
-`;
 
 const PAID_ENTITLEMENT_KEYS = [
   "aps-environment",
@@ -107,7 +103,11 @@ function withStripSigningCapabilities(config) {
         config.modRequest.projectRoot,
       );
       if (entitlementsPath && fs.existsSync(entitlementsPath)) {
-        fs.writeFileSync(entitlementsPath, EMPTY_ENTITLEMENTS);
+        const parsed = plist.parse(fs.readFileSync(entitlementsPath, "utf8"));
+        const stripped = stripPaidEntitlements(
+          parsed && typeof parsed === "object" ? parsed : {},
+        );
+        fs.writeFileSync(entitlementsPath, plist.build(stripped));
       }
       return config;
     },

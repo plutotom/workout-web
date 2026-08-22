@@ -43,7 +43,8 @@ import {
 import { PlateModal } from "@/components/workout/plate-modal";
 import { RestBar } from "@/components/workout/rest-bar";
 import { useAiGeneration } from "@/lib/ai";
-import { formatDate, formatWeight } from "@/lib/format";
+import { formatDate, formatDuration, formatWeight } from "@/lib/format";
+import { formatHealthDistance, formatHealthEnergy } from "@/health/mapping";
 import {
   useLocalData,
   useLocalLastSet,
@@ -70,6 +71,13 @@ type PastWorkout = {
   templateName: string;
   startedAt: number;
   completedAt?: number;
+  sessionKind?: "tracked" | "health_summary";
+  sourceName?: string | null;
+  activityType?: string | null;
+  durationSeconds?: number | null;
+  energyKcal?: number | null;
+  distanceMeters?: number | null;
+  health?: LocalWorkoutSession["health"];
   exercises: Array<{
     _id: string;
     slug: string;
@@ -1220,6 +1228,25 @@ function CompletedWorkout({
   const endedAt = session.completedAt ?? session.startedAt;
   const isCompleted = session.status === "completed";
   const unit = user?.unit ?? "lb";
+  const isHealthSummary = session.sessionKind === "health_summary";
+  const sourceName = session.health?.sourceName ?? session.sourceName ?? null;
+  const durationSeconds =
+    session.health?.durationSeconds ?? session.durationSeconds ?? null;
+  const energyKcal = session.health?.energyKcal ?? session.energyKcal ?? null;
+  const distanceMeters =
+    session.health?.distanceMeters ?? session.distanceMeters ?? null;
+  const durationMs =
+    durationSeconds != null
+      ? durationSeconds * 1000
+      : Math.max(0, Math.floor((endedAt - session.startedAt) / 1000) * 1000);
+  const healthFacts = [
+    formatDuration(durationMs),
+    formatHealthDistance(distanceMeters, unit),
+    formatHealthEnergy(energyKcal),
+    sourceName,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   function toggleCollapsed(exerciseId: string) {
     void Haptics.selectionAsync();
@@ -1297,7 +1324,9 @@ function CompletedWorkout({
               )}
             </Text>
             <Text style={{ color: colors.dim, fontSize: 11, marginTop: 2 }}>
-              {doneSets}/{totalSets} sets · {formatWeight(volume, unit)} moved
+              {isHealthSummary
+                ? healthFacts || "Imported from Apple Health"
+                : `${doneSets}/${totalSets} sets · ${formatWeight(volume, unit)} moved`}
             </Text>
           </View>
         </View>
@@ -1314,13 +1343,44 @@ function CompletedWorkout({
               height: "100%",
               borderRadius: 3,
               backgroundColor: colors.success,
-              width: `${totalSets ? (doneSets / totalSets) * 100 : 0}%`,
+              width: `${
+                isHealthSummary
+                  ? 100
+                  : totalSets
+                    ? (doneSets / totalSets) * 100
+                    : 0
+              }%`,
             }}
           />
         </View>
+        {isHealthSummary ? (
+          <Text style={{ color: colors.dim, fontSize: 12, lineHeight: 18 }}>
+            Imported from Apple Health. This copy does not include lifts, sets,
+            or volume.
+          </Text>
+        ) : null}
       </Card>
 
-      {session.exercises.length ? (
+      {isHealthSummary ? (
+        <Card>
+          <Text
+            style={{
+              color: colors.dim,
+              fontSize: 10,
+              fontWeight: "700",
+              letterSpacing: 1.5,
+            }}
+          >
+            APPLE HEALTH
+          </Text>
+          <Text style={{ color: colors.text, fontSize: 16, fontWeight: "700" }}>
+            {session.templateName}
+          </Text>
+          <Text style={{ color: colors.dim, fontSize: 13, lineHeight: 19 }}>
+            {healthFacts || "Summary imported from Apple Health."}
+          </Text>
+        </Card>
+      ) : session.exercises.length ? (
         session.exercises.map((exercise) => {
           const exerciseDone = exercise.sets.filter(
             (set) => set.completed,
@@ -1433,21 +1493,27 @@ function CompletedWorkout({
       <Button label="Done" onPress={() => router.replace("/dashboard")} />
       {canDelete ? (
         <Button
-          label="Delete workout"
+          label={isHealthSummary ? "Remove from Workout" : "Delete workout"}
           variant="ghost"
           icon={Trash2}
           onPress={() =>
-            Alert.alert("Delete this workout?", "This cannot be undone.", [
-              { text: "Cancel", style: "cancel" },
-              {
-                text: "Delete",
-                style: "destructive",
-                onPress: () =>
-                  void deleteSession(session._id).then(() =>
-                    router.replace("/insights"),
-                  ),
-              },
-            ])
+            Alert.alert(
+              isHealthSummary ? "Remove from Workout?" : "Delete this workout?",
+              isHealthSummary
+                ? "The original workout stays in Apple Health. Only this copy in Workout is removed."
+                : "This cannot be undone.",
+              [
+                { text: "Cancel", style: "cancel" },
+                {
+                  text: isHealthSummary ? "Remove" : "Delete",
+                  style: "destructive",
+                  onPress: () =>
+                    void deleteSession(session._id).then(() =>
+                      router.replace("/insights"),
+                    ),
+                },
+              ],
+            )
           }
         />
       ) : null}
