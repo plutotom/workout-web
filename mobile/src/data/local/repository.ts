@@ -6,14 +6,18 @@ import type {
   IosBootstrapPayload,
   LocalActiveWorkout,
   LocalCustomExercise,
+  LocalHealthSummary,
   LocalMuscleGroup,
   LocalPreferences,
+  LocalSessionKind,
   LocalTemplate,
   LocalWorkoutExercise,
   LocalWorkoutSession,
   LocalWorkoutSet,
   PendingCustomExerciseSync,
+  PendingSessionDelete,
   PendingSessionSync,
+  SessionDeleteSnapshot,
   SessionSyncSnapshot,
 } from "@/data/local/types";
 import {
@@ -53,10 +57,46 @@ type SessionRow = {
   remote_template_id: string | null;
   template_name: string;
   status: LocalWorkoutSession["status"];
+  session_kind: LocalSessionKind | null;
   started_at: number;
   completed_at: number | null;
   updated_at: number;
+  counts_toward_goals: number | null;
+  external_provider: string | null;
+  external_id: string | null;
+  activity_type: string | null;
+  source_name: string | null;
+  source_bundle_id: string | null;
+  duration_seconds: number | null;
+  energy_kcal: number | null;
+  distance_meters: number | null;
+  imported_at: number | null;
 };
+
+const SESSION_COLUMNS = `id, remote_id, template_id, remote_template_id, template_name,
+            status, session_kind, started_at, completed_at, updated_at,
+            counts_toward_goals, external_provider, external_id, activity_type,
+            source_name, source_bundle_id, duration_seconds, energy_kcal,
+            distance_meters, imported_at`;
+
+function mapHealthSummary(row: SessionRow): LocalHealthSummary | null {
+  if (row.external_provider !== "apple_health" || !row.external_id) return null;
+  return {
+    provider: "apple_health",
+    externalId: row.external_id,
+    activityType: row.activity_type ?? "other",
+    sourceName: row.source_name,
+    sourceBundleId: row.source_bundle_id,
+    durationSeconds: row.duration_seconds,
+    energyKcal: row.energy_kcal,
+    distanceMeters: row.distance_meters,
+    importedAt: row.imported_at,
+  };
+}
+
+function mapSessionKind(value: string | null): LocalSessionKind {
+  return value === "health_summary" ? "health_summary" : "tracked";
+}
 
 type ExerciseRow = {
   id: string;
@@ -148,8 +188,7 @@ export async function getLocalWorkout(
   sessionId: string,
 ): Promise<LocalWorkoutSession | null> {
   const session = await db.getFirstAsync<SessionRow>(
-    `SELECT id, remote_id, template_id, remote_template_id, template_name,
-            status, started_at, completed_at, updated_at
+    `SELECT ${SESSION_COLUMNS}
        FROM local_sessions
       WHERE id = ?`,
     sessionId,
@@ -170,11 +209,14 @@ export async function getLocalWorkout(
     remoteId: session.remote_id,
     remoteTemplateId: session.remote_template_id,
     status: session.status,
+    sessionKind: mapSessionKind(session.session_kind),
     templateId: session.template_id,
     templateName: session.template_name,
     startedAt: session.started_at,
     completedAt: session.completed_at ?? undefined,
     updatedAt: session.updated_at,
+    countsTowardGoals: session.counts_toward_goals !== 0,
+    health: mapHealthSummary(session),
     exercises,
   };
 }
@@ -187,6 +229,9 @@ export type LocalInsightsSession = {
   templateName: string;
   startedAt: number;
   completedAt: number;
+  sessionKind: LocalSessionKind;
+  countsTowardGoals: boolean;
+  health: LocalHealthSummary | null;
   exercises: Array<{
     slug: string;
     sets: Array<{
@@ -202,17 +247,8 @@ export type LocalInsightsSession = {
 export async function listLocalCompletedSessions(
   db: SQLiteDatabase,
 ): Promise<LocalInsightsSession[]> {
-  const sessions = await db.getAllAsync<{
-    id: string;
-    remote_id: string | null;
-    template_id: string | null;
-    remote_template_id: string | null;
-    template_name: string;
-    started_at: number;
-    completed_at: number | null;
-  }>(
-    `SELECT id, remote_id, template_id, remote_template_id, template_name,
-            started_at, completed_at
+  const sessions = await db.getAllAsync<SessionRow>(
+    `SELECT ${SESSION_COLUMNS}
        FROM local_sessions
       WHERE status = 'completed'
       ORDER BY COALESCE(completed_at, started_at) DESC`,
@@ -264,16 +300,20 @@ export async function listLocalCompletedSessions(
         templateName: templateName.length > 0 ? templateName : "Quick start",
         startedAt: session.started_at,
         completedAt: session.completed_at ?? session.started_at,
+        sessionKind: mapSessionKind(session.session_kind),
+        countsTowardGoals: session.counts_toward_goals !== 0,
+        health: mapHealthSummary(session),
         exercises: withSets,
       } satisfies LocalInsightsSession;
     }),
   );
 
-  return loaded.filter((session) =>
-    session.exercises.some((exercise) =>
+  return loaded.filter((session) => {
+    if (session.sessionKind === "health_summary") return true;
+    return session.exercises.some((exercise) =>
       exercise.sets.some((set) => set.completed && set.reps > 0),
-    ),
-  );
+    );
+  });
 }
 
 export async function getLocalActiveWorkout(
@@ -309,9 +349,20 @@ function snapshotFromSession(
     remoteTemplateId: session.remoteTemplateId,
     templateName: session.templateName,
     status: session.status,
+    sessionKind: session.sessionKind,
     startedAt: session.startedAt,
     completedAt: session.completedAt ?? null,
     updatedAt: session.updatedAt,
+    countsTowardGoals: session.countsTowardGoals,
+    externalProvider: session.health?.provider ?? null,
+    externalId: session.health?.externalId ?? null,
+    activityType: session.health?.activityType ?? null,
+    sourceName: session.health?.sourceName ?? null,
+    sourceBundleId: session.health?.sourceBundleId ?? null,
+    durationSeconds: session.health?.durationSeconds ?? null,
+    energyKcal: session.health?.energyKcal ?? null,
+    distanceMeters: session.health?.distanceMeters ?? null,
+    importedAt: session.health?.importedAt ?? null,
     exercises: session.exercises.map((exercise) => ({
       clientId: exercise._id,
       slug: exercise.slug,
@@ -788,19 +839,43 @@ export async function deleteLocalWorkout(
   db: SQLiteDatabase,
   sessionId: string,
 ) {
-  const row = await db.getFirstAsync<{ status: string }>(
-    "SELECT status FROM local_sessions WHERE id = ?",
+  const row = await db.getFirstAsync<SessionRow>(
+    `SELECT ${SESSION_COLUMNS} FROM local_sessions WHERE id = ?`,
     sessionId,
   );
   if (!row) return;
   if (row.status === "in_progress")
     throw new Error("Cannot delete an active workout");
-  await db.runAsync("DELETE FROM local_sessions WHERE id = ?", sessionId);
-  await db.runAsync(
-    `DELETE FROM local_sync_outbox
-      WHERE entity_type = 'session' AND entity_id = ?`,
-    sessionId,
-  );
+  const now = Date.now();
+  const deleteSnapshot: SessionDeleteSnapshot = {
+    clientId: row.id,
+    remoteId: row.remote_id,
+    externalProvider:
+      row.external_provider === "apple_health" ? "apple_health" : null,
+    externalId: row.external_id,
+  };
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    await txn.runAsync(
+      `DELETE FROM local_sync_outbox
+        WHERE entity_type = 'session' AND entity_id = ?`,
+      sessionId,
+    );
+    await txn.runAsync(
+      `INSERT INTO local_sync_outbox (
+         entity_type, entity_id, operation_id, payload_json, created_at, attempt_count
+       ) VALUES ('session_delete', ?, ?, ?, ?, 0)
+       ON CONFLICT(entity_type, entity_id) DO UPDATE SET
+         operation_id = excluded.operation_id,
+         payload_json = excluded.payload_json,
+         created_at = excluded.created_at,
+         attempt_count = 0`,
+      sessionId,
+      randomUUID(),
+      JSON.stringify(deleteSnapshot),
+      now,
+    );
+    await txn.runAsync("DELETE FROM local_sessions WHERE id = ?", sessionId);
+  });
 }
 
 export async function getLocalTemplate(
@@ -2086,6 +2161,259 @@ export async function completeSessionSync(
       operationId,
     );
   });
+}
+
+export async function getPendingSessionDelete(
+  db: SQLiteDatabase,
+): Promise<PendingSessionDelete | null> {
+  const row = await db.getFirstAsync<{
+    operation_id: string;
+    entity_id: string;
+    payload_json: string;
+    created_at: number;
+    attempt_count: number;
+  }>(
+    `SELECT operation_id, entity_id, payload_json, created_at, attempt_count
+       FROM local_sync_outbox
+      WHERE entity_type = 'session_delete'
+      ORDER BY created_at
+      LIMIT 1`,
+  );
+  if (!row) return null;
+  return {
+    operationId: row.operation_id,
+    sessionId: row.entity_id,
+    snapshot: JSON.parse(row.payload_json) as SessionDeleteSnapshot,
+    createdAt: row.created_at,
+    attemptCount: row.attempt_count,
+  };
+}
+
+export async function completeSessionDeleteSync(
+  db: SQLiteDatabase,
+  operationId: string,
+) {
+  await db.runAsync(
+    "DELETE FROM local_sync_outbox WHERE operation_id = ?",
+    operationId,
+  );
+}
+
+const HEALTH_AUTH_REQUESTED_KEY = "health_auth_requested";
+
+export async function getHealthAuthRequested(db: SQLiteDatabase) {
+  const row = await db.getFirstAsync<{ value: string }>(
+    "SELECT value FROM local_metadata WHERE key = ?",
+    HEALTH_AUTH_REQUESTED_KEY,
+  );
+  return row?.value === "1";
+}
+
+export async function setHealthAuthRequested(
+  db: SQLiteDatabase,
+  requested = true,
+) {
+  await db.runAsync(
+    `INSERT INTO local_metadata (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    HEALTH_AUTH_REQUESTED_KEY,
+    requested ? "1" : "0",
+  );
+}
+
+export async function findLocalSessionByExternalId(
+  db: SQLiteDatabase,
+  provider: string,
+  externalId: string,
+) {
+  return db.getFirstAsync<{ id: string; session_kind: string | null }>(
+    `SELECT id, session_kind
+       FROM local_sessions
+      WHERE external_provider = ? AND external_id = ?`,
+    provider,
+    externalId,
+  );
+}
+
+export async function listImportedHealthIds(db: SQLiteDatabase) {
+  const rows = await db.getAllAsync<{
+    id: string;
+    external_id: string;
+    session_kind: string | null;
+  }>(
+    `SELECT id, external_id, session_kind
+       FROM local_sessions
+      WHERE external_provider = 'apple_health' AND external_id IS NOT NULL`,
+  );
+  return new Map(
+    rows.map((row) => [
+      row.external_id,
+      { sessionId: row.id, sessionKind: mapSessionKind(row.session_kind) },
+    ]),
+  );
+}
+
+export async function listIgnoredHealthIds(db: SQLiteDatabase) {
+  const rows = await db.getAllAsync<{ external_id: string }>(
+    "SELECT external_id FROM local_health_ignored",
+  );
+  return new Set(rows.map((row) => row.external_id));
+}
+
+export async function ignoreHealthWorkout(
+  db: SQLiteDatabase,
+  externalId: string,
+) {
+  await db.runAsync(
+    `INSERT INTO local_health_ignored (external_id, ignored_at)
+     VALUES (?, ?)
+     ON CONFLICT(external_id) DO UPDATE SET ignored_at = excluded.ignored_at`,
+    externalId,
+    Date.now(),
+  );
+}
+
+export type LocalOverlapSession = {
+  sessionId: string;
+  templateName: string;
+  startedAt: number;
+  completedAt: number;
+};
+
+export async function listLocalOverlapCandidates(
+  db: SQLiteDatabase,
+): Promise<LocalOverlapSession[]> {
+  const rows = await db.getAllAsync<{
+    id: string;
+    template_name: string;
+    started_at: number;
+    completed_at: number | null;
+  }>(
+    `SELECT id, template_name, started_at, completed_at
+       FROM local_sessions
+      WHERE status = 'completed' AND session_kind = 'tracked'`,
+  );
+  return rows.map((row) => ({
+    sessionId: row.id,
+    templateName: row.template_name,
+    startedAt: row.started_at,
+    completedAt: row.completed_at ?? row.started_at,
+  }));
+}
+
+export type HealthSummaryImport = {
+  uuid: string;
+  activityType: string;
+  activityName: string;
+  startedAt: number;
+  endedAt: number;
+  durationSeconds: number;
+  energyKcal: number | null;
+  distanceMeters: number | null;
+  sourceName: string | null;
+  sourceBundleId: string | null;
+};
+
+export async function importHealthSummarySession(
+  db: SQLiteDatabase,
+  workout: HealthSummaryImport,
+): Promise<{ sessionId: string; alreadyImported: boolean }> {
+  const existing = await findLocalSessionByExternalId(
+    db,
+    "apple_health",
+    workout.uuid,
+  );
+  if (existing) return { sessionId: existing.id, alreadyImported: true };
+
+  const now = Date.now();
+  const sessionId = randomUUID();
+  try {
+    await db.withExclusiveTransactionAsync(async (txn) => {
+      await txn.runAsync(
+        `INSERT INTO local_sessions (
+           id, template_name, status, session_kind, started_at, completed_at,
+           updated_at, counts_toward_goals, external_provider, external_id,
+           activity_type, source_name, source_bundle_id, duration_seconds,
+           energy_kcal, distance_meters, imported_at
+         ) VALUES (
+           ?, ?, 'completed', 'health_summary', ?, ?, ?, 1, 'apple_health', ?,
+           ?, ?, ?, ?, ?, ?, ?
+         )`,
+        sessionId,
+        workout.activityName,
+        workout.startedAt,
+        workout.endedAt,
+        now,
+        workout.uuid,
+        workout.activityType,
+        workout.sourceName,
+        workout.sourceBundleId,
+        workout.durationSeconds,
+        workout.energyKcal,
+        workout.distanceMeters,
+        now,
+      );
+      await queueSessionSnapshot(txn, sessionId, now);
+    });
+  } catch (caught) {
+    const duplicate = await findLocalSessionByExternalId(
+      db,
+      "apple_health",
+      workout.uuid,
+    );
+    if (duplicate) return { sessionId: duplicate.id, alreadyImported: true };
+    throw caught;
+  }
+  return { sessionId, alreadyImported: false };
+}
+
+export async function linkHealthSummaryToSession(
+  db: SQLiteDatabase,
+  sessionId: string,
+  workout: HealthSummaryImport,
+) {
+  const existing = await findLocalSessionByExternalId(
+    db,
+    "apple_health",
+    workout.uuid,
+  );
+  if (existing && existing.id !== sessionId) {
+    throw new Error("This Apple Health workout is already linked");
+  }
+  const session = await db.getFirstAsync<{
+    status: string;
+    session_kind: string | null;
+  }>("SELECT status, session_kind FROM local_sessions WHERE id = ?", sessionId);
+  if (!session) throw new Error("Session not found");
+  if (session.status !== "completed") {
+    throw new Error("Can only link Health to a completed workout");
+  }
+  const now = Date.now();
+  await db.runAsync(
+    `UPDATE local_sessions
+        SET external_provider = 'apple_health',
+            external_id = ?,
+            activity_type = ?,
+            source_name = ?,
+            source_bundle_id = ?,
+            duration_seconds = COALESCE(duration_seconds, ?),
+            energy_kcal = COALESCE(energy_kcal, ?),
+            distance_meters = COALESCE(distance_meters, ?),
+            imported_at = COALESCE(imported_at, ?),
+            updated_at = ?
+      WHERE id = ?`,
+    workout.uuid,
+    workout.activityType,
+    workout.sourceName,
+    workout.sourceBundleId,
+    workout.durationSeconds,
+    workout.energyKcal,
+    workout.distanceMeters,
+    now,
+    now,
+    sessionId,
+  );
+  await queueSessionSnapshot(db, sessionId, now);
 }
 
 export async function getOrCreateDeviceId(db: SQLiteDatabase) {

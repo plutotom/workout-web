@@ -24,11 +24,13 @@ export function DeleteWorkoutButton({
   onDeleted,
   variant = "button",
   className,
+  fromHealth = false,
 }: {
   sessionId: Id<"workoutSessions">;
   onDeleted?: () => void;
   variant?: "button" | "icon";
   className?: string;
+  fromHealth?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -81,17 +83,20 @@ export function DeleteWorkoutButton({
           onClick={() => setOpen(true)}
         >
           <Trash2 className="size-4" />
-          Delete workout
+          {fromHealth ? "Remove from Workout" : "Delete workout"}
         </Button>
       )}
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete this workout?</DialogTitle>
+            <DialogTitle>
+              {fromHealth ? "Remove from Workout?" : "Delete this workout?"}
+            </DialogTitle>
             <DialogDescription>
-              This permanently removes the session from your history and
-              insights. It cannot be undone.
+              {fromHealth
+                ? "The original workout stays in Apple Health. Only this copy in Workout is removed."
+                : "This permanently removes the session from your history and insights. It cannot be undone."}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -105,7 +110,7 @@ export function DeleteWorkoutButton({
               disabled={deleting}
               onClick={() => void handleDelete()}
             >
-              {deleting ? "Deleting…" : "Delete"}
+              {deleting ? "Deleting…" : fromHealth ? "Remove" : "Delete"}
             </Button>
           </DialogFooter>
         </DialogContent>

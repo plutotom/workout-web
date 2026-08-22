@@ -1,5 +1,9 @@
 import type { Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
+import {
+  normalizeSessionKind,
+  sessionCountsTowardGoals,
+} from "./health-sessions";
 
 export type InsightsDays = 7 | 30 | 90 | null;
 
@@ -90,6 +94,13 @@ export type LoadedSession = {
   templateName: string;
   startedAt: number;
   completedAt: number;
+  sessionKind: "tracked" | "health_summary";
+  countsTowardGoals: boolean;
+  durationSeconds: number | null;
+  energyKcal: number | null;
+  distanceMeters: number | null;
+  sourceName: string | null;
+  activityType: string | null;
   exercises: LoadedExercise[];
 };
 
@@ -147,11 +158,24 @@ async function loadCompletedSessions(
           })(),
           startedAt: s.startedAt,
           completedAt: s.completedAt ?? s.startedAt,
+          sessionKind: normalizeSessionKind(s.sessionKind),
+          countsTowardGoals: s.countsTowardGoals !== false,
+          durationSeconds: s.durationSeconds ?? null,
+          energyKcal: s.energyKcal ?? null,
+          distanceMeters: s.distanceMeters ?? null,
+          sourceName: s.sourceName ?? null,
+          activityType: s.activityType ?? null,
           exercises: withSets,
         };
       }),
     )
-  ).filter(sessionHasLoggedWork);
+  ).filter((session) =>
+    sessionCountsTowardGoals({
+      sessionKind: session.sessionKind,
+      countsTowardGoals: session.countsTowardGoals,
+      hasLoggedWork: sessionHasLoggedWork(session),
+    }),
+  );
 }
 
 /** Session counts toward weekly goals if it has at least one checked set
@@ -271,6 +295,11 @@ export type InsightsSessionSummary = {
   completedAt: number;
   durationMs: number;
   volume: number;
+  sessionKind: "tracked" | "health_summary";
+  sourceName: string | null;
+  activityType: string | null;
+  distanceMeters: number | null;
+  energyKcal: number | null;
   exercises: { slug: string; completedCount: number }[];
 };
 
@@ -280,12 +309,21 @@ export type VolumeTrendPoint = {
 };
 
 function formatSessionSummary(session: LoadedSession): InsightsSessionSummary {
+  const durationMs =
+    session.durationSeconds != null
+      ? session.durationSeconds * 1000
+      : Math.max(0, session.completedAt - session.startedAt);
   return {
     sessionId: session.sessionId,
     templateName: session.templateName,
     completedAt: session.completedAt,
-    durationMs: Math.max(0, session.completedAt - session.startedAt),
+    durationMs,
     volume: sessionVolume(session),
+    sessionKind: session.sessionKind,
+    sourceName: session.sourceName,
+    activityType: session.activityType,
+    distanceMeters: session.distanceMeters,
+    energyKcal: session.energyKcal,
     exercises: session.exercises.map((e) => ({
       slug: e.slug,
       completedCount: e.sets.filter((set) => set.completed).length,
@@ -422,10 +460,10 @@ export async function getOverview(
 
   const weekStreak = computeWeekStreak(all.map((s) => s.completedAt));
 
-  const totalDurationMs = inPeriod.reduce(
-    (sum, s) => sum + Math.max(0, s.completedAt - s.startedAt),
-    0,
-  );
+  const totalDurationMs = inPeriod.reduce((sum, s) => {
+    if (s.durationSeconds != null) return sum + s.durationSeconds * 1000;
+    return sum + Math.max(0, s.completedAt - s.startedAt);
+  }, 0);
   const totalVolume = inPeriod.reduce((sum, s) => sum + sessionVolume(s), 0);
   const priorPeriod = sessionsInPriorPeriod(all, days, now);
   const priorTotalVolume = priorPeriod.reduce(

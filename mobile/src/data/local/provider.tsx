@@ -26,6 +26,7 @@ import {
   applyIosBootstrap,
   archiveLocalCustomExercise,
   completeCustomExerciseSync,
+  completeSessionDeleteSync,
   completeSessionSync,
   completeTemplateSync,
   createLocalTemplateFromSession,
@@ -33,6 +34,7 @@ import {
   deleteLocalTemplate,
   deleteLocalWorkout,
   finishLocalWorkout,
+  getHealthAuthRequested,
   getLocalActiveWorkout,
   getLastLocalSet,
   getLocalExerciseNotes,
@@ -42,10 +44,17 @@ import {
   getLocalWorkout,
   getOrCreateDeviceId,
   getPendingCustomExerciseSync,
+  getPendingSessionDelete,
   getPendingSessionSync,
   getPendingTemplateSync,
+  ignoreHealthWorkout,
+  importHealthSummarySession,
   importLocalBundle,
+  linkHealthSummaryToSession,
+  listImportedHealthIds,
+  listIgnoredHealthIds,
   listLocalCustomExercises,
+  listLocalOverlapCandidates,
   localSessionTemplateDiffers,
   moveLocalExercise,
   noteCustomExerciseSyncAttempt,
@@ -55,10 +64,13 @@ import {
   saveLocalCustomExercise,
   saveLocalExerciseNote,
   saveLocalTemplate,
+  setHealthAuthRequested,
   startLocalBlankWorkout,
   startLocalTemplateWorkout,
   syncLocalTemplateFromSession,
   updateLocalSet,
+  type HealthSummaryImport,
+  type LocalOverlapSession,
 } from "@/data/local/repository";
 import type {
   IosBootstrapPayload,
@@ -132,6 +144,15 @@ type LocalDataContextValue = {
   finish: (sessionId: string) => Promise<void>;
   abandon: (sessionId: string) => Promise<void>;
   deleteSession: (sessionId: string) => Promise<void>;
+  importHealthSummary: (
+    workout: HealthSummaryImport,
+  ) => Promise<{ sessionId: string; alreadyImported: boolean }>;
+  linkHealthSummary: (
+    sessionId: string,
+    workout: HealthSummaryImport,
+  ) => Promise<void>;
+  ignoreHealthUuid: (externalId: string) => Promise<void>;
+  markHealthAuthRequested: () => Promise<void>;
   applyBootstrap: (payload: IosBootstrapPayload) => Promise<void>;
 };
 
@@ -206,6 +227,13 @@ function LocalDataState({ children }: { children: ReactNode }) {
       abandon: (sessionId) => run(() => abandonLocalWorkout(db, sessionId)),
       deleteSession: (sessionId) =>
         run(() => deleteLocalWorkout(db, sessionId)),
+      importHealthSummary: (workout) =>
+        run(() => importHealthSummarySession(db, workout)),
+      linkHealthSummary: (sessionId, workout) =>
+        run(() => linkHealthSummaryToSession(db, sessionId, workout)),
+      ignoreHealthUuid: (externalId) =>
+        run(() => ignoreHealthWorkout(db, externalId)),
+      markHealthAuthRequested: () => run(() => setHealthAuthRequested(db)),
       applyBootstrap: (payload) => run(() => applyIosBootstrap(db, payload)),
     }),
     [db, refresh, revision, run],
@@ -349,6 +377,7 @@ export function useLocalSyncStore() {
     () => ({
       revision,
       getPendingSession: () => getPendingSessionSync(db),
+      getPendingSessionDelete: () => getPendingSessionDelete(db),
       getPendingTemplate: () => getPendingTemplateSync(db),
       getPendingCustomExercise: () => getPendingCustomExerciseSync(db),
       noteSessionAttempt: (operationId: string) =>
@@ -380,6 +409,10 @@ export function useLocalSyncStore() {
         await completeSessionSync(db, operationId, sessionId, remoteSessionId);
         refresh();
       },
+      completeSessionDelete: async (operationId: string) => {
+        await completeSessionDeleteSync(db, operationId);
+        refresh();
+      },
       completeTemplate: async (
         operationId: string,
         templateId: string,
@@ -397,4 +430,27 @@ export function useLocalSyncStore() {
     }),
     [db, refresh, revision],
   );
+}
+
+export function useHealthImportLookups() {
+  const db = useSQLiteContext();
+  const { revision } = useLocalData();
+  return useLocalValue<{
+    imported: Map<
+      string,
+      { sessionId: string; sessionKind: "tracked" | "health_summary" }
+    >;
+    ignored: Set<string>;
+    overlapCandidates: LocalOverlapSession[];
+    authRequested: boolean;
+  }>(async () => {
+    const [imported, ignored, overlapCandidates, authRequested] =
+      await Promise.all([
+        listImportedHealthIds(db),
+        listIgnoredHealthIds(db),
+        listLocalOverlapCandidates(db),
+        getHealthAuthRequested(db),
+      ]);
+    return { imported, ignored, overlapCandidates, authRequested };
+  }, [db, revision]);
 }

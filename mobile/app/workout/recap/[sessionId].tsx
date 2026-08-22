@@ -25,7 +25,9 @@ import type {
   WorkoutRecap,
 } from "@/data/local/insights";
 import { useLocalWorkoutRecap } from "@/data/local/use-local-insights";
+import { useLocalPreferences } from "@/data/local/provider";
 import { formatDate, formatDuration } from "@/lib/format";
+import { formatHealthDistance, formatHealthEnergy } from "@/health/mapping";
 import { useCatalog } from "@/providers/catalog-provider";
 import { colors, radius, space } from "@/theme";
 
@@ -427,6 +429,14 @@ function useWorkoutRecap(sessionId: string) {
       templateName: remote.session.templateName,
       startedAt: remote.session.startedAt,
       completedAt: remote.session.completedAt ?? remote.session.startedAt,
+      sessionKind:
+        remote.session.sessionKind === "health_summary"
+          ? "health_summary"
+          : "tracked",
+      sourceName: remote.session.sourceName ?? null,
+      activityType: remote.session.activityType ?? null,
+      distanceMeters: remote.session.distanceMeters ?? null,
+      energyKcal: remote.session.energyKcal ?? null,
     },
     consistency: {
       ...remote.consistency,
@@ -438,6 +448,7 @@ function useWorkoutRecap(sessionId: string) {
 export default function WorkoutRecapScreen() {
   const { sessionId } = useLocalSearchParams<{ sessionId: string }>();
   const recap = useWorkoutRecap(sessionId);
+  const prefs = useLocalPreferences();
   const catalog = useCatalog();
   const [step, setStep] = useState(0);
   const [sharing, setSharing] = useState(false);
@@ -508,8 +519,62 @@ export default function WorkoutRecapScreen() {
   const standoutShort = standout ? catalog.short(standout.slug) : "Progress";
   const callout = standout ? standoutCallout(standout, standoutShort) : null;
   const progressionBeat = story ? progressionCopy(story, standoutShort) : null;
+  const unit = prefs?.unit ?? "lb";
+  const isHealthSummary = recap.session.sessionKind === "health_summary";
+  const healthDistance = formatHealthDistance(
+    recap.session.distanceMeters,
+    unit,
+  );
+  const healthEnergy = formatHealthEnergy(recap.session.energyKcal);
 
-  const beats: Array<{
+  const healthBeats: Array<{
+    kicker: string;
+    title: string;
+    body: string;
+    extra?: ReactNode;
+  }> = [
+    {
+      kicker: "Imported from Health",
+      title: templateName,
+      body: formatDate(completedAt),
+      extra: (
+        <Card style={{ marginTop: space.xxl }}>
+          <Kicker>Duration</Kicker>
+          <Text style={{ color: colors.text, fontSize: 52, fontWeight: "700" }}>
+            {formatDuration(recap.totals.durationMs)}
+          </Text>
+          <Text style={{ color: colors.dim }}>
+            {recap.session.sourceName
+              ? `From ${recap.session.sourceName}`
+              : "Apple Health summary"}
+          </Text>
+        </Card>
+      ),
+    },
+    {
+      kicker: "Activity",
+      title: templateName,
+      body:
+        [healthDistance, healthEnergy].filter(Boolean).join(" · ") ||
+        "Summary only — no lifts, sets, or volume.",
+      extra: (
+        <View
+          style={{ flexDirection: "row", gap: space.sm, marginTop: space.xl }}
+        >
+          <Stat
+            label="Minutes"
+            value={formatDuration(recap.totals.durationMs)}
+          />
+          {healthDistance ? (
+            <Stat label="Distance" value={healthDistance} />
+          ) : null}
+          {healthEnergy ? <Stat label="Energy" value={healthEnergy} /> : null}
+        </View>
+      ),
+    },
+  ];
+
+  const liftingBeats: Array<{
     kicker: string;
     title: string;
     body: string;
@@ -676,6 +741,18 @@ export default function WorkoutRecapScreen() {
       ),
     },
   ];
+
+  const beats = isHealthSummary
+    ? [
+        ...healthBeats,
+        {
+          kicker: "Consistency",
+          title: `${recap.consistency.sessionsThisWeek}/${recap.consistency.weeklyGoal} this week`,
+          body: `${recap.consistency.weekStreak} week streak`,
+          extra: <WeekGrid daysWorked={recap.consistency.daysWorked} />,
+        },
+      ]
+    : liftingBeats;
 
   const safeStep = Math.min(step, beats.length - 1);
   const beat = beats[safeStep];

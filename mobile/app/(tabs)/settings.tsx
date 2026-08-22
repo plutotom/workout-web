@@ -37,6 +37,7 @@ import { useBackupStatus, useLocalData } from "@/data/local/provider";
 import { requirePublicConfig } from "@/lib/config";
 import { formatRelativeDay } from "@/lib/format";
 import { pickBackupFile, shareBackupFile } from "@/lib/workout-transfer";
+import { HealthSettingsCard } from "@/health/health-settings-card";
 import { colors } from "@/theme";
 
 const unitOptions = [
@@ -100,6 +101,7 @@ function OfflineSettingsScreen() {
           onPress={() => void connectAccount()}
         />
       </Card>
+      <HealthSettingsCard />
       <BackupCard signedIn={false} />
       <Card>
         <Sparkles color={colors.text} size={22} />
@@ -361,6 +363,7 @@ function SettingsContent({
             onPress={() => router.push("/import-workouts")}
           />
         </Card>
+        <HealthSettingsCard />
         <BackupCard signedIn />
         <PlanCard />
         <AdminCard />
