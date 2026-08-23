@@ -6,6 +6,7 @@ import {
   energyKcalFromQuantity,
   formatHealthDistance,
   formatHealthEnergy,
+  healthSyncIdentifier,
   isAppAuthoredHealthWorkout,
   normalizeHealthWorkout,
   resolveActivityMeta,
@@ -100,6 +101,7 @@ describe("normalizeHealthWorkout", () => {
       energyKcal: 410,
       sourceName: "Apple Watch",
       sourceBundleId: "com.apple.health",
+      syncIdentifier: null,
     });
   });
 
@@ -112,6 +114,22 @@ describe("normalizeHealthWorkout", () => {
         endDate: Date.now() + 1000,
       }),
     ).toBeNull();
+  });
+
+  it("carries HealthKit sync metadata used to skip exported workouts", () => {
+    const workout = normalizeHealthWorkout({
+      uuid: "exported-1",
+      workoutActivityType: 50,
+      startDate: Date.parse("2026-08-22T12:00:00.000Z"),
+      endDate: Date.parse("2026-08-22T13:00:00.000Z"),
+      metadata: {
+        HKMetadataKeySyncIdentifier: healthSyncIdentifier("session-1"),
+        HKMetadataKeySyncVersion: 1,
+      },
+    });
+    expect(workout?.syncIdentifier).toBe(
+      "com.isaiahproctor.workout.local:session:session-1",
+    );
   });
 });
 
@@ -126,6 +144,27 @@ describe("app-authored Health workout filtering", () => {
     expect(
       isAppAuthoredHealthWorkout(
         { sourceBundleId: "com.apple.health" },
+        "com.isaiahproctor.workout.local",
+      ),
+    ).toBe(false);
+  });
+
+  it("recognizes workouts by HealthKit sync identifier when the source bundle is missing", () => {
+    expect(
+      isAppAuthoredHealthWorkout(
+        {
+          sourceBundleId: "com.apple.health",
+          syncIdentifier: "com.isaiahproctor.workout.local:session:abc",
+        },
+        "com.isaiahproctor.workout.local",
+      ),
+    ).toBe(true);
+    expect(
+      isAppAuthoredHealthWorkout(
+        {
+          sourceBundleId: "com.apple.health",
+          syncIdentifier: "com.other.app:session:abc",
+        },
         "com.isaiahproctor.workout.local",
       ),
     ).toBe(false);

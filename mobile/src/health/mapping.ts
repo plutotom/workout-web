@@ -6,6 +6,11 @@ import type {
 
 export const HEALTH_LOOKBACK_MS = 90 * 24 * 60 * 60 * 1000;
 export const HEALTH_QUERY_PAGE_SIZE = 100;
+export const APP_BUNDLE_ID = "com.isaiahproctor.workout.local";
+export const HEALTH_EXPORT_ACTIVITY_TYPE = "traditionalStrengthTraining";
+export const HEALTH_EXPORT_ACTIVITY_CODE = 50;
+export const HEALTH_EXPORT_SOURCE_NAME = "Workout";
+export const HEALTH_SYNC_IDENTIFIER_PREFIX = `${APP_BUNDLE_ID}:session:`;
 
 type ActivityMeta = {
   type: string;
@@ -224,13 +229,27 @@ function sourceFromSample(sample: HealthWorkoutSample) {
   };
 }
 
+export function healthSyncIdentifier(sessionId: string) {
+  return `${HEALTH_SYNC_IDENTIFIER_PREFIX}${sessionId}`;
+}
+
+export function syncIdentifierFromSample(sample: HealthWorkoutSample) {
+  const value = sample.metadata?.HKMetadataKeySyncIdentifier;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
 export function isAppAuthoredHealthWorkout(
-  workout: Pick<HealthWorkoutSummary, "sourceBundleId">,
+  workout: {
+    sourceBundleId?: string | null;
+    syncIdentifier?: string | null;
+  },
   appBundleId: string,
 ) {
-  return (
-    Boolean(workout.sourceBundleId) && workout.sourceBundleId === appBundleId
-  );
+  if (workout.sourceBundleId && workout.sourceBundleId === appBundleId) {
+    return true;
+  }
+  const syncId = workout.syncIdentifier;
+  return Boolean(syncId && syncId.startsWith(`${appBundleId}:session:`));
 }
 
 export function formatHealthDistance(
@@ -290,5 +309,6 @@ export function normalizeHealthWorkout(
     energyKcal: energyKcalFromQuantity(sample.totalEnergyBurned),
     sourceName: source.name,
     sourceBundleId: source.bundleId,
+    syncIdentifier: syncIdentifierFromSample(sample),
   };
 }

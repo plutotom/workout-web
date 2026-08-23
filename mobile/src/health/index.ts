@@ -24,9 +24,12 @@ export {
 } from "@/health/fake-adapter";
 export type {
   HealthAdapter,
+  HealthAnchoredWorkoutPage,
   HealthAuthorizationState,
+  HealthAutoImportPrefs,
   HealthListItem,
   HealthOverlapCandidate,
   HealthRowState,
+  HealthTrackedWorkoutInput,
   HealthWorkoutSummary,
 } from "@/health/types";

@@ -3,7 +3,7 @@ import type { QueryCtx } from "../_generated/server";
 import {
   normalizeSessionKind,
   sessionCountsTowardGoals,
-} from "./health-sessions";
+} from "./health_sessions";
 
 export type InsightsDays = 7 | 30 | 90 | null;
 

@@ -1,6 +1,15 @@
 import { randomUUID } from "expo-crypto";
 import type { SQLiteDatabase } from "expo-sqlite";
 
+import { parseHealthAutoImportPrefs } from "@/health/auto-import";
+import { healthExportEndMs, shouldQueueHealthExport } from "@/health/export";
+import {
+  APP_BUNDLE_ID,
+  HEALTH_EXPORT_ACTIVITY_TYPE,
+  HEALTH_EXPORT_SOURCE_NAME,
+} from "@/health/mapping";
+import type { HealthAutoImportPrefs } from "@/health/types";
+
 import type {
   CustomExerciseSyncSnapshot,
   IosBootstrapPayload,
@@ -2219,6 +2228,229 @@ export async function setHealthAuthRequested(
     HEALTH_AUTH_REQUESTED_KEY,
     requested ? "1" : "0",
   );
+}
+
+const HEALTH_EXPORT_ENABLED_KEY = "export_enabled";
+
+export async function getHealthExportEnabled(db: SQLiteDatabase) {
+  const row = await db.getFirstAsync<{ value: string }>(
+    "SELECT value FROM local_health_state WHERE key = ?",
+    HEALTH_EXPORT_ENABLED_KEY,
+  );
+  return row?.value === "1";
+}
+
+export async function setHealthExportEnabled(
+  db: SQLiteDatabase,
+  enabled: boolean,
+) {
+  await db.runAsync(
+    `INSERT INTO local_health_state (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    HEALTH_EXPORT_ENABLED_KEY,
+    enabled ? "1" : "0",
+  );
+}
+
+const HEALTH_AUTO_IMPORT_ENABLED_KEY = "auto_import_enabled";
+const HEALTH_AUTO_IMPORT_ALL_KEY = "auto_import_all";
+const HEALTH_AUTO_IMPORT_TYPES_KEY = "auto_import_types";
+const HEALTH_AUTO_IMPORT_ANCHOR_KEY = "auto_import_anchor";
+
+async function healthStateValue(db: SQLiteDatabase, key: string) {
+  const row = await db.getFirstAsync<{ value: string }>(
+    "SELECT value FROM local_health_state WHERE key = ?",
+    key,
+  );
+  return row?.value ?? null;
+}
+
+async function setHealthStateValue(
+  db: SQLiteDatabase,
+  key: string,
+  value: string,
+) {
+  await db.runAsync(
+    `INSERT INTO local_health_state (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    key,
+    value,
+  );
+}
+
+export async function getHealthAutoImportPrefs(
+  db: SQLiteDatabase,
+): Promise<HealthAutoImportPrefs> {
+  const [enabled, importAll, types] = await Promise.all([
+    healthStateValue(db, HEALTH_AUTO_IMPORT_ENABLED_KEY),
+    healthStateValue(db, HEALTH_AUTO_IMPORT_ALL_KEY),
+    healthStateValue(db, HEALTH_AUTO_IMPORT_TYPES_KEY),
+  ]);
+  return parseHealthAutoImportPrefs({ enabled, importAll, types });
+}
+
+export async function setHealthAutoImportPrefs(
+  db: SQLiteDatabase,
+  prefs: HealthAutoImportPrefs,
+) {
+  await setHealthStateValue(
+    db,
+    HEALTH_AUTO_IMPORT_ENABLED_KEY,
+    prefs.enabled ? "1" : "0",
+  );
+  await setHealthStateValue(
+    db,
+    HEALTH_AUTO_IMPORT_ALL_KEY,
+    prefs.importAllTypes ? "1" : "0",
+  );
+  await setHealthStateValue(
+    db,
+    HEALTH_AUTO_IMPORT_TYPES_KEY,
+    JSON.stringify(prefs.types),
+  );
+}
+
+export async function getHealthAutoImportAnchor(db: SQLiteDatabase) {
+  return healthStateValue(db, HEALTH_AUTO_IMPORT_ANCHOR_KEY);
+}
+
+export async function setHealthAutoImportAnchor(
+  db: SQLiteDatabase,
+  anchor: string,
+) {
+  await setHealthStateValue(db, HEALTH_AUTO_IMPORT_ANCHOR_KEY, anchor);
+}
+
+export async function queueHealthExportIfEnabled(
+  db: SQLiteDatabase,
+  sessionId: string,
+) {
+  const [enabled, session] = await Promise.all([
+    getHealthExportEnabled(db),
+    db.getFirstAsync<{
+      status: string;
+      session_kind: string | null;
+      external_id: string | null;
+    }>(
+      `SELECT status, session_kind, external_id
+         FROM local_sessions
+        WHERE id = ?`,
+      sessionId,
+    ),
+  ]);
+  if (!session) return;
+  if (
+    !shouldQueueHealthExport({
+      exportEnabled: enabled,
+      status: session.status,
+      sessionKind: session.session_kind,
+      externalId: session.external_id,
+    })
+  ) {
+    return;
+  }
+  await db.runAsync(
+    `UPDATE local_sessions SET health_export_pending = 1 WHERE id = ?`,
+    sessionId,
+  );
+}
+
+export type PendingHealthExport = {
+  sessionId: string;
+  startedAt: number;
+  endedAt: number;
+};
+
+export async function listPendingHealthExports(
+  db: SQLiteDatabase,
+): Promise<PendingHealthExport[]> {
+  const rows = await db.getAllAsync<{
+    id: string;
+    started_at: number;
+    completed_at: number | null;
+  }>(
+    `SELECT id, started_at, completed_at
+       FROM local_sessions
+      WHERE health_export_pending = 1
+        AND status = 'completed'
+        AND session_kind = 'tracked'
+        AND external_id IS NULL
+      ORDER BY COALESCE(completed_at, started_at) ASC`,
+  );
+  return rows.map((row) => ({
+    sessionId: row.id,
+    startedAt: row.started_at,
+    endedAt: healthExportEndMs(row.started_at, row.completed_at),
+  }));
+}
+
+export async function countPendingHealthExports(db: SQLiteDatabase) {
+  const row = await db.getFirstAsync<{ count: number }>(
+    `SELECT COUNT(*) AS count
+       FROM local_sessions
+      WHERE health_export_pending = 1
+        AND status = 'completed'
+        AND session_kind = 'tracked'
+        AND external_id IS NULL`,
+  );
+  return row?.count ?? 0;
+}
+
+export async function attachExportedHealthUuid(
+  db: SQLiteDatabase,
+  sessionId: string,
+  healthUuid: string,
+) {
+  const existing = await findLocalSessionByExternalId(
+    db,
+    "apple_health",
+    healthUuid,
+  );
+  if (existing && existing.id !== sessionId) {
+    throw new Error("This Apple Health workout is already linked");
+  }
+  const session = await db.getFirstAsync<{
+    status: string;
+    session_kind: string | null;
+    started_at: number;
+    completed_at: number | null;
+  }>(
+    `SELECT status, session_kind, started_at, completed_at
+       FROM local_sessions
+      WHERE id = ?`,
+    sessionId,
+  );
+  if (!session) throw new Error("Session not found");
+  if (session.status !== "completed" || session.session_kind !== "tracked") {
+    throw new Error("Can only save Health export on a completed workout");
+  }
+  const now = Date.now();
+  const durationSeconds =
+    session.completed_at != null
+      ? Math.max(0, (session.completed_at - session.started_at) / 1000)
+      : null;
+  await db.runAsync(
+    `UPDATE local_sessions
+        SET external_provider = 'apple_health',
+            external_id = ?,
+            activity_type = COALESCE(activity_type, ?),
+            source_name = COALESCE(source_name, ?),
+            source_bundle_id = COALESCE(source_bundle_id, ?),
+            duration_seconds = COALESCE(duration_seconds, ?),
+            imported_at = COALESCE(imported_at, ?),
+            health_export_pending = 0,
+            updated_at = ?
+      WHERE id = ?`,
+    healthUuid,
+    HEALTH_EXPORT_ACTIVITY_TYPE,
+    HEALTH_EXPORT_SOURCE_NAME,
+    APP_BUNDLE_ID,
+    durationSeconds,
+    now,
+    now,
+    sessionId,
+  );
+  await queueSessionSnapshot(db, sessionId, now);
 }
 
 export async function findLocalSessionByExternalId(
