@@ -1,5 +1,7 @@
 export type LocalId = string;
 export type LocalSessionStatus = "in_progress" | "completed" | "abandoned";
+export type LocalSessionKind = "tracked" | "health_summary";
+export type LocalExternalProvider = "apple_health";
 
 export type LocalWorkoutSet = {
   _id: LocalId;
@@ -23,16 +25,31 @@ export type LocalWorkoutExercise = {
   sets: LocalWorkoutSet[];
 };
 
+export type LocalHealthSummary = {
+  provider: LocalExternalProvider;
+  externalId: string;
+  activityType: string;
+  sourceName: string | null;
+  sourceBundleId: string | null;
+  durationSeconds: number | null;
+  energyKcal: number | null;
+  distanceMeters: number | null;
+  importedAt: number | null;
+};
+
 export type LocalWorkoutSession = {
   _id: LocalId;
   remoteId: string | null;
   remoteTemplateId: string | null;
   status: LocalSessionStatus;
+  sessionKind: LocalSessionKind;
   templateId: LocalId | null;
   templateName: string;
   startedAt: number;
   completedAt?: number;
   updatedAt: number;
+  countsTowardGoals: boolean;
+  health: LocalHealthSummary | null;
   exercises: LocalWorkoutExercise[];
 };
 
@@ -168,9 +185,20 @@ export type SessionSyncSnapshot = {
   remoteTemplateId: string | null;
   templateName: string;
   status: LocalSessionStatus;
+  sessionKind: LocalSessionKind;
   startedAt: number;
   completedAt: number | null;
   updatedAt: number;
+  countsTowardGoals: boolean;
+  externalProvider: LocalExternalProvider | null;
+  externalId: string | null;
+  activityType: string | null;
+  sourceName: string | null;
+  sourceBundleId: string | null;
+  durationSeconds: number | null;
+  energyKcal: number | null;
+  distanceMeters: number | null;
+  importedAt: number | null;
   exercises: Array<{
     clientId: string;
     slug: string;
@@ -194,6 +222,21 @@ export type PendingSessionSync = {
   operationId: string;
   sessionId: string;
   snapshot: SessionSyncSnapshot;
+  createdAt: number;
+  attemptCount: number;
+};
+
+export type SessionDeleteSnapshot = {
+  clientId: string;
+  remoteId: string | null;
+  externalProvider: LocalExternalProvider | null;
+  externalId: string | null;
+};
+
+export type PendingSessionDelete = {
+  operationId: string;
+  sessionId: string;
+  snapshot: SessionDeleteSnapshot;
   createdAt: number;
   attemptCount: number;
 };

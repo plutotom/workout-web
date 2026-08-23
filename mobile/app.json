@@ -14,7 +14,15 @@
       },
       "supportsTablet": false,
       "bundleIdentifier": "com.isaiahproctor.workout.local",
-      "appleTeamId": "3CVY7K9AJ6"
+      "appleTeamId": "3CVY7K9AJ6",
+      "infoPlist": {
+        "NSHealthShareUsageDescription": "Workout reads your Apple Health workouts so you can import a run, ride, swim, walk, or other activity into your training log.",
+        "NSHealthUpdateUsageDescription": "Workout can save workouts you finish in this app to Apple Health. Saving is off until you turn on export.",
+        "UIBackgroundModes": ["healthkit"]
+      },
+      "entitlements": {
+        "com.apple.developer.healthkit": true
+      }
     },
     "plugins": [
       "expo-router",
@@ -26,7 +34,16 @@
       "expo-file-system",
       "expo-sharing",
       "expo-notifications",
-      "./plugins/strip-signing-capabilities.js"
+      [
+        "@kingstinct/react-native-healthkit",
+        {
+          "NSHealthShareUsageDescription": "Workout reads your Apple Health workouts so you can import a run, ride, swim, walk, or other activity into your training log.",
+          "NSHealthUpdateUsageDescription": "Workout can save workouts you finish in this app to Apple Health. Saving is off until you turn on export.",
+          "background": true
+        }
+      ],
+      "./plugins/strip-signing-capabilities.js",
+      "./plugins/stable-react-native-path.js"
     ]
   }
 }

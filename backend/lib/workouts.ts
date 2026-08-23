@@ -2,6 +2,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { computeWeekStreak, estimate1RM, startOfWeekMonday } from "./insights";
 import { getNotesBySlugs } from "./exercise_notes";
+import { normalizeSessionKind } from "./health_sessions";
 
 const clampWhole = (n: number) => Math.max(0, Math.round(n));
 const DEFAULT_REST_SECONDS = 75;
@@ -965,6 +966,13 @@ export async function getWorkout(
     templateName: sessionDisplayName(template, session.templateName),
     startedAt: session.startedAt,
     completedAt: session.completedAt,
+    sessionKind: normalizeSessionKind(session.sessionKind),
+    countsTowardGoals: session.countsTowardGoals !== false,
+    sourceName: session.sourceName ?? null,
+    activityType: session.activityType ?? null,
+    durationSeconds: session.durationSeconds ?? null,
+    energyKcal: session.energyKcal ?? null,
+    distanceMeters: session.distanceMeters ?? null,
     exercises: withSets,
   };
 }
@@ -1078,9 +1086,11 @@ export async function getWorkoutRecap(
   for (const s of completedSessions) {
     const ts = s.completedAt ?? s.startedAt;
     if (ts > completedAt) continue;
-    if (await sessionHasLoggedWork(ctx, s._id)) {
-      meaningfulAts.push(ts);
-    }
+    const counts =
+      s.sessionKind === "health_summary"
+        ? s.countsTowardGoals !== false
+        : await sessionHasLoggedWork(ctx, s._id);
+    if (counts) meaningfulAts.push(ts);
   }
   const weekStart = startOfWeekMonday(completedAt);
   const weekEnd = weekStart + 7 * 24 * 60 * 60 * 1000;
@@ -1146,7 +1156,10 @@ export async function getWorkoutRecap(
     session,
     totals: {
       volume: totalVolume,
-      durationMs: Math.max(0, completedAt - session.startedAt),
+      durationMs:
+        session.durationSeconds != null
+          ? session.durationSeconds * 1000
+          : Math.max(0, completedAt - session.startedAt),
       completedSets: doneSets.length,
       exerciseCount: session.exercises.filter((exercise) =>
         exercise.sets.some((set) => isLoggedSet(set)),

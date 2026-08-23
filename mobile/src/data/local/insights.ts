@@ -182,6 +182,11 @@ export type InsightsSessionSummary = {
   completedAt: number;
   durationMs: number;
   volume: number;
+  sessionKind?: "tracked" | "health_summary";
+  sourceName?: string | null;
+  activityType?: string | null;
+  distanceMeters?: number | null;
+  energyKcal?: number | null;
   exercises: { slug: string; completedCount: number }[];
 };
 
@@ -205,12 +210,21 @@ export type InsightsOverview = {
 };
 
 function formatSessionSummary(session: LoadedSession): InsightsSessionSummary {
+  const durationMs =
+    session.health?.durationSeconds != null
+      ? session.health.durationSeconds * 1000
+      : Math.max(0, session.completedAt - session.startedAt);
   return {
     sessionId: session.sessionId,
     templateName: session.templateName,
     completedAt: session.completedAt,
-    durationMs: Math.max(0, session.completedAt - session.startedAt),
+    durationMs,
     volume: sessionVolume(session),
+    sessionKind: session.sessionKind,
+    sourceName: session.health?.sourceName ?? null,
+    activityType: session.health?.activityType ?? null,
+    distanceMeters: session.health?.distanceMeters ?? null,
+    energyKcal: session.health?.energyKcal ?? null,
     exercises: session.exercises
       .filter((e) => e.slug !== "__volume__")
       .map((e) => ({
@@ -335,13 +349,15 @@ export function getLocalOverview(
 ): InsightsOverview {
   const inPeriod = sessionsInPeriod(all, days, now);
   const weekStreak = computeWeekStreak(
-    all.map((s) => s.completedAt),
+    all.filter(sessionCountsTowardGoals).map((s) => s.completedAt),
     now,
   );
-  const totalDurationMs = inPeriod.reduce(
-    (sum, s) => sum + Math.max(0, s.completedAt - s.startedAt),
-    0,
-  );
+  const totalDurationMs = inPeriod.reduce((sum, s) => {
+    if (s.health?.durationSeconds != null) {
+      return sum + s.health.durationSeconds * 1000;
+    }
+    return sum + Math.max(0, s.completedAt - s.startedAt);
+  }, 0);
   const totalVolume = inPeriod.reduce((sum, s) => sum + sessionVolume(s), 0);
   const priorPeriod = sessionsInPriorPeriod(all, days, now);
   const priorTotalVolume = priorPeriod.reduce(
@@ -363,7 +379,7 @@ export function getLocalOverview(
 
   return {
     stats: {
-      workoutCount: inPeriod.length,
+      workoutCount: inPeriod.filter(sessionCountsTowardGoals).length,
       totalDurationMs,
       totalVolume,
       priorTotalVolume,
@@ -542,8 +558,17 @@ function bestSetForSlug(
   return { ...best, est1RM: estimate1RM(best.weight, best.reps) };
 }
 
-function hasLoggedWork(session: LoadedSession): boolean {
-  return session.exercises.some((exercise) => exercise.sets.some(isLoggedSet));
+function hasLoggedWork(session: LoadedSession) {
+  return session.exercises.some((exercise) =>
+    exercise.sets.some((set) => set.completed && set.reps > 0),
+  );
+}
+
+function sessionCountsTowardGoals(session: LoadedSession) {
+  if (session.sessionKind === "health_summary") {
+    return session.countsTowardGoals !== false;
+  }
+  return hasLoggedWork(session);
 }
 
 export type RecapProgressionPoint = {
@@ -570,7 +595,16 @@ export type RecapProgressionStory = {
 };
 
 export type WorkoutRecap = {
-  session: { templateName: string; startedAt: number; completedAt: number };
+  session: {
+    templateName: string;
+    startedAt: number;
+    completedAt: number;
+    sessionKind?: "tracked" | "health_summary";
+    sourceName?: string | null;
+    activityType?: string | null;
+    distanceMeters?: number | null;
+    energyKcal?: number | null;
+  };
   totals: {
     volume: number;
     durationMs: number;
@@ -625,7 +659,8 @@ export function getLocalWorkoutRecap(
   const history = all
     .filter(
       (candidate) =>
-        candidate.completedAt <= completedAt && hasLoggedWork(candidate),
+        candidate.completedAt <= completedAt &&
+        sessionCountsTowardGoals(candidate),
     )
     .sort((a, b) => a.completedAt - b.completedAt);
 
@@ -678,10 +713,18 @@ export function getLocalWorkoutRecap(
       templateName: session.templateName,
       startedAt: session.startedAt,
       completedAt,
+      sessionKind: session.sessionKind,
+      sourceName: session.health?.sourceName ?? null,
+      activityType: session.health?.activityType ?? null,
+      distanceMeters: session.health?.distanceMeters ?? null,
+      energyKcal: session.health?.energyKcal ?? null,
     },
     totals: {
       volume,
-      durationMs: Math.max(0, completedAt - session.startedAt),
+      durationMs:
+        session.health?.durationSeconds != null
+          ? session.health.durationSeconds * 1000
+          : Math.max(0, completedAt - session.startedAt),
       completedSets: doneSets.length,
       exerciseCount: session.exercises.filter((exercise) =>
         exercise.sets.some(isLoggedSet),

@@ -15,6 +15,7 @@ import type * as lib_apiKeys from "../lib/apiKeys.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_exercise_notes from "../lib/exercise_notes.js";
 import type * as lib_exercises from "../lib/exercises.js";
+import type * as lib_health_sessions from "../lib/health_sessions.js";
 import type * as lib_insights from "../lib/insights.js";
 import type * as lib_plan from "../lib/plan.js";
 import type * as lib_portableTemplates from "../lib/portableTemplates.js";
@@ -69,6 +70,7 @@ declare const fullApi: ApiFromModules<{
   "lib/auth": typeof lib_auth;
   "lib/exercise_notes": typeof lib_exercise_notes;
   "lib/exercises": typeof lib_exercises;
+  "lib/health_sessions": typeof lib_health_sessions;
   "lib/insights": typeof lib_insights;
   "lib/plan": typeof lib_plan;
   "lib/portableTemplates": typeof lib_portableTemplates;

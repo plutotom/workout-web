@@ -33,6 +33,7 @@ type WeekSession = {
   durationMs: number;
   volume: number;
   summary: string;
+  isHealthSummary: boolean;
   segments: MuscleSegment[];
 };
 
@@ -120,7 +121,8 @@ export function WeekStory() {
       completedAt: s.completedAt,
       durationMs: s.durationMs,
       volume: s.volume,
-      summary: summarizeSessionExercises(s.exercises, catalog.short),
+      isHealthSummary: s.sessionKind === "health_summary",
+      summary: summarizeSessionExercises(s.exercises, catalog.short, s),
       segments: buildMuscleSegments(
         s.exercises.map((ex) => ({
           slug: ex.slug,
@@ -341,8 +343,10 @@ export function WeekStory() {
                                   {session.name}
                                 </h3>
                                 <p className="mt-0.5 text-xs text-muted-foreground">
-                                  {formatDuration(session.durationMs)} ·{" "}
-                                  {formatLb(session.volume)}
+                                  {formatDuration(session.durationMs)}
+                                  {session.isHealthSummary
+                                    ? null
+                                    : ` · ${formatLb(session.volume)}`}
                                 </p>
                               </div>
                               <ChevronRight className="mt-1 size-4 shrink-0 text-muted-foreground" />
@@ -350,10 +354,12 @@ export function WeekStory() {
                             <p className="mt-2 line-clamp-2 text-xs text-muted-foreground/90">
                               {session.summary}
                             </p>
-                            <MuscleBand
-                              segments={session.segments}
-                              className="mt-3"
-                            />
+                            {session.isHealthSummary ? null : (
+                              <MuscleBand
+                                segments={session.segments}
+                                className="mt-3"
+                              />
+                            )}
                           </Link>
                         ))}
                       </div>

@@ -21,6 +21,7 @@ export function SyncCoordinator() {
     isAuthenticated ? {} : "skip",
   );
   const pushSession = useMutation(api.routes.ios.sync.pushSession);
+  const deleteSession = useMutation(api.routes.ios.sync.deleteSession);
   const pushCustomExercise = useMutation(
     api.routes.ios.sync.pushCustomExercise,
   );
@@ -68,6 +69,23 @@ export function SyncCoordinator() {
               result.remoteExerciseId,
               result.slug,
             );
+          } catch {
+            return;
+          }
+          continue;
+        }
+
+        const pendingDelete = await syncStore.getPendingSessionDelete();
+        if (pendingDelete) {
+          await syncStore.noteSessionAttempt(pendingDelete.operationId);
+          try {
+            await deleteSession({
+              operationId: pendingDelete.operationId,
+              deviceId,
+              session: pendingDelete.snapshot,
+            });
+            if (cancelled) return;
+            await syncStore.completeSessionDelete(pendingDelete.operationId);
           } catch {
             return;
           }
@@ -134,6 +152,7 @@ export function SyncCoordinator() {
     };
   }, [
     createTemplate,
+    deleteSession,
     isAuthenticated,
     pushCustomExercise,
     pushSession,

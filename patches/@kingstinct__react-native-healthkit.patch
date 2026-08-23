@@ -1,0 +1,67 @@
+diff --git a/ios/CoreModule.swift b/ios/CoreModule.swift
+--- a/ios/CoreModule.swift
++++ b/ios/CoreModule.swift
+@@ -183,13 +183,23 @@
+       let toRead = objectTypesFromArray(typeIdentifiers: toRequest.toRead ?? [])
+ 
+       return try await withCheckedThrowingContinuation { continuation in
+-        store.requestAuthorization(toShare: share, read: toRead) { status, error in
+-          DispatchQueue.main.async {
+-            if let error = error {
+-              continuation.resume(throwing: error)
+-            } else {
+-              continuation.resume(returning: status)
++        DispatchQueue.main.async {
++          var caught: NSError?
++          let started = RNHealthKitCatchException({
++            store.requestAuthorization(toShare: share, read: toRead) { status, error in
++              DispatchQueue.main.async {
++                if let error = error {
++                  continuation.resume(throwing: error)
++                } else {
++                  continuation.resume(returning: status)
++                }
++              }
+             }
++          }, &caught)
++          if !started {
++            continuation.resume(
++              throwing: caught
++                ?? runtimeErrorWithPrefix("HealthKit authorization failed"))
+           }
+         }
+       }
+diff --git a/ios/ExceptionCatcher.h b/ios/ExceptionCatcher.h
+--- a/ios/ExceptionCatcher.h
++++ b/ios/ExceptionCatcher.h
+@@ -2,3 +2,5 @@
+ #import <HealthKit/HealthKit.h>
+ 
+ HKUnit * _Nullable HKUnitFromStringCatchingExceptions(NSString * _Nonnull unitString, NSError * _Nullable * _Nullable outError);
++
++BOOL RNHealthKitCatchException(void (^ _Nonnull tryBlock)(void), NSError * _Nullable * _Nullable outError);
+diff --git a/ios/ExceptionCatcher.mm b/ios/ExceptionCatcher.mm
+--- a/ios/ExceptionCatcher.mm
++++ b/ios/ExceptionCatcher.mm
+@@ -15,3 +15,21 @@
+         return nil;
+     }
+ }
++
++BOOL RNHealthKitCatchException(void (^ _Nonnull tryBlock)(void), NSError * _Nullable * _Nullable outError) {
++    if (outError) { *outError = nil; }
++    @try {
++        tryBlock();
++        return YES;
++    }
++    @catch (NSException *exception) {
++        if (outError) {
++            NSMutableDictionary *userInfo = [NSMutableDictionary dictionaryWithDictionary:exception.userInfo ?: @{}];
++            if (exception.reason) {
++                userInfo[NSLocalizedDescriptionKey] = exception.reason;
++            }
++            *outError = [NSError errorWithDomain:exception.name ?: @"NSException" code:0 userInfo:userInfo];
++        }
++        return NO;
++    }
++}

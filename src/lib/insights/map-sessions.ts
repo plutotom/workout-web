@@ -1,4 +1,5 @@
-import type { RecentSession } from "@/lib/insights/types";
+import { formatHealthHistoryLine } from "../health-summary";
+import type { RecentSession } from "./types";
 
 type QuerySession = {
   sessionId: string;
@@ -6,13 +7,23 @@ type QuerySession = {
   completedAt: number;
   durationMs: number;
   volume: number;
+  sessionKind?: "tracked" | "health_summary";
+  sourceName?: string | null;
+  distanceMeters?: number | null;
+  energyKcal?: number | null;
   exercises: { slug: string; completedCount: number }[];
 };
 
 export function summarizeSessionExercises(
   exercises: { slug: string; completedCount: number }[],
   short: (slug: string) => string,
+  session?: Pick<
+    QuerySession,
+    "sessionKind" | "sourceName" | "distanceMeters" | "energyKcal"
+  >,
 ): string {
+  const healthLine = formatHealthHistoryLine(session ?? {});
+  if (healthLine) return healthLine;
   const done = exercises.filter((e) => e.completedCount > 0);
   if (done.length === 0) return "No sets checked off";
   return done.map((e) => `${short(e.slug)} ${e.completedCount}`).join(" · ");
@@ -28,6 +39,6 @@ export function mapQuerySessions(
     completedAt: s.completedAt,
     durationMinutes: Math.round(s.durationMs / 60_000),
     volumeLb: s.volume,
-    summary: summarizeSessionExercises(s.exercises, short),
+    summary: summarizeSessionExercises(s.exercises, short, s),
   }));
 }

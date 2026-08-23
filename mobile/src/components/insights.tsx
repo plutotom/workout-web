@@ -9,6 +9,7 @@ import { Pressable, Text, View } from "react-native";
 
 import { Card } from "@/components/ui";
 import { formatDate, formatDuration } from "@/lib/format";
+import { formatHealthHistoryLine } from "@/health/mapping";
 import { colors } from "@/theme";
 import { useCatalog } from "@/providers/catalog-provider";
 
@@ -152,58 +153,68 @@ export function SessionRows({
     completedAt: number;
     durationMs: number;
     volume: number;
+    sessionKind?: "tracked" | "health_summary";
+    sourceName?: string | null;
+    distanceMeters?: number | null;
+    energyKcal?: number | null;
     exercises: Array<{ slug: string; completedCount: number }>;
   }>;
 }) {
   const catalog = useCatalog();
   return (
     <View style={{ gap: 10 }}>
-      {sessions.map((session) => (
-        <Pressable
-          key={session.sessionId}
-          onPress={() => router.push(`/workout/${session.sessionId}`)}
-          style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
-        >
-          <Card style={{ padding: 14 }}>
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "flex-start",
-                gap: 10,
-              }}
-            >
-              <View style={{ flex: 1 }}>
-                <Text
-                  style={{
-                    color: colors.text,
-                    fontSize: 15,
-                    fontWeight: "700",
-                  }}
-                >
-                  {session.templateName}
-                </Text>
-                <Text style={{ color: colors.dim, fontSize: 11, marginTop: 3 }}>
-                  {formatDate(session.completedAt, "short")} ·{" "}
-                  {formatDuration(session.durationMs)} ·{" "}
-                  {volume(session.volume)}
-                </Text>
+      {sessions.map((session) => {
+        const healthLine = formatHealthHistoryLine(session);
+        return (
+          <Pressable
+            key={session.sessionId}
+            onPress={() => router.push(`/workout/${session.sessionId}`)}
+            style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
+          >
+            <Card style={{ padding: 14 }}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "flex-start",
+                  gap: 10,
+                }}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text
+                    style={{
+                      color: colors.text,
+                      fontSize: 15,
+                      fontWeight: "700",
+                    }}
+                  >
+                    {session.templateName}
+                  </Text>
+                  <Text
+                    style={{ color: colors.dim, fontSize: 11, marginTop: 3 }}
+                  >
+                    {formatDate(session.completedAt, "short")} ·{" "}
+                    {formatDuration(session.durationMs)}
+                    {healthLine ? null : ` · ${volume(session.volume)}`}
+                  </Text>
+                </View>
+                <ChevronRight size={17} color={colors.faint} />
               </View>
-              <ChevronRight size={17} color={colors.faint} />
-            </View>
-            <Text
-              numberOfLines={2}
-              style={{ color: colors.dim, fontSize: 12, lineHeight: 18 }}
-            >
-              {session.exercises
-                .map(
-                  (exercise) =>
-                    `${catalog.short(exercise.slug)} ${exercise.completedCount}`,
-                )
-                .join(" · ")}
-            </Text>
-          </Card>
-        </Pressable>
-      ))}
+              <Text
+                numberOfLines={2}
+                style={{ color: colors.dim, fontSize: 12, lineHeight: 18 }}
+              >
+                {healthLine ??
+                  session.exercises
+                    .map(
+                      (exercise) =>
+                        `${catalog.short(exercise.slug)} ${exercise.completedCount}`,
+                    )
+                    .join(" · ")}
+              </Text>
+            </Card>
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
