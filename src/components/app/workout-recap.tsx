@@ -17,6 +17,7 @@ import {
   formatLb,
   MuscleBand,
 } from "@/components/app/workout-design";
+import { formatHealthDistance, formatHealthEnergy } from "@/lib/health-summary";
 import { cn } from "@/lib/utils";
 
 type ProgressionStoryPoint = {
@@ -403,8 +404,11 @@ export function WorkoutRecap({
   })();
   const story: ProgressionStory | null = data.progressionStory ?? null;
   const progressionBeat = story ? progressionCopy(story, standoutShort) : null;
+  const isHealthSummary = data.session.sessionKind === "health_summary";
+  const healthDistance = formatHealthDistance(data.session.distanceMeters);
+  const healthEnergy = formatHealthEnergy(data.session.energyKcal);
 
-  const beats = [
+  const liftingBeats = [
     {
       kicker: "Workout complete",
       title: data.session.templateName,
@@ -516,6 +520,57 @@ export function WorkoutRecap({
       ),
     },
   ];
+  const beats = isHealthSummary
+    ? [
+        {
+          kicker: "Imported from Health",
+          title: data.session.templateName,
+          body: formatDate(completedAt),
+          extra: (
+            <div className="mt-10 rounded-xl border bg-[var(--surface)] p-4">
+              <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
+                Duration
+              </p>
+              <p className="mt-2 text-5xl font-semibold">
+                {formatDuration(data.totals.durationMs)}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                {data.session.sourceName
+                  ? `From ${data.session.sourceName}`
+                  : "Apple Health summary"}
+              </p>
+            </div>
+          ),
+        },
+        {
+          kicker: "Activity",
+          title: data.session.templateName,
+          body:
+            [healthDistance, healthEnergy].filter(Boolean).join(" · ") ||
+            "Summary only — no lifts, sets, or volume.",
+          extra: (
+            <div className="mt-8 grid grid-cols-3 gap-2">
+              <Stat
+                label="Minutes"
+                value={formatDuration(data.totals.durationMs)}
+              />
+              {healthDistance ? (
+                <Stat label="Distance" value={healthDistance} />
+              ) : null}
+              {healthEnergy ? (
+                <Stat label="Energy" value={healthEnergy} />
+              ) : null}
+            </div>
+          ),
+        },
+        {
+          kicker: "Consistency",
+          title: `${data.consistency.sessionsThisWeek}/${data.consistency.weeklyGoal} this week`,
+          body: `${data.consistency.weekStreak} week streak`,
+          extra: <WeekGrid daysWorked={data.consistency.daysWorked} />,
+        },
+      ]
+    : liftingBeats;
   const safeStep = Math.min(step, beats.length - 1);
   const beat = beats[safeStep];
 

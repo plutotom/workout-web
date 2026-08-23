@@ -35,6 +35,11 @@ type RemoteSessionSummary = {
   completedAt: number;
   durationMs: number;
   volume: number;
+  sessionKind?: "tracked" | "health_summary";
+  sourceName?: string | null;
+  activityType?: string | null;
+  distanceMeters?: number | null;
+  energyKcal?: number | null;
   exercises?: Array<{ slug: string; completedCount: number }>;
 };
 
@@ -143,6 +148,22 @@ export function remoteSessionSummariesToLocal(
       templateName: session.templateName,
       startedAt: Math.max(0, session.completedAt - session.durationMs),
       completedAt: session.completedAt,
+      sessionKind: session.sessionKind ?? "tracked",
+      countsTowardGoals: true,
+      health:
+        session.sessionKind === "health_summary"
+          ? {
+              provider: "apple_health",
+              externalId: session.sessionId,
+              activityType: session.activityType ?? "other",
+              sourceName: session.sourceName ?? null,
+              sourceBundleId: null,
+              durationSeconds: session.durationMs / 1000,
+              energyKcal: session.energyKcal ?? null,
+              distanceMeters: session.distanceMeters ?? null,
+              importedAt: session.completedAt,
+            }
+          : null,
       // Synthetic set preserves volume for overview graphs; filtered from UI rows.
       exercises: [
         ...exerciseStubs,
@@ -174,6 +195,9 @@ function remoteTemplateHistoryToLocal(
     templateName,
     startedAt: session.completedAt,
     completedAt: session.completedAt,
+    sessionKind: "tracked" as const,
+    countsTowardGoals: true,
+    health: null,
     exercises: session.exercises.map((exercise) => ({
       slug: exercise.slug,
       sets: Array.from(
@@ -201,6 +225,9 @@ function remoteExerciseHistoryToLocal(
     templateName: session.templateName,
     startedAt: session.completedAt,
     completedAt: session.completedAt,
+    sessionKind: "tracked" as const,
+    countsTowardGoals: true,
+    health: null,
     exercises: [
       {
         slug,

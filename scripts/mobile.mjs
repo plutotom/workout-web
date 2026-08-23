@@ -1,5 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
-import { spawn } from "node:child_process";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -77,8 +78,42 @@ function childEnv(extra) {
   return env;
 }
 
+function reactNativePnpmFolder() {
+  const requireFromMobile = createRequire(
+    path.join(root, "mobile/package.json"),
+  );
+  const packageRoot = path.dirname(
+    requireFromMobile.resolve("react-native/package.json"),
+  );
+  // .../node_modules/.pnpm/<folder>/node_modules/react-native
+  return path.basename(path.dirname(path.dirname(realpathSync(packageRoot))));
+}
+
+function iosPodsAreStale() {
+  const lockPath = path.join(root, "mobile/ios/Pods/Manifest.lock");
+  if (!existsSync(lockPath)) return true;
+  return !readFileSync(lockPath, "utf8").includes(reactNativePnpmFolder());
+}
+
+function ensureIosPodsMatchNodeModules(command) {
+  if (command !== "run:ios") return;
+  if (!existsSync(path.join(root, "mobile/ios/Podfile"))) return;
+  if (!iosPodsAreStale()) return;
+  console.log(
+    "[mobile] CocoaPods still point at an old pnpm path; running pod install",
+  );
+  const result = spawnSync("pod", ["install"], {
+    cwd: path.join(root, "mobile/ios"),
+    stdio: "inherit",
+  });
+  if (result.status !== 0) {
+    throw new Error("pod install failed; iOS native paths are stale");
+  }
+}
+
 const command = process.argv[2] ?? "start";
 const extra = process.argv.slice(3);
+ensureIosPodsMatchNodeModules(command);
 const child = spawn("pnpm", ["--dir", "mobile", command, ...extra], {
   cwd: root,
   env: childEnv(extra),

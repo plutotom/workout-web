@@ -9,6 +9,7 @@ import {
 import type {
   LocalMuscleGroup,
   LocalPreferences,
+  LocalSessionKind,
   LocalSessionStatus,
   LocalTemplateSet,
 } from "@/data/local/types";
@@ -95,9 +96,20 @@ export type BackupSession = {
   templateId: string | null;
   templateName: string;
   status: LocalSessionStatus;
+  sessionKind?: LocalSessionKind;
   startedAt: number;
   completedAt: number | null;
   updatedAt: number;
+  countsTowardGoals?: boolean;
+  externalProvider?: "apple_health" | null;
+  externalId?: string | null;
+  activityType?: string | null;
+  sourceName?: string | null;
+  sourceBundleId?: string | null;
+  durationSeconds?: number | null;
+  energyKcal?: number | null;
+  distanceMeters?: number | null;
+  importedAt?: number | null;
   exercises: BackupSessionExercise[];
 };
 
@@ -162,9 +174,20 @@ type SessionRow = {
   template_id: string | null;
   template_name: string;
   status: LocalSessionStatus;
+  session_kind: LocalSessionKind | null;
   started_at: number;
   completed_at: number | null;
   updated_at: number;
+  counts_toward_goals: number | null;
+  external_provider: string | null;
+  external_id: string | null;
+  activity_type: string | null;
+  source_name: string | null;
+  source_bundle_id: string | null;
+  duration_seconds: number | null;
+  energy_kcal: number | null;
+  distance_meters: number | null;
+  imported_at: number | null;
 };
 type SessionExerciseRow = {
   id: string;
@@ -242,8 +265,10 @@ export async function createLocalBackup(
       ORDER BY template_id, order_index`,
   );
   const sessionRows = await db.getAllAsync<SessionRow>(
-    `SELECT id, template_id, template_name, status, started_at, completed_at,
-            updated_at
+    `SELECT id, template_id, template_name, status, session_kind, started_at,
+            completed_at, updated_at, counts_toward_goals, external_provider,
+            external_id, activity_type, source_name, source_bundle_id,
+            duration_seconds, energy_kcal, distance_meters, imported_at
        FROM local_sessions
       ORDER BY started_at`,
   );
@@ -307,9 +332,22 @@ export async function createLocalBackup(
       templateId: row.template_id,
       templateName: row.template_name,
       status: row.status,
+      sessionKind:
+        row.session_kind === "health_summary" ? "health_summary" : "tracked",
       startedAt: row.started_at,
       completedAt: row.completed_at,
       updatedAt: row.updated_at,
+      countsTowardGoals: row.counts_toward_goals !== 0,
+      externalProvider:
+        row.external_provider === "apple_health" ? "apple_health" : null,
+      externalId: row.external_id,
+      activityType: row.activity_type,
+      sourceName: row.source_name,
+      sourceBundleId: row.source_bundle_id,
+      durationSeconds: row.duration_seconds,
+      energyKcal: row.energy_kcal,
+      distanceMeters: row.distance_meters,
+      importedAt: row.imported_at,
       exercises: (exercisesBySession.get(row.id) ?? []).map((exercise) => ({
         id: exercise.id,
         slug: exercise.slug,
@@ -594,9 +632,26 @@ export function validateBackup(value: unknown): BackupParseResult {
       templateName:
         typeof raw.templateName === "string" ? raw.templateName : "Workout",
       status: raw.status as LocalSessionStatus,
+      sessionKind:
+        raw.sessionKind === "health_summary" ? "health_summary" : "tracked",
       startedAt: isFiniteNumber(raw.startedAt) ? raw.startedAt : 0,
       completedAt: isFiniteNumber(raw.completedAt) ? raw.completedAt : null,
       updatedAt: isFiniteNumber(raw.updatedAt) ? raw.updatedAt : 0,
+      countsTowardGoals: raw.countsTowardGoals !== false,
+      externalProvider:
+        raw.externalProvider === "apple_health" ? "apple_health" : null,
+      externalId: optionalString(raw.externalId),
+      activityType: optionalString(raw.activityType),
+      sourceName: optionalString(raw.sourceName),
+      sourceBundleId: optionalString(raw.sourceBundleId),
+      durationSeconds: isFiniteNumber(raw.durationSeconds)
+        ? raw.durationSeconds
+        : null,
+      energyKcal: isFiniteNumber(raw.energyKcal) ? raw.energyKcal : null,
+      distanceMeters: isFiniteNumber(raw.distanceMeters)
+        ? raw.distanceMeters
+        : null,
+      importedAt: isFiniteNumber(raw.importedAt) ? raw.importedAt : null,
       exercises,
     });
   }
@@ -759,24 +814,48 @@ export async function restoreLocalBackup(
         skipped++;
         continue;
       }
+      if (session.externalProvider && session.externalId) {
+        const duplicate = await txn.getFirstAsync<{ id: string }>(
+          `SELECT id FROM local_sessions
+            WHERE external_provider = ? AND external_id = ?`,
+          session.externalProvider,
+          session.externalId,
+        );
+        if (duplicate) {
+          skipped++;
+          continue;
+        }
+      }
       const result = await txn.runAsync(
         `INSERT OR IGNORE INTO local_sessions (
            id, remote_id, template_id, remote_template_id, template_name,
-           status, started_at, completed_at, updated_at
+           status, session_kind, started_at, completed_at, updated_at,
+           counts_toward_goals, external_provider, external_id, activity_type,
+           source_name, source_bundle_id, duration_seconds, energy_kcal,
+           distance_meters, imported_at
          ) VALUES (
            ?, NULL,
-           -- Drops to NULL if the template didn't survive, matching the
-           -- ON DELETE SET NULL the column already has.
            (SELECT id FROM local_templates WHERE id = ?),
-           NULL, ?, ?, ?, ?, ?
+           NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
          )`,
         session.id,
         session.templateId,
         session.templateName,
         session.status,
+        session.sessionKind === "health_summary" ? "health_summary" : "tracked",
         session.startedAt,
         session.completedAt,
         session.updatedAt,
+        session.countsTowardGoals === false ? 0 : 1,
+        session.externalProvider ?? null,
+        session.externalId ?? null,
+        session.activityType ?? null,
+        session.sourceName ?? null,
+        session.sourceBundleId ?? null,
+        session.durationSeconds ?? null,
+        session.energyKcal ?? null,
+        session.distanceMeters ?? null,
+        session.importedAt ?? null,
       );
       if (result.changes === 0) {
         skipped++;

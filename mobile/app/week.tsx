@@ -30,6 +30,7 @@ import {
   useMergedInsightsSessions,
 } from "@/data/local/use-local-insights";
 import { formatDuration } from "@/lib/format";
+import { formatHealthHistoryLine } from "@/health/mapping";
 import { useCatalog } from "@/providers/catalog-provider";
 import { colors, radius } from "@/theme";
 
@@ -44,6 +45,7 @@ type WeekSession = {
   durationMs: number;
   volume: number;
   summary: string;
+  isHealthSummary: boolean;
   segments: MuscleSegment[];
 };
 
@@ -228,11 +230,14 @@ export default function WeekStoryScreen() {
       completedAt: s.completedAt,
       durationMs: s.durationMs,
       volume: s.volume,
+      isHealthSummary: s.sessionKind === "health_summary",
       summary:
-        s.exercises
+        formatHealthHistoryLine(s) ??
+        (s.exercises
           .filter((ex) => ex.completedCount > 0)
           .map((ex) => `${catalog.short(ex.slug)} ${ex.completedCount}`)
-          .join(" · ") || "No sets checked off",
+          .join(" · ") ||
+          "No sets checked off"),
       segments: buildMuscleSegments(
         s.exercises.map((ex) => ({
           slug: ex.slug,
@@ -596,8 +601,10 @@ export default function WeekStoryScreen() {
                                       marginTop: 2,
                                     }}
                                   >
-                                    {formatDuration(session.durationMs)} ·{" "}
-                                    {volume(session.volume)}
+                                    {formatDuration(session.durationMs)}
+                                    {session.isHealthSummary
+                                      ? null
+                                      : ` · ${volume(session.volume)}`}
                                   </Text>
                                 </View>
                                 <ChevronRight size={16} color={colors.dim} />
@@ -612,7 +619,9 @@ export default function WeekStoryScreen() {
                               >
                                 {session.summary}
                               </Text>
-                              <MuscleBand segments={session.segments} />
+                              {session.isHealthSummary ? null : (
+                                <MuscleBand segments={session.segments} />
+                              )}
                             </Card>
                           </Pressable>
                         ))}

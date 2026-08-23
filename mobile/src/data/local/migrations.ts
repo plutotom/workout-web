@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from "expo-sqlite";
 
-const DATABASE_VERSION = 2;
+const DATABASE_VERSION = 4;
 
 export async function migrateLocalDatabase(db: SQLiteDatabase) {
   await db.execAsync("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
@@ -137,6 +137,45 @@ export async function migrateLocalDatabase(db: SQLiteDatabase) {
           ON local_custom_exercises(archived, name);
 
         PRAGMA user_version = 2;
+      `);
+    }
+
+    if (currentVersion < 3) {
+      await db.execAsync(`
+        ALTER TABLE local_sessions ADD COLUMN session_kind TEXT NOT NULL DEFAULT 'tracked';
+        ALTER TABLE local_sessions ADD COLUMN external_provider TEXT;
+        ALTER TABLE local_sessions ADD COLUMN external_id TEXT;
+        ALTER TABLE local_sessions ADD COLUMN activity_type TEXT;
+        ALTER TABLE local_sessions ADD COLUMN source_name TEXT;
+        ALTER TABLE local_sessions ADD COLUMN source_bundle_id TEXT;
+        ALTER TABLE local_sessions ADD COLUMN duration_seconds REAL;
+        ALTER TABLE local_sessions ADD COLUMN energy_kcal REAL;
+        ALTER TABLE local_sessions ADD COLUMN distance_meters REAL;
+        ALTER TABLE local_sessions ADD COLUMN counts_toward_goals INTEGER NOT NULL DEFAULT 1;
+        ALTER TABLE local_sessions ADD COLUMN imported_at INTEGER;
+
+        CREATE UNIQUE INDEX IF NOT EXISTS local_sessions_by_external
+          ON local_sessions(external_provider, external_id)
+          WHERE external_provider IS NOT NULL AND external_id IS NOT NULL;
+
+        CREATE TABLE IF NOT EXISTS local_health_ignored (
+          external_id TEXT PRIMARY KEY NOT NULL,
+          ignored_at INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS local_health_state (
+          key TEXT PRIMARY KEY NOT NULL,
+          value TEXT NOT NULL
+        );
+
+        PRAGMA user_version = 3;
+      `);
+    }
+
+    if (currentVersion < 4) {
+      await db.execAsync(`
+        ALTER TABLE local_sessions ADD COLUMN health_export_pending INTEGER NOT NULL DEFAULT 0;
+        PRAGMA user_version = 4;
       `);
     }
   });

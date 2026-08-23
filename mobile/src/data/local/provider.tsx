@@ -26,13 +26,18 @@ import {
   applyIosBootstrap,
   archiveLocalCustomExercise,
   completeCustomExerciseSync,
+  completeSessionDeleteSync,
   completeSessionSync,
   completeTemplateSync,
+  countPendingHealthExports,
   createLocalTemplateFromSession,
   deleteLocalSet,
   deleteLocalTemplate,
   deleteLocalWorkout,
   finishLocalWorkout,
+  getHealthAuthRequested,
+  getHealthAutoImportPrefs,
+  getHealthExportEnabled,
   getLocalActiveWorkout,
   getLastLocalSet,
   getLocalExerciseNotes,
@@ -42,23 +47,36 @@ import {
   getLocalWorkout,
   getOrCreateDeviceId,
   getPendingCustomExerciseSync,
+  getPendingSessionDelete,
   getPendingSessionSync,
   getPendingTemplateSync,
+  ignoreHealthWorkout,
+  importHealthSummarySession,
   importLocalBundle,
+  linkHealthSummaryToSession,
+  listImportedHealthIds,
+  listIgnoredHealthIds,
   listLocalCustomExercises,
+  listLocalOverlapCandidates,
   localSessionTemplateDiffers,
   moveLocalExercise,
   noteCustomExerciseSyncAttempt,
   noteSessionSyncAttempt,
   noteTemplateSyncAttempt,
+  queueHealthExportIfEnabled,
   removeLocalExercise,
   saveLocalCustomExercise,
   saveLocalExerciseNote,
   saveLocalTemplate,
+  setHealthAuthRequested,
+  setHealthAutoImportPrefs as writeHealthAutoImportPrefs,
+  setHealthExportEnabled as writeHealthExportEnabled,
   startLocalBlankWorkout,
   startLocalTemplateWorkout,
   syncLocalTemplateFromSession,
   updateLocalSet,
+  type HealthSummaryImport,
+  type LocalOverlapSession,
 } from "@/data/local/repository";
 import type {
   IosBootstrapPayload,
@@ -68,6 +86,7 @@ import type {
   LocalTemplate,
   LocalWorkoutSession,
 } from "@/data/local/types";
+import type { HealthAutoImportPrefs } from "@/health/types";
 import type { WorkoutExportBundle } from "@shared/workout-export";
 
 type LocalTemplateInput = {
@@ -132,6 +151,17 @@ type LocalDataContextValue = {
   finish: (sessionId: string) => Promise<void>;
   abandon: (sessionId: string) => Promise<void>;
   deleteSession: (sessionId: string) => Promise<void>;
+  importHealthSummary: (
+    workout: HealthSummaryImport,
+  ) => Promise<{ sessionId: string; alreadyImported: boolean }>;
+  linkHealthSummary: (
+    sessionId: string,
+    workout: HealthSummaryImport,
+  ) => Promise<void>;
+  ignoreHealthUuid: (externalId: string) => Promise<void>;
+  markHealthAuthRequested: () => Promise<void>;
+  setHealthExportEnabled: (enabled: boolean) => Promise<void>;
+  setHealthAutoImportPrefs: (prefs: HealthAutoImportPrefs) => Promise<void>;
   applyBootstrap: (payload: IosBootstrapPayload) => Promise<void>;
 };
 
@@ -202,10 +232,25 @@ function LocalDataState({ children }: { children: ReactNode }) {
       createBackup: () => createLocalBackup(db),
       restoreBackup: (snapshot) => run(() => restoreLocalBackup(db, snapshot)),
       noteBackupSaved: () => run(() => markBackupSaved(db)),
-      finish: (sessionId) => run(() => finishLocalWorkout(db, sessionId)),
+      finish: (sessionId) =>
+        run(async () => {
+          await finishLocalWorkout(db, sessionId);
+          await queueHealthExportIfEnabled(db, sessionId);
+        }),
       abandon: (sessionId) => run(() => abandonLocalWorkout(db, sessionId)),
       deleteSession: (sessionId) =>
         run(() => deleteLocalWorkout(db, sessionId)),
+      importHealthSummary: (workout) =>
+        run(() => importHealthSummarySession(db, workout)),
+      linkHealthSummary: (sessionId, workout) =>
+        run(() => linkHealthSummaryToSession(db, sessionId, workout)),
+      ignoreHealthUuid: (externalId) =>
+        run(() => ignoreHealthWorkout(db, externalId)),
+      markHealthAuthRequested: () => run(() => setHealthAuthRequested(db)),
+      setHealthExportEnabled: (enabled) =>
+        run(() => writeHealthExportEnabled(db, enabled)),
+      setHealthAutoImportPrefs: (prefs) =>
+        run(() => writeHealthAutoImportPrefs(db, prefs)),
       applyBootstrap: (payload) => run(() => applyIosBootstrap(db, payload)),
     }),
     [db, refresh, revision, run],
@@ -349,6 +394,7 @@ export function useLocalSyncStore() {
     () => ({
       revision,
       getPendingSession: () => getPendingSessionSync(db),
+      getPendingSessionDelete: () => getPendingSessionDelete(db),
       getPendingTemplate: () => getPendingTemplateSync(db),
       getPendingCustomExercise: () => getPendingCustomExerciseSync(db),
       noteSessionAttempt: (operationId: string) =>
@@ -380,6 +426,10 @@ export function useLocalSyncStore() {
         await completeSessionSync(db, operationId, sessionId, remoteSessionId);
         refresh();
       },
+      completeSessionDelete: async (operationId: string) => {
+        await completeSessionDeleteSync(db, operationId);
+        refresh();
+      },
       completeTemplate: async (
         operationId: string,
         templateId: string,
@@ -396,5 +446,49 @@ export function useLocalSyncStore() {
       getDeviceId: () => getOrCreateDeviceId(db),
     }),
     [db, refresh, revision],
+  );
+}
+
+export function useHealthImportLookups() {
+  const db = useSQLiteContext();
+  const { revision } = useLocalData();
+  return useLocalValue<{
+    imported: Map<
+      string,
+      { sessionId: string; sessionKind: "tracked" | "health_summary" }
+    >;
+    ignored: Set<string>;
+    overlapCandidates: LocalOverlapSession[];
+    authRequested: boolean;
+  }>(async () => {
+    const [imported, ignored, overlapCandidates, authRequested] =
+      await Promise.all([
+        listImportedHealthIds(db),
+        listIgnoredHealthIds(db),
+        listLocalOverlapCandidates(db),
+        getHealthAuthRequested(db),
+      ]);
+    return { imported, ignored, overlapCandidates, authRequested };
+  }, [db, revision]);
+}
+
+export function useHealthExportPrefs() {
+  const db = useSQLiteContext();
+  const { revision } = useLocalData();
+  return useLocalValue<{ enabled: boolean; pendingCount: number }>(async () => {
+    const [enabled, pendingCount] = await Promise.all([
+      getHealthExportEnabled(db),
+      countPendingHealthExports(db),
+    ]);
+    return { enabled, pendingCount };
+  }, [db, revision]);
+}
+
+export function useHealthAutoImportPrefs() {
+  const db = useSQLiteContext();
+  const { revision } = useLocalData();
+  return useLocalValue<HealthAutoImportPrefs>(
+    () => getHealthAutoImportPrefs(db),
+    [db, revision],
   );
 }

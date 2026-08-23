@@ -57,6 +57,7 @@ import {
 } from "@/lib/workout-rest";
 import { useExerciseCatalog } from "@/components/app/exercise-catalog-provider";
 import { formatLb } from "@/components/app/workout-design";
+import { formatHealthDistance, formatHealthEnergy } from "@/lib/health-summary";
 
 type DragState = {
   from: number;
@@ -244,6 +245,7 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
   }
 
   const editable = session.status === "in_progress";
+  const isHealthSummary = session.sessionKind === "health_summary";
   const historyHref = session.templateId
     ? `/templates/${session.templateId}/history`
     : "/dashboard";
@@ -352,7 +354,15 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
               {formatClock(elapsedSeconds)}
             </p>
             <p className="text-xs text-muted-foreground">
-              {doneSets}/{totalSets} sets · {formatLb(volume)} moved
+              {isHealthSummary
+                ? [
+                    formatHealthDistance(session.distanceMeters),
+                    formatHealthEnergy(session.energyKcal),
+                    session.sourceName,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ") || "Imported from Apple Health"
+                : `${doneSets}/${totalSets} sets · ${formatLb(volume)} moved`}
             </p>
           </div>
         </div>
@@ -360,13 +370,29 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
           <div
             className="h-full rounded-full bg-foreground transition-all duration-300"
             style={{
-              width: `${totalSets ? (doneSets / totalSets) * 100 : 0}%`,
+              width: `${
+                isHealthSummary
+                  ? 100
+                  : totalSets
+                    ? (doneSets / totalSets) * 100
+                    : 0
+              }%`,
             }}
           />
         </div>
       </div>
 
-      {editable && session.exercises.length === 0 ? (
+      {isHealthSummary ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Apple Health</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            Imported summary. The original workout stays in Apple Health, and
+            this copy does not include lifts, sets, or volume.
+          </CardContent>
+        </Card>
+      ) : editable && session.exercises.length === 0 ? (
         <EmptyState
           title="Add your first exercise"
           description="Build this workout as you go — describe it with AI, or pick lifts yourself."
@@ -392,200 +418,206 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
         />
       ) : null}
 
-      {session.exercises.map((exercise, exIndex) => {
-        const reorderOffset = getReorderOffset(exIndex, drag);
-        if (drag && exIndex === drag.from) {
-          return (
-            <div
-              key={`${exercise._id}-placeholder`}
-              data-session-ex-index={exIndex}
-              className="pointer-events-none h-[65px] rounded-lg border border-dashed border-foreground/50 bg-foreground/5 transition-transform duration-200 ease-out"
-              style={{
-                transform: reorderOffset
-                  ? `translateY(${reorderOffset}px)`
-                  : undefined,
-              }}
-              aria-hidden
-            />
-          );
-        }
+      {isHealthSummary
+        ? null
+        : session.exercises.map((exercise, exIndex) => {
+            const reorderOffset = getReorderOffset(exIndex, drag);
+            if (drag && exIndex === drag.from) {
+              return (
+                <div
+                  key={`${exercise._id}-placeholder`}
+                  data-session-ex-index={exIndex}
+                  className="pointer-events-none h-[65px] rounded-lg border border-dashed border-foreground/50 bg-foreground/5 transition-transform duration-200 ease-out"
+                  style={{
+                    transform: reorderOffset
+                      ? `translateY(${reorderOffset}px)`
+                      : undefined,
+                  }}
+                  aria-hidden
+                />
+              );
+            }
 
-        const maxWeight = Math.max(...exercise.sets.map((s) => s.weight), 0);
-        const repSummary = summarizeReps(exercise.sets.map((s) => s.reps));
-        const exerciseName = catalog.name(exercise.slug);
-        const isCollapsed = Boolean(collapsed[exercise._id]);
-        const doneSets = exercise.sets.filter((s) => s.completed).length;
-        return (
-          <Card
-            key={exercise._id}
-            data-session-ex-index={exIndex}
-            className={cn(
-              "overflow-hidden border-[var(--line)] bg-[var(--surface)] transition-all duration-200",
-              isReordering && "gap-0 rounded-lg py-0 shadow-none",
-              drag?.over === exIndex && "border-foreground/50 bg-foreground/5",
-            )}
-            style={{
-              transform: reorderOffset
-                ? `translateY(${reorderOffset}px)`
-                : undefined,
-            }}
-          >
-            <CardHeader
-              className={cn(
-                "flex flex-row items-start justify-between gap-3 space-y-0",
-                isReordering ? "px-3 py-3" : isCollapsed ? "pb-0" : "pb-2",
-              )}
-            >
-              <button
-                type="button"
-                className="flex min-w-0 flex-1 items-start gap-2 text-left"
-                aria-expanded={!isCollapsed}
-                aria-controls={`session-ex-body-${exercise._id}`}
-                disabled={isReordering}
-                onClick={() => {
-                  hapticTap();
-                  setCollapsed((current) => {
-                    const next = { ...current };
-                    if (next[exercise._id]) delete next[exercise._id];
-                    else next[exercise._id] = true;
-                    return next;
-                  });
+            const maxWeight = Math.max(
+              ...exercise.sets.map((s) => s.weight),
+              0,
+            );
+            const repSummary = summarizeReps(exercise.sets.map((s) => s.reps));
+            const exerciseName = catalog.name(exercise.slug);
+            const isCollapsed = Boolean(collapsed[exercise._id]);
+            const doneSets = exercise.sets.filter((s) => s.completed).length;
+            return (
+              <Card
+                key={exercise._id}
+                data-session-ex-index={exIndex}
+                className={cn(
+                  "overflow-hidden border-[var(--line)] bg-[var(--surface)] transition-all duration-200",
+                  isReordering && "gap-0 rounded-lg py-0 shadow-none",
+                  drag?.over === exIndex &&
+                    "border-foreground/50 bg-foreground/5",
+                )}
+                style={{
+                  transform: reorderOffset
+                    ? `translateY(${reorderOffset}px)`
+                    : undefined,
                 }}
               >
-                {!isReordering ? (
-                  <ChevronDown
-                    className={cn(
-                      "text-muted-foreground mt-0.5 size-4 shrink-0 transition-transform duration-200",
-                      isCollapsed && "-rotate-90",
-                    )}
-                    aria-hidden
-                  />
-                ) : null}
-                <div className="min-w-0 flex-1">
-                  <CardTitle className="truncate text-base">
-                    {exerciseName}
-                  </CardTitle>
-                  {!isReordering ? (
-                    <p className="text-muted-foreground mt-1 text-xs">
-                      {exercise.sets.length} × {repSummary} · up to {maxWeight}{" "}
-                      lb
-                      {isCollapsed
-                        ? ` · ${doneSets}/${exercise.sets.length} done`
-                        : ""}
-                    </p>
-                  ) : null}
-                </div>
-              </button>
-              {editable ? (
-                <div className="flex shrink-0 items-center">
-                  <Button
+                <CardHeader
+                  className={cn(
+                    "flex flex-row items-start justify-between gap-3 space-y-0",
+                    isReordering ? "px-3 py-3" : isCollapsed ? "pb-0" : "pb-2",
+                  )}
+                >
+                  <button
                     type="button"
-                    size="icon"
-                    variant="ghost"
-                    className="text-muted-foreground hover:text-foreground -mr-1 h-11 w-11 sm:size-9"
-                    aria-label={`${exerciseName} options`}
-                    onClick={() =>
-                      setExerciseMenu({
-                        id: exercise._id,
-                        name: exerciseName,
-                        hasNote: Boolean(exercise.notes?.trim()),
-                      })
-                    }
-                  >
-                    <MoreHorizontal className="size-4" />
-                  </Button>
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    className={cn(
-                      "text-muted-foreground hover:text-foreground -mr-2 h-11 w-11 cursor-grab touch-none active:cursor-grabbing sm:-mr-1 sm:size-9",
-                      isReordering && "bg-foreground/5",
-                    )}
-                    aria-label={`Reorder ${exerciseName}`}
-                    aria-pressed={drag?.from === exIndex}
-                    onPointerDown={(event) => {
-                      event.preventDefault();
-                      const row = event.currentTarget.closest<HTMLElement>(
-                        "[data-session-ex-index]",
-                      );
-                      const rect = row?.getBoundingClientRect();
+                    className="flex min-w-0 flex-1 items-start gap-2 text-left"
+                    aria-expanded={!isCollapsed}
+                    aria-controls={`session-ex-body-${exercise._id}`}
+                    disabled={isReordering}
+                    onClick={() => {
                       hapticTap();
-                      setDrag({
-                        from: exIndex,
-                        over: exIndex,
-                        pointerId: event.pointerId,
-                        pointerY: event.clientY,
-                        offsetY: rect ? event.clientY - rect.top : 32,
-                        rowLeft: rect?.left ?? 0,
-                        rowWidth: rect?.width ?? 0,
+                      setCollapsed((current) => {
+                        const next = { ...current };
+                        if (next[exercise._id]) delete next[exercise._id];
+                        else next[exercise._id] = true;
+                        return next;
                       });
                     }}
                   >
-                    <GripVertical className="size-4" />
-                  </Button>
-                </div>
-              ) : null}
-            </CardHeader>
-            {!isReordering && !isCollapsed ? (
-              <CardContent
-                id={`session-ex-body-${exercise._id}`}
-                className="flex flex-col gap-3"
-              >
-                <ExerciseNoteField
-                  key={`${exercise.slug}-${exercise.notes ?? ""}`}
-                  exerciseSlug={exercise.slug}
-                  initialNotes={exercise.notes}
-                  editable={editable}
-                  compact
-                  hideEmptyPrompt
-                  openSignal={noteOpenSignals[exercise._id] ?? 0}
-                />
-                <div className="text-muted-foreground grid grid-cols-[2rem_1fr_auto_1fr_2.5rem_2.5rem] gap-2 px-1 text-xs font-medium tracking-wide uppercase">
-                  <span>Set</span>
-                  <span>Weight</span>
-                  <span />
-                  <span>Reps</span>
-                  <span />
-                  <span className="text-center">✓</span>
-                </div>
-                {exercise.sets.map((set, i) => (
-                  <SetRow
-                    key={set._id}
-                    set={set}
-                    index={i + 1}
-                    editable={editable}
-                    canDelete={exercise.sets.length > 1}
-                    includeBar={catalog.usesBar(exercise.slug)}
-                    onDelete={() => void deleteSet({ setId: set._id })}
-                    highlighted={set._id === nextSetId}
-                    onLogged={() => {
-                      if (!restTimerEnabled) return;
-                      startRest(
-                        exercise.restSeconds ?? 75,
-                        nextSetLabel(session.exercises, exercise._id, i),
-                      );
-                    }}
-                  />
-                ))}
-                {editable ? (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="mt-1 self-start"
-                    onClick={() =>
-                      void addSet({ sessionExerciseId: exercise._id })
-                    }
+                    {!isReordering ? (
+                      <ChevronDown
+                        className={cn(
+                          "text-muted-foreground mt-0.5 size-4 shrink-0 transition-transform duration-200",
+                          isCollapsed && "-rotate-90",
+                        )}
+                        aria-hidden
+                      />
+                    ) : null}
+                    <div className="min-w-0 flex-1">
+                      <CardTitle className="truncate text-base">
+                        {exerciseName}
+                      </CardTitle>
+                      {!isReordering ? (
+                        <p className="text-muted-foreground mt-1 text-xs">
+                          {exercise.sets.length} × {repSummary} · up to{" "}
+                          {maxWeight} lb
+                          {isCollapsed
+                            ? ` · ${doneSets}/${exercise.sets.length} done`
+                            : ""}
+                        </p>
+                      ) : null}
+                    </div>
+                  </button>
+                  {editable ? (
+                    <div className="flex shrink-0 items-center">
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="text-muted-foreground hover:text-foreground -mr-1 h-11 w-11 sm:size-9"
+                        aria-label={`${exerciseName} options`}
+                        onClick={() =>
+                          setExerciseMenu({
+                            id: exercise._id,
+                            name: exerciseName,
+                            hasNote: Boolean(exercise.notes?.trim()),
+                          })
+                        }
+                      >
+                        <MoreHorizontal className="size-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className={cn(
+                          "text-muted-foreground hover:text-foreground -mr-2 h-11 w-11 cursor-grab touch-none active:cursor-grabbing sm:-mr-1 sm:size-9",
+                          isReordering && "bg-foreground/5",
+                        )}
+                        aria-label={`Reorder ${exerciseName}`}
+                        aria-pressed={drag?.from === exIndex}
+                        onPointerDown={(event) => {
+                          event.preventDefault();
+                          const row = event.currentTarget.closest<HTMLElement>(
+                            "[data-session-ex-index]",
+                          );
+                          const rect = row?.getBoundingClientRect();
+                          hapticTap();
+                          setDrag({
+                            from: exIndex,
+                            over: exIndex,
+                            pointerId: event.pointerId,
+                            pointerY: event.clientY,
+                            offsetY: rect ? event.clientY - rect.top : 32,
+                            rowLeft: rect?.left ?? 0,
+                            rowWidth: rect?.width ?? 0,
+                          });
+                        }}
+                      >
+                        <GripVertical className="size-4" />
+                      </Button>
+                    </div>
+                  ) : null}
+                </CardHeader>
+                {!isReordering && !isCollapsed ? (
+                  <CardContent
+                    id={`session-ex-body-${exercise._id}`}
+                    className="flex flex-col gap-3"
                   >
-                    <Plus className="size-4" />
-                    Add set
-                  </Button>
+                    <ExerciseNoteField
+                      key={`${exercise.slug}-${exercise.notes ?? ""}`}
+                      exerciseSlug={exercise.slug}
+                      initialNotes={exercise.notes}
+                      editable={editable}
+                      compact
+                      hideEmptyPrompt
+                      openSignal={noteOpenSignals[exercise._id] ?? 0}
+                    />
+                    <div className="text-muted-foreground grid grid-cols-[2rem_1fr_auto_1fr_2.5rem_2.5rem] gap-2 px-1 text-xs font-medium tracking-wide uppercase">
+                      <span>Set</span>
+                      <span>Weight</span>
+                      <span />
+                      <span>Reps</span>
+                      <span />
+                      <span className="text-center">✓</span>
+                    </div>
+                    {exercise.sets.map((set, i) => (
+                      <SetRow
+                        key={set._id}
+                        set={set}
+                        index={i + 1}
+                        editable={editable}
+                        canDelete={exercise.sets.length > 1}
+                        includeBar={catalog.usesBar(exercise.slug)}
+                        onDelete={() => void deleteSet({ setId: set._id })}
+                        highlighted={set._id === nextSetId}
+                        onLogged={() => {
+                          if (!restTimerEnabled) return;
+                          startRest(
+                            exercise.restSeconds ?? 75,
+                            nextSetLabel(session.exercises, exercise._id, i),
+                          );
+                        }}
+                      />
+                    ))}
+                    {editable ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="mt-1 self-start"
+                        onClick={() =>
+                          void addSet({ sessionExerciseId: exercise._id })
+                        }
+                      >
+                        <Plus className="size-4" />
+                        Add set
+                      </Button>
+                    ) : null}
+                  </CardContent>
                 ) : null}
-              </CardContent>
-            ) : null}
-          </Card>
-        );
-      })}
+              </Card>
+            );
+          })}
 
       {drag && draggedExercise ? (
         <div
@@ -640,6 +672,7 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
       ) : session.status === "completed" ? (
         <DeleteWorkoutButton
           sessionId={sessionId as Id<"workoutSessions">}
+          fromHealth={isHealthSummary}
           onDeleted={() => router.push(historyHref)}
         />
       ) : null}

@@ -9,12 +9,13 @@ import {
   TextInput,
   View,
   type KeyboardTypeOptions,
+  type RefreshControlProps,
   type StyleProp,
   type TextInputProps,
   type ViewStyle,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useState, type ReactNode } from "react";
+import { useState, type ReactElement, type ReactNode } from "react";
 import { ChevronLeft, type LucideIcon } from "lucide-react-native";
 import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
@@ -25,10 +26,12 @@ export function Screen({
   children,
   scroll = true,
   contentStyle,
+  refreshControl,
 }: {
   children: ReactNode;
   scroll?: boolean;
   contentStyle?: StyleProp<ViewStyle>;
+  refreshControl?: ReactElement<RefreshControlProps>;
 }) {
   const content = (
     <View style={[styles.screenContent, contentStyle]}>{children}</View>
@@ -44,6 +47,7 @@ export function Screen({
             contentContainerStyle={{ flexGrow: 1 }}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
+            refreshControl={refreshControl}
           >
             {content}
           </ScrollView>
