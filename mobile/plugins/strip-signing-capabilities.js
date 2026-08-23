@@ -104,9 +104,17 @@ function withStripSigningCapabilities(config) {
       );
       if (entitlementsPath && fs.existsSync(entitlementsPath)) {
         const parsed = plist.parse(fs.readFileSync(entitlementsPath, "utf8"));
-        const stripped = stripPaidEntitlements(
-          parsed && typeof parsed === "object" ? parsed : {},
-        );
+        if (
+          !parsed ||
+          typeof parsed !== "object" ||
+          Array.isArray(parsed) ||
+          Object.keys(parsed).length === 0
+        ) {
+          // Prebuild has not flushed entitlements yet. Rewriting an empty
+          // dict here wipes HealthKit keys written later in the same run.
+          return config;
+        }
+        const stripped = stripPaidEntitlements(parsed);
         fs.writeFileSync(entitlementsPath, plist.build(stripped));
       }
       return config;

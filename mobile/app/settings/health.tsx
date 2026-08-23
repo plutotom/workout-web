@@ -18,9 +18,12 @@ import {
   PageHeader,
   Screen,
   SectionTitle,
+  Segmented,
 } from "@/components/ui";
 import { useMobileAuth } from "@/auth/auth-provider";
 import {
+  useHealthAutoImportPrefs,
+  useHealthExportPrefs,
   useHealthImportLookups,
   useLocalData,
   useLocalPreferences,
@@ -36,10 +39,15 @@ import {
 } from "@/health";
 import { HealthActivityIcon } from "@/health/activity-icon";
 import {
+  AUTO_IMPORT_TYPE_OPTIONS,
+  DEFAULT_AUTO_IMPORT_TYPES,
+} from "@/health/auto-import";
+import {
   formatHealthDistance,
   formatHealthEnergy,
   isStrengthActivityType,
 } from "@/health/mapping";
+import { requestAutoImportNotificationPermission } from "@/health/notify";
 import { findLikelyHealthOverlap } from "@/health/overlap";
 import { colors, radius } from "@/theme";
 
@@ -84,8 +92,16 @@ async function loadHealthState(
   }
   let state = await adapter.getAuthorizationState();
   if (requestAccess && state !== "unavailable") {
-    state = await adapter.requestReadAccess();
-    await markRequested();
+    try {
+      state = await adapter.requestReadAccess();
+      await markRequested();
+    } catch {
+      return {
+        auth: state,
+        workouts: [],
+        queryError: "Couldn’t connect to Apple Health.",
+      };
+    }
   }
   if (state === "not_requested") {
     return { auth: state, workouts: [], queryError: null };
@@ -113,8 +129,13 @@ export default function HealthSettingsScreen() {
     linkHealthSummary,
     ignoreHealthUuid,
     markHealthAuthRequested,
+    setHealthExportEnabled,
+    setHealthAutoImportPrefs,
     deleteSession,
+    refresh: refreshLocal,
   } = useLocalData();
+  const exportPrefs = useHealthExportPrefs();
+  const autoImportPrefs = useHealthAutoImportPrefs();
   const [auth, setAuth] = useState<HealthAuthorizationState | null>(null);
   const [workouts, setWorkouts] = useState<HealthWorkoutSummary[] | null>(null);
   const [queryError, setQueryError] = useState<string | null>(null);
@@ -123,7 +144,13 @@ export default function HealthSettingsScreen() {
   const [failedUuids, setFailedUuids] = useState<Set<string>>(new Set());
   const [notice, setNotice] = useState<string | null>(null);
   const [reviewItem, setReviewItem] = useState<HealthListItem | null>(null);
+  const [writeAuth, setWriteAuth] = useState<HealthAuthorizationState | null>(
+    null,
+  );
+  const [exportBusy, setExportBusy] = useState(false);
+  const [autoImportBusy, setAutoImportBusy] = useState(false);
   const unit = prefs?.unit ?? "lb";
+  const exportEnabled = exportPrefs?.enabled === true;
 
   const applyHealthState = useCallback(
     (result: {
@@ -147,6 +174,18 @@ export default function HealthSettingsScreen() {
       cancelled = true;
     };
   }, [applyHealthState, markHealthAuthRequested]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getHealthAdapter()
+      .getWriteAuthorizationState()
+      .then((state) => {
+        if (!cancelled) setWriteAuth(state);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [exportEnabled]);
 
   async function refresh() {
     setRefreshing(true);
@@ -238,6 +277,88 @@ export default function HealthSettingsScreen() {
     }
   }
 
+  async function toggleExport(next: "on" | "off") {
+    if (exportBusy) return;
+    if (next === "off") {
+      await setHealthExportEnabled(false);
+      return;
+    }
+    setExportBusy(true);
+    try {
+      const adapter = getHealthAdapter();
+      const state = await adapter.requestWriteAccess();
+      setWriteAuth(state);
+      if (state === "unavailable" || state === "not_requested") {
+        await setHealthExportEnabled(false);
+        setNotice(
+          state === "unavailable"
+            ? "Apple Health is not available on this device."
+            : "Write access was not granted. Saving stays off.",
+        );
+        return;
+      }
+      await setHealthExportEnabled(true);
+      setNotice(
+        "Finished workouts will save to Apple Health as Strength training.",
+      );
+    } catch {
+      await setHealthExportEnabled(false);
+      setNotice("Couldn’t enable Apple Health export.");
+    } finally {
+      setExportBusy(false);
+    }
+  }
+
+  async function retryPendingExports() {
+    setExportBusy(true);
+    try {
+      const state = await getHealthAdapter().requestWriteAccess();
+      setWriteAuth(state);
+      refreshLocal();
+    } finally {
+      setExportBusy(false);
+    }
+  }
+
+  async function toggleAutoImport(next: "on" | "off") {
+    if (autoImportBusy || autoImportPrefs === undefined) return;
+    if (next === "off") {
+      await setHealthAutoImportPrefs({ ...autoImportPrefs, enabled: false });
+      return;
+    }
+    setAutoImportBusy(true);
+    try {
+      const adapter = getHealthAdapter();
+      const state = await adapter.requestReadAccess();
+      await markHealthAuthRequested();
+      applyHealthState(await loadHealthState(false, markHealthAuthRequested));
+      if (state === "unavailable" || state === "not_requested") {
+        await setHealthAutoImportPrefs({ ...autoImportPrefs, enabled: false });
+        setNotice(
+          state === "unavailable"
+            ? "Apple Health is not available on this device."
+            : "Read access was not granted. Automatic import stays off.",
+        );
+        return;
+      }
+      await requestAutoImportNotificationPermission();
+      await setHealthAutoImportPrefs({
+        ...autoImportPrefs,
+        enabled: true,
+        types:
+          autoImportPrefs.types.length > 0
+            ? autoImportPrefs.types
+            : [...DEFAULT_AUTO_IMPORT_TYPES],
+      });
+      setNotice("Matching workouts will import automatically.");
+    } catch {
+      await setHealthAutoImportPrefs({ ...autoImportPrefs, enabled: false });
+      setNotice("Couldn’t enable automatic import.");
+    } finally {
+      setAutoImportBusy(false);
+    }
+  }
+
   async function removeImported(sessionId: string) {
     Alert.alert(
       "Remove from Workout?",
@@ -279,7 +400,7 @@ export default function HealthSettingsScreen() {
         back
         eyebrow="SETTINGS"
         title="Apple Health"
-        subtitle="Import a workout from the last 90 days. Summaries count toward your weekly goal and sync to your account when signed in."
+        subtitle="Import a workout from the last 90 days, save lifts you finish here, or automatically import matching activities."
       />
 
       <Card>
@@ -326,13 +447,180 @@ export default function HealthSettingsScreen() {
         )}
       </Card>
 
+      {auth === "unavailable" ? null : (
+        <Card>
+          <SectionTitle title="Save workouts to Apple Health" />
+          <Text style={{ color: colors.dim, fontSize: 13, lineHeight: 19 }}>
+            When you finish an in-app workout, save it as Strength training.
+            Calories are not estimated.
+          </Text>
+          <Segmented
+            value={exportPrefs?.enabled ? "on" : "off"}
+            options={[
+              { value: "off" as const, label: "Off" },
+              { value: "on" as const, label: "On" },
+            ]}
+            onChange={(next) => {
+              if (exportBusy || exportPrefs === undefined) return;
+              void toggleExport(next);
+            }}
+          />
+          <StatusRow
+            label="Write Workouts"
+            value={
+              !exportEnabled
+                ? "Off"
+                : writeAuth === "not_requested"
+                  ? "Not granted"
+                  : writeAuth === "unavailable"
+                    ? "Unavailable"
+                    : writeAuth === "limited"
+                      ? "Limited"
+                      : "Allowed"
+            }
+          />
+          {exportPrefs && exportPrefs.pendingCount > 0 ? (
+            <>
+              <Text style={{ color: colors.dim, fontSize: 12, lineHeight: 18 }}>
+                {exportPrefs.pendingCount === 1
+                  ? "1 finished workout is waiting to save."
+                  : `${exportPrefs.pendingCount} finished workouts are waiting to save.`}
+              </Text>
+              <Button
+                label={exportBusy ? "Retrying…" : "Retry save"}
+                variant="outline"
+                disabled={exportBusy || !exportEnabled}
+                onPress={() => void retryPendingExports()}
+              />
+            </>
+          ) : null}
+        </Card>
+      )}
+
+      {auth === "unavailable" ? null : (
+        <Card>
+          <SectionTitle title="Automatic import" />
+          <Text style={{ color: colors.dim, fontSize: 13, lineHeight: 19 }}>
+            Import matching workouts when they appear in Apple Health. Manual
+            import still works for every type.
+          </Text>
+          <Segmented
+            value={autoImportPrefs?.enabled ? "on" : "off"}
+            options={[
+              { value: "off" as const, label: "Off" },
+              { value: "on" as const, label: "On" },
+            ]}
+            onChange={(next) => {
+              if (autoImportBusy || autoImportPrefs === undefined) return;
+              void toggleAutoImport(next);
+            }}
+          />
+          {autoImportPrefs?.enabled ? (
+            <>
+              <View style={{ gap: 7 }}>
+                <Text
+                  style={{
+                    color: colors.text,
+                    fontSize: 13,
+                    fontWeight: "600",
+                  }}
+                >
+                  Types
+                </Text>
+                <Segmented
+                  value={autoImportPrefs.importAllTypes ? "all" : "selected"}
+                  options={[
+                    { value: "selected" as const, label: "Selected" },
+                    { value: "all" as const, label: "Import all" },
+                  ]}
+                  onChange={(next) => {
+                    if (autoImportBusy) return;
+                    void setHealthAutoImportPrefs({
+                      ...autoImportPrefs,
+                      importAllTypes: next === "all",
+                    });
+                  }}
+                />
+              </View>
+              {autoImportPrefs.importAllTypes ? (
+                <Text
+                  style={{ color: colors.dim, fontSize: 12, lineHeight: 18 }}
+                >
+                  Every Health workout type can import. Strength workouts that
+                  overlap a lift you already logged still wait for Review.
+                </Text>
+              ) : (
+                <View
+                  style={{
+                    flexDirection: "row",
+                    flexWrap: "wrap",
+                    gap: 8,
+                  }}
+                >
+                  {AUTO_IMPORT_TYPE_OPTIONS.map((option) => {
+                    const selected = autoImportPrefs.types.includes(
+                      option.type,
+                    );
+                    return (
+                      <Pressable
+                        key={option.type}
+                        onPress={() => {
+                          if (autoImportBusy) return;
+                          const types = selected
+                            ? autoImportPrefs.types.filter(
+                                (type) => type !== option.type,
+                              )
+                            : [...autoImportPrefs.types, option.type];
+                          void setHealthAutoImportPrefs({
+                            ...autoImportPrefs,
+                            types,
+                          });
+                        }}
+                        style={{
+                          minHeight: 44,
+                          paddingHorizontal: 14,
+                          borderRadius: radius.pill,
+                          borderWidth: 1,
+                          borderColor: selected ? colors.text : colors.line,
+                          backgroundColor: selected
+                            ? colors.surface2
+                            : "transparent",
+                          justifyContent: "center",
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: selected ? colors.text : colors.dim,
+                            fontSize: 14,
+                            fontWeight: "600",
+                          }}
+                        >
+                          {option.name}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              )}
+              <Text style={{ color: colors.dim, fontSize: 12, lineHeight: 18 }}>
+                You’ll get a notification when a matching workout is imported.
+                Unselected types stay on the list below.
+              </Text>
+            </>
+          ) : null}
+        </Card>
+      )}
+
       {notice ? (
         <Text
           accessibilityLiveRegion="polite"
           style={{
             color:
               notice.startsWith("Import failed") ||
-              notice.startsWith("Couldn’t")
+              notice.startsWith("Couldn’t") ||
+              notice.startsWith("Write access") ||
+              notice.startsWith("Read access") ||
+              notice.startsWith("Apple Health is not")
                 ? colors.danger
                 : colors.success,
             fontSize: 13,

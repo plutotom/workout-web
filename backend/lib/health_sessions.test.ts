@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   normalizeSessionKind,
   sessionCountsTowardGoals,
-} from "./health-sessions";
+} from "./health_sessions";
 
 describe("normalizeSessionKind", () => {
   it("treats missing or unknown kinds as tracked lifting sessions", () => {

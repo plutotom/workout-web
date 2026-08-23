@@ -1,8 +1,13 @@
 import { v } from "convex/values";
 
-import { mutation } from "../../_generated/server";
+import type { Id } from "../../_generated/dataModel";
+import { mutation, type MutationCtx } from "../../_generated/server";
 import { requireUser } from "../../lib/auth";
 import { upsertCustomExerciseFromClient } from "../../lib/exercises";
+import {
+  resolvePushSessionTarget,
+  resolveReceiptRemoteSessionId,
+} from "../../lib/ios_session_sync";
 import { deleteWorkout } from "../../lib/workouts";
 import { muscleGroupValidator } from "../../schemas/exercises";
 import {
@@ -64,6 +69,42 @@ const resultValidator = v.object({
 
 const MAX_EXERCISES = 50;
 const MAX_SETS_PER_EXERCISE = 20;
+
+async function findSessionsForPush(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  session: {
+    clientId: string;
+    externalProvider?: "apple_health" | null;
+    externalId?: string | null;
+  },
+) {
+  const existingByClient = await ctx.db
+    .query("workoutSessions")
+    .withIndex("by_user_client_id", (q) =>
+      q.eq("userId", userId).eq("clientId", session.clientId),
+    )
+    .first();
+  const externalProvider = session.externalProvider;
+  const externalId = session.externalId;
+  const externalMatches =
+    externalProvider && externalId
+      ? await ctx.db
+          .query("workoutSessions")
+          .withIndex("by_user_external", (q) =>
+            q
+              .eq("userId", userId)
+              .eq("externalProvider", externalProvider)
+              .eq("externalId", externalId),
+          )
+          .take(8)
+      : [];
+  const existingByExternal =
+    externalMatches.find((row) => row._id !== existingByClient?._id) ??
+    externalMatches[0] ??
+    null;
+  return { existingByClient, existingByExternal };
+}
 
 /**
  * Upload one custom exercise authored offline. The phone references it locally
@@ -144,15 +185,14 @@ export const pushSession = mutation({
       )
       .first();
     if (duplicate) {
-      const existing = await ctx.db
-        .query("workoutSessions")
-        .withIndex("by_user_client_id", (q) =>
-          q.eq("userId", user._id).eq("clientId", args.session.clientId),
-        )
-        .first();
+      const { existingByClient, existingByExternal } =
+        await findSessionsForPush(ctx, user._id, args.session);
       return {
         status: "duplicate" as const,
-        remoteSessionId: existing?._id ?? null,
+        remoteSessionId: resolveReceiptRemoteSessionId({
+          existingByClient,
+          existingByExternal,
+        }),
         serverTime: Date.now(),
       };
     }
@@ -172,30 +212,19 @@ export const pushSession = mutation({
       );
     }
 
-    const existingByClient = await ctx.db
-      .query("workoutSessions")
-      .withIndex("by_user_client_id", (q) =>
-        q.eq("userId", user._id).eq("clientId", args.session.clientId),
-      )
-      .first();
-    const externalProvider = args.session.externalProvider;
-    const externalId = args.session.externalId;
-    const existingByExternal =
-      externalProvider && externalId
-        ? await ctx.db
-            .query("workoutSessions")
-            .withIndex("by_user_external", (q) =>
-              q
-                .eq("userId", user._id)
-                .eq("externalProvider", externalProvider)
-                .eq("externalId", externalId),
-            )
-            .first()
-        : null;
-    const existing = existingByClient ?? existingByExternal;
-    if (existing && existingByClient === null) {
-      // Same Health UUID already imported from another device. Do not create
-      // a second session or replace a linked detailed workout.
+    const { existingByClient, existingByExternal } = await findSessionsForPush(
+      ctx,
+      user._id,
+      args.session,
+    );
+    const resolution = resolvePushSessionTarget({
+      existingByClient,
+      existingByExternal,
+      incomingKind: args.session.sessionKind,
+    });
+    if (resolution.action === "skip") {
+      // Same Health UUID already belongs to a linked detailed workout. Keep
+      // that row and ack so the phone can store the remote id.
       await ctx.db.insert("iosSyncReceipts", {
         userId: user._id,
         operationId: args.operationId,
@@ -204,19 +233,37 @@ export const pushSession = mutation({
       });
       return {
         status: "duplicate" as const,
-        remoteSessionId: existing._id,
+        remoteSessionId: resolution.targetId,
         serverTime: Date.now(),
       };
     }
+    const existing =
+      resolution.action === "apply"
+        ? existingByClient?._id === resolution.targetId
+          ? existingByClient
+          : existingByExternal
+        : null;
     if (
       existing?.clientUpdatedAt !== undefined &&
-      existing.clientUpdatedAt > args.session.updatedAt
+      existing.clientUpdatedAt > args.session.updatedAt &&
+      !(resolution.action === "apply" && resolution.ignoreStale)
     ) {
       return {
         status: "stale" as const,
         remoteSessionId: existing._id,
         serverTime: Date.now(),
       };
+    }
+    if (resolution.action === "apply") {
+      if (resolution.deleteSessionId) {
+        await deleteWorkout(ctx, user._id, resolution.deleteSessionId);
+      }
+      if (resolution.unlinkSessionId) {
+        await ctx.db.patch(resolution.unlinkSessionId, {
+          externalProvider: undefined,
+          externalId: undefined,
+        });
+      }
     }
 
     const sessionFields = {
@@ -239,12 +286,12 @@ export const pushSession = mutation({
       distanceMeters: args.session.distanceMeters ?? undefined,
       importedAt: args.session.importedAt ?? undefined,
     };
-    const sessionId = existing
-      ? existing._id
-      : await ctx.db.insert("workoutSessions", {
-          userId: user._id,
-          ...sessionFields,
-        });
+    const sessionId =
+      existing?._id ??
+      (await ctx.db.insert("workoutSessions", {
+        userId: user._id,
+        ...sessionFields,
+      }));
     if (existing) await ctx.db.patch(existing._id, sessionFields);
 
     const existingExercises = await ctx.db

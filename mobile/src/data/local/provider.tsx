@@ -29,12 +29,15 @@ import {
   completeSessionDeleteSync,
   completeSessionSync,
   completeTemplateSync,
+  countPendingHealthExports,
   createLocalTemplateFromSession,
   deleteLocalSet,
   deleteLocalTemplate,
   deleteLocalWorkout,
   finishLocalWorkout,
   getHealthAuthRequested,
+  getHealthAutoImportPrefs,
+  getHealthExportEnabled,
   getLocalActiveWorkout,
   getLastLocalSet,
   getLocalExerciseNotes,
@@ -60,11 +63,14 @@ import {
   noteCustomExerciseSyncAttempt,
   noteSessionSyncAttempt,
   noteTemplateSyncAttempt,
+  queueHealthExportIfEnabled,
   removeLocalExercise,
   saveLocalCustomExercise,
   saveLocalExerciseNote,
   saveLocalTemplate,
   setHealthAuthRequested,
+  setHealthAutoImportPrefs as writeHealthAutoImportPrefs,
+  setHealthExportEnabled as writeHealthExportEnabled,
   startLocalBlankWorkout,
   startLocalTemplateWorkout,
   syncLocalTemplateFromSession,
@@ -80,6 +86,7 @@ import type {
   LocalTemplate,
   LocalWorkoutSession,
 } from "@/data/local/types";
+import type { HealthAutoImportPrefs } from "@/health/types";
 import type { WorkoutExportBundle } from "@shared/workout-export";
 
 type LocalTemplateInput = {
@@ -153,6 +160,8 @@ type LocalDataContextValue = {
   ) => Promise<void>;
   ignoreHealthUuid: (externalId: string) => Promise<void>;
   markHealthAuthRequested: () => Promise<void>;
+  setHealthExportEnabled: (enabled: boolean) => Promise<void>;
+  setHealthAutoImportPrefs: (prefs: HealthAutoImportPrefs) => Promise<void>;
   applyBootstrap: (payload: IosBootstrapPayload) => Promise<void>;
 };
 
@@ -223,7 +232,11 @@ function LocalDataState({ children }: { children: ReactNode }) {
       createBackup: () => createLocalBackup(db),
       restoreBackup: (snapshot) => run(() => restoreLocalBackup(db, snapshot)),
       noteBackupSaved: () => run(() => markBackupSaved(db)),
-      finish: (sessionId) => run(() => finishLocalWorkout(db, sessionId)),
+      finish: (sessionId) =>
+        run(async () => {
+          await finishLocalWorkout(db, sessionId);
+          await queueHealthExportIfEnabled(db, sessionId);
+        }),
       abandon: (sessionId) => run(() => abandonLocalWorkout(db, sessionId)),
       deleteSession: (sessionId) =>
         run(() => deleteLocalWorkout(db, sessionId)),
@@ -234,6 +247,10 @@ function LocalDataState({ children }: { children: ReactNode }) {
       ignoreHealthUuid: (externalId) =>
         run(() => ignoreHealthWorkout(db, externalId)),
       markHealthAuthRequested: () => run(() => setHealthAuthRequested(db)),
+      setHealthExportEnabled: (enabled) =>
+        run(() => writeHealthExportEnabled(db, enabled)),
+      setHealthAutoImportPrefs: (prefs) =>
+        run(() => writeHealthAutoImportPrefs(db, prefs)),
       applyBootstrap: (payload) => run(() => applyIosBootstrap(db, payload)),
     }),
     [db, refresh, revision, run],
@@ -453,4 +470,25 @@ export function useHealthImportLookups() {
       ]);
     return { imported, ignored, overlapCandidates, authRequested };
   }, [db, revision]);
+}
+
+export function useHealthExportPrefs() {
+  const db = useSQLiteContext();
+  const { revision } = useLocalData();
+  return useLocalValue<{ enabled: boolean; pendingCount: number }>(async () => {
+    const [enabled, pendingCount] = await Promise.all([
+      getHealthExportEnabled(db),
+      countPendingHealthExports(db),
+    ]);
+    return { enabled, pendingCount };
+  }, [db, revision]);
+}
+
+export function useHealthAutoImportPrefs() {
+  const db = useSQLiteContext();
+  const { revision } = useLocalData();
+  return useLocalValue<HealthAutoImportPrefs>(
+    () => getHealthAutoImportPrefs(db),
+    [db, revision],
+  );
 }
