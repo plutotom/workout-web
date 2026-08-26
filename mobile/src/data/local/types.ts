@@ -148,7 +148,14 @@ export type LocalPreferences = {
   barWeightKg: number;
   activeWorkoutMode: "list" | "focus";
   restTimerEnabled: boolean;
+  restTimerNotificationsEnabled: boolean;
+  appleHealthImportNotificationsEnabled: boolean;
 };
+
+export type LocalNotificationPreferences = Pick<
+  LocalPreferences,
+  "restTimerNotificationsEnabled" | "appleHealthImportNotificationsEnabled"
+>;
 
 export type IosBootstrapPayload = {
   serverTime: number;

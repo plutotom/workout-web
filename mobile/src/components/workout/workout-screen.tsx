@@ -177,7 +177,9 @@ function ListWorkout({
   // Collapsed cards are opt-in and independent, so a session can mix open and
   // closed exercises. Missing id means expanded.
   const [collapsed, setCollapsed] = useState<Record<string, true>>({});
-  const rest = useRestTimer();
+  const rest = useRestTimer({
+    notificationsEnabled: user.restTimerNotificationsEnabled,
+  });
   const { generateSession } = useAiGeneration();
 
   function toggleCollapsed(exerciseId: string) {
@@ -652,7 +654,9 @@ function FocusWorkout({
   const firstIncomplete = allSets.findIndex((item) => !item.set.completed);
   const [position, setPosition] = useState(Math.max(0, firstIncomplete));
   const item = allSets[Math.min(position, Math.max(0, allSets.length - 1))];
-  const rest = useRestTimer();
+  const rest = useRestTimer({
+    notificationsEnabled: user.restTimerNotificationsEnabled,
+  });
   const { updateSet } = useLocalData();
   const [drafts, setDrafts] = useState<
     Record<string, { weight: string; reps: string }>
