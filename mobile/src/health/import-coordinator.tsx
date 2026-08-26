@@ -2,7 +2,11 @@ import { useCallback, useEffect, useRef } from "react";
 import { AppState } from "react-native";
 import { useSQLiteContext } from "expo-sqlite";
 
-import { useHealthAutoImportPrefs, useLocalData } from "@/data/local/provider";
+import {
+  useHealthAutoImportPrefs,
+  useLocalData,
+  useLocalPreferences,
+} from "@/data/local/provider";
 import {
   getHealthAutoImportAnchor,
   importHealthSummarySession,
@@ -40,6 +44,7 @@ export function HealthImportCoordinator() {
   const db = useSQLiteContext();
   const { refresh } = useLocalData();
   const prefs = useHealthAutoImportPrefs();
+  const localPreferences = useLocalPreferences();
   const prefsRef = useRef(prefs);
   const draining = useRef(false);
   const rerun = useRef(false);
@@ -116,12 +121,17 @@ export function HealthImportCoordinator() {
         const notify = importedNow.filter((workout) =>
           shouldNotifyAutoImport(workout),
         );
-        if (notify.length > 0) await notifyAutoImportedWorkouts(notify);
+        if (
+          localPreferences?.appleHealthImportNotificationsEnabled &&
+          notify.length > 0
+        ) {
+          await notifyAutoImportedWorkouts(notify);
+        }
       } while (rerun.current);
     } finally {
       draining.current = false;
     }
-  }, [db, refresh]);
+  }, [db, localPreferences?.appleHealthImportNotificationsEnabled, refresh]);
 
   useEffect(() => {
     if (!prefsReady) return;

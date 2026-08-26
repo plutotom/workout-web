@@ -47,7 +47,6 @@ import {
   formatHealthEnergy,
   isStrengthActivityType,
 } from "@/health/mapping";
-import { requestAutoImportNotificationPermission } from "@/health/notify";
 import { findLikelyHealthOverlap } from "@/health/overlap";
 import { colors, radius } from "@/theme";
 
@@ -341,7 +340,6 @@ export default function HealthSettingsScreen() {
         );
         return;
       }
-      await requestAutoImportNotificationPermission();
       await setHealthAutoImportPrefs({
         ...autoImportPrefs,
         enabled: true,
@@ -603,8 +601,9 @@ export default function HealthSettingsScreen() {
                 </View>
               )}
               <Text style={{ color: colors.dim, fontSize: 12, lineHeight: 18 }}>
-                You’ll get a notification when a matching workout is imported.
-                Unselected types stay on the list below.
+                Completion notifications are optional and can be managed in
+                Settings › Notifications. Unselected types stay on the list
+                below.
               </Text>
             </>
           ) : null}

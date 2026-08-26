@@ -71,6 +71,7 @@ import {
   setHealthAuthRequested,
   setHealthAutoImportPrefs as writeHealthAutoImportPrefs,
   setHealthExportEnabled as writeHealthExportEnabled,
+  setLocalNotificationPreferences as writeLocalNotificationPreferences,
   startLocalBlankWorkout,
   startLocalTemplateWorkout,
   syncLocalTemplateFromSession,
@@ -82,6 +83,7 @@ import type {
   IosBootstrapPayload,
   LocalActiveWorkout,
   LocalCustomExercise,
+  LocalNotificationPreferences,
   LocalPreferences,
   LocalTemplate,
   LocalWorkoutSession,
@@ -162,6 +164,9 @@ type LocalDataContextValue = {
   markHealthAuthRequested: () => Promise<void>;
   setHealthExportEnabled: (enabled: boolean) => Promise<void>;
   setHealthAutoImportPrefs: (prefs: HealthAutoImportPrefs) => Promise<void>;
+  setNotificationPreferences: (
+    preferences: LocalNotificationPreferences,
+  ) => Promise<void>;
   applyBootstrap: (payload: IosBootstrapPayload) => Promise<void>;
 };
 
@@ -251,6 +256,8 @@ function LocalDataState({ children }: { children: ReactNode }) {
         run(() => writeHealthExportEnabled(db, enabled)),
       setHealthAutoImportPrefs: (prefs) =>
         run(() => writeHealthAutoImportPrefs(db, prefs)),
+      setNotificationPreferences: (preferences) =>
+        run(() => writeLocalNotificationPreferences(db, preferences)),
       applyBootstrap: (payload) => run(() => applyIosBootstrap(db, payload)),
     }),
     [db, refresh, revision, run],

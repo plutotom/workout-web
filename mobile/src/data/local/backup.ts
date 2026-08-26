@@ -688,6 +688,9 @@ function validatePreferences(value: unknown): LocalPreferences {
     barWeightKg: isFiniteNumber(raw.barWeightKg) ? raw.barWeightKg : 20,
     activeWorkoutMode: raw.activeWorkoutMode === "focus" ? "focus" : "list",
     restTimerEnabled: raw.restTimerEnabled !== false,
+    restTimerNotificationsEnabled: raw.restTimerNotificationsEnabled !== false,
+    appleHealthImportNotificationsEnabled:
+      raw.appleHealthImportNotificationsEnabled === true,
   };
 }
 
@@ -731,13 +734,17 @@ export async function restoreLocalBackup(
       await txn.runAsync(
         `UPDATE local_preferences
             SET unit = ?, bar_weight_lb = ?, bar_weight_kg = ?,
-                active_workout_mode = ?, rest_timer_enabled = ?
+                active_workout_mode = ?, rest_timer_enabled = ?,
+                rest_timer_notifications_enabled = ?,
+                apple_health_import_notifications_enabled = ?
           WHERE id = 1`,
         snapshot.preferences.unit,
         snapshot.preferences.barWeightLb,
         snapshot.preferences.barWeightKg,
         snapshot.preferences.activeWorkoutMode,
         snapshot.preferences.restTimerEnabled ? 1 : 0,
+        snapshot.preferences.restTimerNotificationsEnabled ? 1 : 0,
+        snapshot.preferences.appleHealthImportNotificationsEnabled ? 1 : 0,
       );
     }
 

@@ -33,6 +33,7 @@ import {
   Segmented,
 } from "@/components/ui";
 import { PlateModal } from "@/components/workout/plate-modal";
+import { NotificationSettingsCard } from "@/components/settings/notification-settings-card";
 import { useBackupStatus, useLocalData } from "@/data/local/provider";
 import { requirePublicConfig } from "@/lib/config";
 import { formatRelativeDay } from "@/lib/format";
@@ -102,6 +103,7 @@ function OfflineSettingsScreen() {
         />
       </Card>
       <HealthSettingsCard />
+      <NotificationSettingsCard />
       <BackupCard signedIn={false} />
       <Card>
         <Sparkles color={colors.text} size={22} />
@@ -364,6 +366,7 @@ function SettingsContent({
           />
         </Card>
         <HealthSettingsCard />
+        <NotificationSettingsCard />
         <BackupCard signedIn />
         <PlanCard />
         <AdminCard />
