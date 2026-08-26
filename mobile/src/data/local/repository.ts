@@ -17,6 +17,7 @@ import type {
   LocalCustomExercise,
   LocalHealthSummary,
   LocalMuscleGroup,
+  LocalNotificationPreferences,
   LocalPreferences,
   LocalSessionKind,
   LocalTemplate,
@@ -2081,9 +2082,12 @@ export async function getLocalPreferences(
     bar_weight_kg: number;
     active_workout_mode: "list" | "focus";
     rest_timer_enabled: number;
+    rest_timer_notifications_enabled: number;
+    apple_health_import_notifications_enabled: number;
   }>(
     `SELECT unit, bar_weight_lb, bar_weight_kg, active_workout_mode,
-            rest_timer_enabled
+            rest_timer_enabled, rest_timer_notifications_enabled,
+            apple_health_import_notifications_enabled
        FROM local_preferences
       WHERE id = 1`,
   );
@@ -2093,7 +2097,25 @@ export async function getLocalPreferences(
     barWeightKg: row?.bar_weight_kg ?? 20,
     activeWorkoutMode: row?.active_workout_mode ?? "list",
     restTimerEnabled: (row?.rest_timer_enabled ?? 1) === 1,
+    restTimerNotificationsEnabled:
+      (row?.rest_timer_notifications_enabled ?? 1) === 1,
+    appleHealthImportNotificationsEnabled:
+      (row?.apple_health_import_notifications_enabled ?? 0) === 1,
   };
+}
+
+export async function setLocalNotificationPreferences(
+  db: SQLiteDatabase,
+  preferences: LocalNotificationPreferences,
+) {
+  await db.runAsync(
+    `UPDATE local_preferences
+        SET rest_timer_notifications_enabled = ?,
+            apple_health_import_notifications_enabled = ?
+      WHERE id = 1`,
+    preferences.restTimerNotificationsEnabled ? 1 : 0,
+    preferences.appleHealthImportNotificationsEnabled ? 1 : 0,
+  );
 }
 
 export async function getLastLocalSet(

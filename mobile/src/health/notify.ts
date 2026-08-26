@@ -1,35 +1,8 @@
 import * as Notifications from "expo-notifications";
 
 import { autoImportNotificationCopy } from "@/health/auto-import";
+import { hasNotificationPermission } from "@/lib/notifications";
 import type { HealthWorkoutSummary } from "@/health/types";
-
-let handlerInstalled = false;
-
-function ensureNotificationHandler() {
-  if (handlerInstalled) return;
-  handlerInstalled = true;
-  Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-      shouldShowAlert: true,
-      shouldPlaySound: true,
-      shouldSetBadge: false,
-      shouldShowBanner: true,
-      shouldShowList: true,
-    }),
-  });
-}
-
-export async function requestAutoImportNotificationPermission() {
-  try {
-    ensureNotificationHandler();
-    const current = await Notifications.getPermissionsAsync();
-    if (current.granted) return true;
-    const next = await Notifications.requestPermissionsAsync();
-    return next.granted;
-  } catch {
-    return false;
-  }
-}
 
 export async function notifyAutoImportedWorkouts(
   workouts: Array<
@@ -38,9 +11,7 @@ export async function notifyAutoImportedWorkouts(
 ) {
   if (workouts.length === 0) return;
   try {
-    ensureNotificationHandler();
-    const permission = await Notifications.getPermissionsAsync();
-    if (!permission.granted) return;
+    if (!(await hasNotificationPermission())) return;
     const copy = autoImportNotificationCopy(workouts);
     await Notifications.scheduleNotificationAsync({
       content: {
