@@ -42,6 +42,7 @@ import {
 } from "@/components/ui";
 import { PlateModal } from "@/components/workout/plate-modal";
 import { RestBar } from "@/components/workout/rest-bar";
+import { WatchCompanionCard } from "@/health/watch-companion-card";
 import { useAiGeneration } from "@/lib/ai";
 import { formatDate, formatDuration, formatWeight } from "@/lib/format";
 import { formatHealthDistance, formatHealthEnergy } from "@/health/mapping";
@@ -259,6 +260,10 @@ function ListWorkout({
               onPress={() => finishWorkout(session)}
             />
           }
+        />
+        <WatchCompanionCard
+          sessionId={session._id}
+          startedAt={session.startedAt}
         />
         {isAuthenticated ? (
           <Button
@@ -674,6 +679,10 @@ function FocusWorkout({
             />
           }
         />
+        <WatchCompanionCard
+          sessionId={session._id}
+          startedAt={session.startedAt}
+        />
         <EmptyState
           title="No sets yet"
           description="Switch to List mode in Settings to add exercises and sets."
@@ -726,6 +735,10 @@ function FocusWorkout({
               onPress={() => finishWorkout(session)}
             />
           }
+        />
+        <WatchCompanionCard
+          sessionId={session._id}
+          startedAt={session.startedAt}
         />
         <View style={{ flex: 1, justifyContent: "center", gap: 24 }}>
           <View>

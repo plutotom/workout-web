@@ -42,6 +42,7 @@
           "background": true
         }
       ],
+      "@bacons/apple-targets",
       "./plugins/strip-signing-capabilities.js",
       "./plugins/stable-react-native-path.js"
     ]

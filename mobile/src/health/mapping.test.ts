@@ -147,6 +147,12 @@ describe("app-authored Health workout filtering", () => {
         "com.isaiahproctor.workout.local",
       ),
     ).toBe(false);
+    expect(
+      isAppAuthoredHealthWorkout(
+        { sourceBundleId: "com.isaiahproctor.workout.local.watchkitapp" },
+        "com.isaiahproctor.workout.local",
+      ),
+    ).toBe(true);
   });
 
   it("recognizes workouts by HealthKit sync identifier when the source bundle is missing", () => {
