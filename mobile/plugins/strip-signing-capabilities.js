@@ -6,7 +6,8 @@ const {
   withFinalizedMod,
   withXcodeProject,
 } = require("expo/config-plugins");
-const plist = require("@expo/plist");
+const plistModule = require("@expo/plist");
+const plist = plistModule.parse ? plistModule : plistModule.default;
 
 /**
  * Local / Personal Team builds cannot use paid Apple capabilities.

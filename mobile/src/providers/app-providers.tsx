@@ -13,6 +13,7 @@ import { CatalogProvider } from "@/providers/catalog-provider";
 import { requirePublicConfig } from "@/lib/config";
 import { HealthExportCoordinator } from "@/health/export-coordinator";
 import { HealthImportCoordinator } from "@/health/import-coordinator";
+import { WatchHealthCoordinator } from "@/health/watch-coordinator";
 
 export function AppProviders({ children }: { children: ReactNode }) {
   const client = useMemo(
@@ -28,6 +29,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
           <SyncCoordinator />
           <HealthExportCoordinator />
           <HealthImportCoordinator />
+          <WatchHealthCoordinator />
           <CatalogProvider>{children}</CatalogProvider>
         </LocalDatabaseProvider>
       </ConvexProviderWithAuth>

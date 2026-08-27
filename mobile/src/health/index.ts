@@ -16,7 +16,7 @@ export function getHealthAdapter(): HealthAdapter {
   return createHealthKitAdapter();
 }
 
-export { HEALTH_LOOKBACK_MS } from "@/health/mapping";
+export { HEALTH_LOOKBACK_MS, WATCH_BUNDLE_ID } from "@/health/mapping";
 export {
   createFakeHealthAdapter,
   createUnavailableHealthAdapter,

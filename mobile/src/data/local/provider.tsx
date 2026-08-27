@@ -25,10 +25,12 @@ import {
   addLocalSet,
   applyIosBootstrap,
   archiveLocalCustomExercise,
+  attachExportedHealthUuid,
   completeCustomExerciseSync,
   completeSessionDeleteSync,
   completeSessionSync,
   completeTemplateSync,
+  consumeWatchHealthUuid,
   countPendingHealthExports,
   createLocalTemplateFromSession,
   deleteLocalSet,
@@ -65,6 +67,7 @@ import {
   noteTemplateSyncAttempt,
   queueHealthExportIfEnabled,
   removeLocalExercise,
+  wasWatchRecorded,
   saveLocalCustomExercise,
   saveLocalExerciseNote,
   saveLocalTemplate,
@@ -79,6 +82,8 @@ import {
   type HealthSummaryImport,
   type LocalOverlapSession,
 } from "@/data/local/repository";
+import { discardWatchWorkout, endWatchWorkout } from "@/health/watch-bridge";
+import { shouldSkipPhoneHealthExport } from "@/health/watch-session";
 import type {
   IosBootstrapPayload,
   LocalActiveWorkout,
@@ -239,10 +244,28 @@ function LocalDataState({ children }: { children: ReactNode }) {
       noteBackupSaved: () => run(() => markBackupSaved(db)),
       finish: (sessionId) =>
         run(async () => {
+          await endWatchWorkout().catch(() => undefined);
           await finishLocalWorkout(db, sessionId);
+          const watchHealthUuid = await consumeWatchHealthUuid(db, sessionId);
+          const watchRecorded = await wasWatchRecorded(db, sessionId);
+          if (
+            shouldSkipPhoneHealthExport({
+              watchRecorded,
+              watchHealthUuid,
+            })
+          ) {
+            if (watchHealthUuid) {
+              await attachExportedHealthUuid(db, sessionId, watchHealthUuid);
+            }
+            return;
+          }
           await queueHealthExportIfEnabled(db, sessionId);
         }),
-      abandon: (sessionId) => run(() => abandonLocalWorkout(db, sessionId)),
+      abandon: (sessionId) =>
+        run(async () => {
+          await discardWatchWorkout().catch(() => undefined);
+          await abandonLocalWorkout(db, sessionId);
+        }),
       deleteSession: (sessionId) =>
         run(() => deleteLocalWorkout(db, sessionId)),
       importHealthSummary: (workout) =>

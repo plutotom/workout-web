@@ -9,6 +9,7 @@ import {
   HEALTH_EXPORT_SOURCE_NAME,
 } from "@/health/mapping";
 import type { HealthAutoImportPrefs } from "@/health/types";
+import { watchHealthUuidKey, watchRecordedKey } from "@/health/watch-session";
 
 import type {
   CustomExerciseSyncSnapshot,
@@ -2341,6 +2342,33 @@ export async function setHealthAutoImportAnchor(
   anchor: string,
 ) {
   await setHealthStateValue(db, HEALTH_AUTO_IMPORT_ANCHOR_KEY, anchor);
+}
+
+export async function markWatchRecorded(db: SQLiteDatabase, sessionId: string) {
+  await setHealthStateValue(db, watchRecordedKey(sessionId), "1");
+}
+
+export async function wasWatchRecorded(db: SQLiteDatabase, sessionId: string) {
+  return (await healthStateValue(db, watchRecordedKey(sessionId))) === "1";
+}
+
+export async function saveWatchHealthUuid(
+  db: SQLiteDatabase,
+  sessionId: string,
+  healthUuid: string,
+) {
+  await setHealthStateValue(db, watchHealthUuidKey(sessionId), healthUuid);
+}
+
+export async function consumeWatchHealthUuid(
+  db: SQLiteDatabase,
+  sessionId: string,
+) {
+  const key = watchHealthUuidKey(sessionId);
+  const uuid = await healthStateValue(db, key);
+  if (!uuid) return null;
+  await db.runAsync("DELETE FROM local_health_state WHERE key = ?", key);
+  return uuid;
 }
 
 export async function queueHealthExportIfEnabled(
