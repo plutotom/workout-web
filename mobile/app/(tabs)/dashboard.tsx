@@ -5,6 +5,7 @@ import { Dumbbell, Play } from "lucide-react-native";
 import { Pressable, Text, View } from "react-native";
 
 import { useMobileAuth } from "@/auth/auth-provider";
+import { DescribeWithAiButton } from "@/components/describe-with-ai-button";
 import { useCatalog } from "@/providers/catalog-provider";
 import {
   buildMuscleSegments,
@@ -211,6 +212,7 @@ export default function DashboardScreen() {
               router.push({ pathname: "/template/[id]", params: { id: "new" } })
             }
           />
+          <DescribeWithAiButton />
         </Card>
       )}
 
@@ -283,11 +285,14 @@ export default function DashboardScreen() {
             title="No templates yet"
             description="Finish a quick start and save it as a template, or create one from scratch."
             action={
-              <Button
-                label="Quick start"
-                variant="outline"
-                onPress={() => begin()}
-              />
+              <View style={{ gap: 8, alignSelf: "stretch" }}>
+                <DescribeWithAiButton />
+                <Button
+                  label="Quick start"
+                  variant="outline"
+                  onPress={() => begin()}
+                />
+              </View>
             }
           />
         ) : (

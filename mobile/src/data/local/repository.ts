@@ -37,10 +37,10 @@ import {
   localTemplateRemoteId,
   remoteCustomSlug,
 } from "@/data/local/types";
+import { setRowsForNewExercise } from "@/data/local/exercise-sets";
 import type { WorkoutExportBundle } from "@shared/workout-export";
 
 const DEFAULT_REST_SECONDS = 75;
-const DEFAULT_SET_ROWS = 3;
 const MAX_EXERCISES = 50;
 const MAX_SETS = 20;
 const MAX_WEIGHT = 10_000;
@@ -663,6 +663,7 @@ export async function addLocalExercise(
   db: SQLiteDatabase,
   sessionId: string,
   value: string,
+  presets?: { weight: number; reps: number }[],
 ) {
   await requireEditableSession(db, sessionId);
   const slug = normalizedSlug(value);
@@ -697,6 +698,7 @@ export async function addLocalExercise(
     slug,
   );
   const seed = previous ?? { weight: 0, reps: 0 };
+  const rows = setRowsForNewExercise(presets, seed);
   const exerciseId = randomUUID();
   await db.withExclusiveTransactionAsync(async (txn) => {
     await txn.runAsync(
@@ -709,7 +711,9 @@ export async function addLocalExercise(
       exercises.length,
       DEFAULT_REST_SECONDS,
     );
-    for (let index = 0; index < DEFAULT_SET_ROWS; index++) {
+    for (let index = 0; index < rows.length; index++) {
+      const weight = boundedWhole(rows[index]!.weight, MAX_WEIGHT, "Weight");
+      const reps = boundedWhole(rows[index]!.reps, MAX_REPS, "Reps");
       await txn.runAsync(
         `INSERT INTO local_sets (
            id, session_exercise_id, order_index, target_weight, target_reps,
@@ -718,10 +722,10 @@ export async function addLocalExercise(
         randomUUID(),
         exerciseId,
         index,
-        seed.weight,
-        seed.reps,
-        seed.weight,
-        seed.reps,
+        weight,
+        reps,
+        weight,
+        reps,
       );
     }
   });

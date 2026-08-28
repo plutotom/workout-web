@@ -7,9 +7,10 @@ import { useMobileAuth } from "@/auth/auth-provider";
 import { TemplateEditor } from "@/components/templates/template-editor";
 import { FullScreenLoader } from "@/components/ui";
 import { useLocalTemplate } from "@/data/local/provider";
+import { isTemplateAiQuery } from "@/lib/ai-routes";
 
 export default function TemplateEditorScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, ai } = useLocalSearchParams<{ id: string; ai?: string }>();
   const templateId = id === "new" ? undefined : id;
   const { isAuthenticated } = useMobileAuth();
   const localTemplate = useLocalTemplate(templateId);
@@ -49,6 +50,7 @@ export default function TemplateEditorScreen() {
       key={templateId ?? "new"}
       templateId={templateId}
       initial={initial}
+      openAi={isTemplateAiQuery(ai)}
     />
   );
 }

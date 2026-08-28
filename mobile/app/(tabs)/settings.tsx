@@ -33,8 +33,12 @@ import {
   Segmented,
 } from "@/components/ui";
 import { PlateModal } from "@/components/workout/plate-modal";
+import { DescribeWithAiButton } from "@/components/describe-with-ai-button";
 import { NotificationSettingsCard } from "@/components/settings/notification-settings-card";
 import { useBackupStatus, useLocalData } from "@/data/local/provider";
+import { offlineAiSettingsCopy, planAiSettingsCopy } from "@/lib/ai-copy";
+import { useAiGeneration, useAppleAiAvailability } from "@/lib/ai";
+import { appleAiIsUsable } from "@shared/ai/apple-on-device";
 import { requirePublicConfig } from "@/lib/config";
 import { formatRelativeDay } from "@/lib/format";
 import { pickBackupFile, shareBackupFile } from "@/lib/workout-transfer";
@@ -69,6 +73,7 @@ function AuthenticatedSettingsScreen() {
 
 function OfflineSettingsScreen() {
   const { signIn } = useMobileAuth();
+  const { usesApple } = useAiGeneration();
   const [connecting, setConnecting] = useState(false);
 
   async function connectAccount() {
@@ -109,16 +114,9 @@ function OfflineSettingsScreen() {
         <Sparkles color={colors.text} size={22} />
         <SectionTitle title="AI workouts" />
         <Text style={{ color: colors.dim, fontSize: 13, lineHeight: 19 }}>
-          Create an account to use AI to generate workout templates and reshape
-          sessions as you train.
+          {offlineAiSettingsCopy(usesApple)}
         </Text>
-        <Button
-          label={connecting ? "Connecting…" : "Create an account"}
-          variant="outline"
-          icon={Sparkles}
-          disabled={connecting}
-          onPress={() => void connectAccount()}
-        />
+        {usesApple ? <DescribeWithAiButton variant="outline" /> : null}
       </Card>
       <Card>
         <CircleDot color={colors.text} size={22} strokeWidth={2.3} />
@@ -587,8 +585,10 @@ function PlanCard() {
   const setPlan = useMutation(api.routes.auth.users.setPlanForTesting);
   const checkout = useAction(api.routes.billing.polar.generateCheckoutLink);
   const portal = useAction(api.routes.billing.polar.generateCustomerPortalUrl);
+  const apple = useAppleAiAvailability();
   const [busy, setBusy] = useState(false);
   const isPro = entitlement?.isPro === true;
+  const appleReady = appleAiIsUsable(apple);
   const productIds = [products?.proMonthly?.id, products?.proYearly?.id].filter(
     (id): id is string => Boolean(id),
   );
@@ -623,8 +623,9 @@ function PlanCard() {
       <Crown color={colors.text} size={22} />
       <SectionTitle title="Plan" />
       <Text style={{ color: colors.dim, fontSize: 13 }}>
-        Pro unlocks AI workout and template generation.
+        {planAiSettingsCopy(appleReady)}
       </Text>
+      {appleReady && !isPro ? <DescribeWithAiButton variant="outline" /> : null}
       <View
         style={{
           flexDirection: "row",

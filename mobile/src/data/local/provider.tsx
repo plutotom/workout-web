@@ -127,7 +127,11 @@ type LocalDataContextValue = {
   ) => Promise<void>;
   addSet: (sessionExerciseId: string) => Promise<string>;
   deleteSet: (setId: string) => Promise<void>;
-  addExercise: (sessionId: string, slug: string) => Promise<string>;
+  addExercise: (
+    sessionId: string,
+    slug: string,
+    sets?: { weight: number; reps: number }[],
+  ) => Promise<string>;
   removeExercise: (sessionExerciseId: string) => Promise<void>;
   moveExercise: (sessionExerciseId: string, delta: -1 | 1) => Promise<void>;
   saveNote: (slug: string, notes: string) => Promise<void>;
@@ -215,8 +219,8 @@ function LocalDataState({ children }: { children: ReactNode }) {
       addSet: (sessionExerciseId) =>
         run(() => addLocalSet(db, sessionExerciseId)),
       deleteSet: (setId) => run(() => deleteLocalSet(db, setId)),
-      addExercise: (sessionId, slug) =>
-        run(() => addLocalExercise(db, sessionId, slug)),
+      addExercise: (sessionId, slug, sets) =>
+        run(() => addLocalExercise(db, sessionId, slug, sets)),
       removeExercise: (sessionExerciseId) =>
         run(() => removeLocalExercise(db, sessionExerciseId)),
       moveExercise: (sessionExerciseId, delta) =>

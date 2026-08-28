@@ -12,6 +12,8 @@
     "ios": "node scripts/mobile.mjs run:ios",
     "ios:device:preview": "MOBILE_ENV_FILE=.env.mobile.preview node scripts/mobile.mjs run:ios -- --device",
     "ios:device:preview:release": "MOBILE_ENV_FILE=.env.mobile.preview node scripts/mobile.mjs run:ios -- --device --configuration Release",
+    "ios:device:paid:preview": "KEEP_PAID_IOS_ENTITLEMENTS=1 MOBILE_ENV_FILE=.env.mobile.preview node scripts/mobile.mjs run:ios -- --device",
+    "ios:device:paid:preview:release": "KEEP_PAID_IOS_ENTITLEMENTS=1 MOBILE_ENV_FILE=.env.mobile.preview node scripts/mobile.mjs run:ios -- --device --configuration Release",
     "typecheck:ios": "pnpm --dir mobile typecheck",
     "build": "node scripts/vercel-build.mjs",
     "build:web": "next build",

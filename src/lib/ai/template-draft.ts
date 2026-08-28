@@ -51,9 +51,16 @@ export type TemplateDraft = z.infer<typeof templateDraftSchema>;
 export type CatalogExercise = Pick<Exercise, "slug" | "name" | "category">;
 
 /** Compact catalog lines for the model prompt. */
-export function formatCatalogForPrompt(exercises: CatalogExercise[]): string {
+export function formatCatalogForPrompt(
+  exercises: CatalogExercise[],
+  style: "full" | "compact" = "full",
+): string {
   return exercises
-    .map((e) => `${e.slug} | ${e.name} | ${e.category}`)
+    .map((e) =>
+      style === "compact"
+        ? `${e.slug} | ${e.name}`
+        : `${e.slug} | ${e.name} | ${e.category}`,
+    )
     .join("\n");
 }
 
@@ -115,7 +122,13 @@ const PRIORITY_SLUGS = [
 ] as const;
 
 const PER_CATEGORY_CAP = 14;
-const PROMPT_CATALOG_MAX = 96;
+/** Compact catalog cap for cloud models (Gateway). */
+export const PROMPT_CATALOG_MAX = 96;
+/**
+ * Tighter cap for Apple on-device (4k context). Priority lifts plus prompt
+ * matches still fit; the full 96-line dump spends ~1.2k tokens.
+ */
+export const ON_DEVICE_PROMPT_CATALOG_MAX = 48;
 
 function tokenizeForCatalogMatch(text: string): string[] {
   return text
