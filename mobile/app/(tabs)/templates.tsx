@@ -14,6 +14,7 @@ import { Pressable, Text, View } from "react-native";
 
 import { useMobileAuth } from "@/auth/auth-provider";
 import { Button, Card, EmptyState, PageHeader, Screen } from "@/components/ui";
+import { DescribeWithAiButton } from "@/components/describe-with-ai-button";
 import { useLocalTemplates } from "@/data/local/provider";
 import { isUnsyncedTemplateRemoteId } from "@/data/local/types";
 import { useCatalog } from "@/providers/catalog-provider";
@@ -112,6 +113,7 @@ export default function TemplatesScreen() {
           description="Quick start a workout and save it when you’re done, or build a template first."
           action={
             <View style={{ gap: 8, alignSelf: "stretch" }}>
+              <DescribeWithAiButton />
               <Button
                 label="New template"
                 icon={Plus}

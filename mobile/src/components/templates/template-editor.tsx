@@ -39,9 +39,11 @@ type EditorExercise = {
 export function TemplateEditor({
   templateId,
   initial,
+  openAi = false,
 }: {
   templateId?: string;
   initial: { name: string; exercises: EditorExercise[] };
+  openAi?: boolean;
 }) {
   const catalog = useCatalog();
   const { isAuthenticated } = useMobileAuth();
@@ -56,7 +58,7 @@ export function TemplateEditor({
   const [exercises, setExercises] = useState(initial.exercises);
   const [expanded, setExpanded] = useState(initial.exercises.length ? 0 : -1);
   const [picker, setPicker] = useState(false);
-  const [aiOpen, setAiOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(openAi);
   const [saving, setSaving] = useState(false);
   const [localNotes, setLocalNotes] = useState<Record<string, string>>({});
   const slugs = useMemo(
