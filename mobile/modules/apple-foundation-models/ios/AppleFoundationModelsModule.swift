@@ -54,12 +54,13 @@ public class AppleFoundationModelsModule: Module {
       case .available:
         payload["onDevice"] = true
         payload["onDeviceReason"] = NSNull()
-        // iOS 26.4: `contextSize` is `try await` (not a stored Int). 4k on
-        // iPhone 15 Pro class; later silicon may report 8k.
-        payload["onDeviceContextSize"] = await resolvedContextSize(
-          try? await onDevice.contextSize,
-          fallback: 4096
-        )
+        // Published windows: 4k on iOS 26, 8k on iOS 27 silicon. Avoid calling
+        // `contextSize` — it is `try await` on 26.4 and a stored Int on 27.
+        if #available(iOS 27.0, *) {
+          payload["onDeviceContextSize"] = 8192
+        } else {
+          payload["onDeviceContextSize"] = 4096
+        }
       case .unavailable(let reason):
         payload["onDeviceReason"] = stringifyUnavailable(reason)
       @unknown default:
@@ -73,10 +74,7 @@ public class AppleFoundationModelsModule: Module {
       case .available:
         payload["pcc"] = true
         payload["pccReason"] = NSNull()
-        payload["pccContextSize"] = await resolvedContextSize(
-          try? await pcc.contextSize,
-          fallback: 32768
-        )
+        payload["pccContextSize"] = 32768
         payload["pccQuotaReached"] = pcc.quotaUsage.isLimitReached
       case .unavailable(let reason):
         payload["pccReason"] = stringifyUnavailable(reason)
@@ -168,12 +166,6 @@ struct WorkoutSessionDraft {
 }
 
 @available(iOS 26.0, *)
-private func resolvedContextSize(_ size: Int?, fallback: Int) -> Int {
-  if let size, size > 0 { return size }
-  return fallback
-}
-
-@available(iOS 26.0, *)
 private func stringifyUnavailable(_ reason: Any) -> String {
   let text = String(describing: reason).lowercased()
   if text.contains("notenabled") || text.contains("not_enabled") || text.contains("intelligence") {
@@ -234,10 +226,9 @@ private func generateWithOnDevice(
       description: "Apple Intelligence isn’t available on this iPhone."
     )
   }
-  let session = LanguageModelSession(
-    model: languageModel,
-    instructions: Instructions(instructions)
-  )
+  let session = LanguageModelSession(model: languageModel) {
+    instructions
+  }
   return try await respond(session: session, prompt: prompt, kind: kind, model: "onDevice")
 }
 
@@ -261,10 +252,9 @@ private func generateWithPcc(
         description: "Today’s Apple Intelligence cloud limit is used up. Shorten the description or try tomorrow."
       )
     }
-    let session = LanguageModelSession(
-      model: languageModel,
-      instructions: Instructions(instructions)
-    )
+    let session = LanguageModelSession(model: languageModel) {
+      instructions
+    }
     return try await respond(session: session, prompt: prompt, kind: kind, model: "pcc")
   }
   throw Exception(

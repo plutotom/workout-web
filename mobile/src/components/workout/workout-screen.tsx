@@ -219,7 +219,17 @@ function ListWorkout({
         ? `Remove: ${result.draft.removeSlugs.map(catalog.short).join(", ")}`
         : null,
       result.draft.add.length
-        ? `Add: ${result.draft.add.map((exercise) => catalog.short(exercise.slug)).join(", ")}`
+        ? `Add: ${result.draft.add
+            .map((exercise) => {
+              const reps = exercise.sets.map((set) => set.reps);
+              const sameReps = reps.every((rep) => rep === reps[0]);
+              const summary =
+                sameReps && (reps[0] ?? 0) > 0
+                  ? `${exercise.sets.length} × ${reps[0]}`
+                  : `${exercise.sets.length} sets`;
+              return `${catalog.short(exercise.slug)} (${summary})`;
+            })
+            .join(", ")}`
         : null,
     ]
       .filter(Boolean)
@@ -242,7 +252,7 @@ function ListWorkout({
                 if (exercise) await removeExercise(exercise._id);
               }
               for (const exercise of result.draft.add) {
-                await addExercise(session._id, exercise.slug);
+                await addExercise(session._id, exercise.slug, exercise.sets);
               }
               resolve();
             })().catch(reject),
