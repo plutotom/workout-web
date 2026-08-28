@@ -35,6 +35,10 @@ describe("AppleFoundationModels Expo module", () => {
     expect(podspec).toContain("WORKOUT_APPLE_PCC");
     expect(podspec).toContain("OTHER_SWIFT_FLAGS[sdk=iphoneos27*]");
     expect(podspec).toContain("OTHER_SWIFT_FLAGS[sdk=iphonesimulator27*]");
+    // RN debug dylib is not an allowable client of private SwiftUICore.
+    expect(podspec).toContain("-Wl,-ignore_auto_link_library,SwiftUICore");
+    expect(podspec).toContain("-Wl,-ignore_auto_link_library,UIUtilities");
+    expect(podspec).toContain("user_target_xcconfig");
 
     const swift = readFileSync(
       join(root, "ios/AppleFoundationModelsModule.swift"),

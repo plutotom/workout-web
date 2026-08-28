@@ -14,6 +14,14 @@ Pod::Spec.new do |s|
   s.weak_frameworks = 'FoundationModels'
   s.source_files   = '**/*.{h,m,mm,swift}'
 
+  # FoundationModels (and Expo SwiftUI modules) autolink private SwiftUICore /
+  # UIUtilities into the RN debug dylib. Apps are not allowable clients of those
+  # frameworks → `cannot link directly with 'SwiftUICore'`. Ignore the autolink
+  # on the *app* target; the public SwiftUI / FoundationModels APIs still work.
+  s.user_target_xcconfig = {
+    'OTHER_LDFLAGS' => '$(inherited) -Wl,-ignore_auto_link_library,SwiftUICore -Wl,-ignore_auto_link_library,UIUtilities',
+  }
+
   # PrivateCloudComputeLanguageModel exists only in the iOS 27 SDK (Xcode 27).
   # Runtime `#available(iOS 27)` does not hide the type at compile time — Xcode 26
   # fails with "cannot find PrivateCloudComputeLanguageModel in scope" and then
