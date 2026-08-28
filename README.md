@@ -194,8 +194,11 @@ cp .env.mobile.preview.example .env.mobile.preview
 | `pnpm dev:ios:preview`            | `.env.mobile.preview` | Simulator against preview backends                   |
 | `pnpm ios:device:preview`         | `.env.mobile.preview` | Debug install on device                              |
 | `pnpm ios:device:preview:release` | `.env.mobile.preview` | Release install (no Metro; ~7 days on Personal Team) |
+| `pnpm ios:device:paid:preview`    | `.env.mobile.preview` | Paid team — keeps PCC, Push, Associated Domains      |
 
 Override the file path anytime: `MOBILE_ENV_FILE=.env.mobile.preview pnpm ios -- --device`.
+
+Logged-out and Free iPhone users generate with Apple Intelligence when it is available (iOS 26+, native rebuild). Pro still uses Workout’s cloud model when online. Private Cloud Compute overflow needs iOS 27, Apple’s `com.apple.developer.private-cloud-compute` entitlement, Xcode 27, and `KEEP_PAID_IOS_ENTITLEMENTS=1` on a paid team (`pnpm ios:device:paid:preview`). Personal Team builds stay on-device only.
 
 ### Metro connection recovery
 

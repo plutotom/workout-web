@@ -26,4 +26,25 @@ describe("AppleFoundationModels Expo module", () => {
     expect(output).toContain("AppleFoundationModels");
     expect(output).toContain("AppleFoundationModelsModule");
   });
+
+  it("compiles PCC only against the iOS 27 SDK so Xcode 26 still ships on-device", () => {
+    const podspec = readFileSync(
+      join(root, "ios/AppleFoundationModels.podspec"),
+      "utf8",
+    );
+    expect(podspec).toContain("WORKOUT_APPLE_PCC");
+    expect(podspec).toContain("OTHER_SWIFT_FLAGS[sdk=iphoneos27*]");
+    expect(podspec).toContain("OTHER_SWIFT_FLAGS[sdk=iphonesimulator27*]");
+
+    const swift = readFileSync(
+      join(root, "ios/AppleFoundationModelsModule.swift"),
+      "utf8",
+    );
+    const withoutPcc = swift
+      .replace(/#if WORKOUT_APPLE_PCC[\s\S]*?#endif/g, "")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\/\/.*$/gm, "");
+    expect(withoutPcc).not.toMatch(/\bPrivateCloudComputeLanguageModel\b/);
+    expect(withoutPcc).not.toMatch(/\bLanguageModelError\b/);
+  });
 });

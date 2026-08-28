@@ -635,6 +635,7 @@ function PlanCard() {
       <Text style={{ color: colors.dim, fontSize: 13 }}>
         {planAiSettingsCopy(appleReady)}
       </Text>
+      {appleReady && !isPro ? <DescribeWithAiButton variant="outline" /> : null}
       <View
         style={{
           flexDirection: "row",

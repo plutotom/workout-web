@@ -67,4 +67,19 @@ describe("pnpm ios KEEP_PAID_IOS_ENTITLEMENTS", () => {
       /skipping Personal Team signing shim|keeping Push, Associated Domains, and Private Cloud Compute/,
     );
   });
+
+  it("exposes a paid-team preview script that keeps the PCC entitlement", () => {
+    const pkg = JSON.parse(
+      readFileSync(
+        join(dirname(fileURLToPath(import.meta.url)), "../../package.json"),
+        "utf8",
+      ),
+    );
+    expect(pkg.scripts["ios:device:paid:preview"]).toMatch(
+      /KEEP_PAID_IOS_ENTITLEMENTS=1/,
+    );
+    expect(pkg.scripts["ios:device:paid:preview:release"]).toMatch(
+      /KEEP_PAID_IOS_ENTITLEMENTS=1/,
+    );
+  });
 });

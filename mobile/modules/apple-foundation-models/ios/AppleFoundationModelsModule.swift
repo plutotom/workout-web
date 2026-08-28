@@ -9,10 +9,11 @@ import FoundationModels
  * Apple Intelligence for workout drafts.
  *
  * On-device (`SystemLanguageModel`) needs iOS 26 + Apple Intelligence hardware.
- * Private Cloud Compute (`PrivateCloudComputeLanguageModel`) needs iOS 27, a
+ * Private Cloud Compute (`PrivateCloudComputeLanguageModel`) needs the iOS 27
+ * SDK at **compile** time (`WORKOUT_APPLE_PCC`), then at runtime: iOS 27, a
  * network, the managed `com.apple.developer.private-cloud-compute` entitlement,
- * and has a per–Apple ID daily quota. Without the entitlement PCC simply
- * reports unavailable — local Personal Team builds stay on-device only.
+ * and a per–Apple ID daily quota. Xcode 26 builds omit PCC so on-device still
+ * links. Personal Team builds also strip the entitlement — stay on-device only.
  */
 public class AppleFoundationModelsModule: Module {
   public func definition() -> ModuleDefinition {
@@ -49,42 +50,9 @@ public class AppleFoundationModelsModule: Module {
 
     #if canImport(FoundationModels)
     if #available(iOS 26.0, *) {
-      let onDevice = SystemLanguageModel.default
-      switch onDevice.availability {
-      case .available:
-        payload["onDevice"] = true
-        payload["onDeviceReason"] = NSNull()
-        // Published windows: 4k on iOS 26, 8k on iOS 27 silicon. Avoid calling
-        // `contextSize` — it is `try await` on 26.4 and a stored Int on 27.
-        if #available(iOS 27.0, *) {
-          payload["onDeviceContextSize"] = 8192
-        } else {
-          payload["onDeviceContextSize"] = 4096
-        }
-      case .unavailable(let reason):
-        payload["onDeviceReason"] = stringifyUnavailable(reason)
-      @unknown default:
-        payload["onDeviceReason"] = "unavailable"
-      }
+      fillOnDeviceAvailability(&payload)
     }
-
-    if #available(iOS 27.0, *) {
-      let pcc = PrivateCloudComputeLanguageModel()
-      switch pcc.availability {
-      case .available:
-        payload["pcc"] = true
-        payload["pccReason"] = NSNull()
-        payload["pccContextSize"] = 32768
-        payload["pccQuotaReached"] = pcc.quotaUsage.isLimitReached
-      case .unavailable(let reason):
-        payload["pccReason"] = stringifyUnavailable(reason)
-        payload["pccQuotaReached"] = pcc.quotaUsage.isLimitReached
-      @unknown default:
-        payload["pccReason"] = "unavailable"
-      }
-    } else {
-      payload["pccReason"] = "unsupported_os"
-    }
+    fillPccAvailability(&payload)
     #endif
 
     return payload
@@ -129,6 +97,49 @@ public class AppleFoundationModelsModule: Module {
 }
 
 #if canImport(FoundationModels)
+@available(iOS 26.0, *)
+private func fillOnDeviceAvailability(_ payload: inout [String: Any]) {
+  let onDevice = SystemLanguageModel.default
+  switch onDevice.availability {
+  case .available:
+    payload["onDevice"] = true
+    payload["onDeviceReason"] = NSNull()
+    // Published windows: 4k on iOS 26, 8k on iOS 27 silicon. Avoid calling
+    // `contextSize` — it is `try await` on 26.4 and a stored Int on 27.
+    if #available(iOS 27.0, *) {
+      payload["onDeviceContextSize"] = 8192
+    } else {
+      payload["onDeviceContextSize"] = 4096
+    }
+  case .unavailable(let reason):
+    payload["onDeviceReason"] = stringifyUnavailable(reason)
+  @unknown default:
+    payload["onDeviceReason"] = "unavailable"
+  }
+}
+
+private func fillPccAvailability(_ payload: inout [String: Any]) {
+  #if WORKOUT_APPLE_PCC
+  if #available(iOS 27.0, *) {
+    let pcc = PrivateCloudComputeLanguageModel()
+    switch pcc.availability {
+    case .available:
+      payload["pcc"] = true
+      payload["pccReason"] = NSNull()
+      payload["pccContextSize"] = 32768
+      payload["pccQuotaReached"] = pcc.quotaUsage.isLimitReached
+    case .unavailable(let reason):
+      payload["pccReason"] = stringifyUnavailable(reason)
+      payload["pccQuotaReached"] = pcc.quotaUsage.isLimitReached
+    @unknown default:
+      payload["pccReason"] = "unavailable"
+    }
+    return
+  }
+  #endif
+  payload["pccReason"] = "unsupported_os"
+}
+
 @available(iOS 26.0, *)
 @Generable
 struct WorkoutTemplateDraft {
@@ -239,6 +250,7 @@ private func generateWithPcc(
   prompt: String,
   kind: String
 ) async throws -> [String: Any] {
+  #if WORKOUT_APPLE_PCC
   if #available(iOS 27.0, *) {
     let languageModel = PrivateCloudComputeLanguageModel()
     guard case .available = languageModel.availability else {
@@ -259,6 +271,7 @@ private func generateWithPcc(
     session.prewarm()
     return try await respond(session: session, prompt: prompt, kind: kind, model: "pcc")
   }
+  #endif
   throw Exception(
     name: "AppleIntelligenceUnavailable",
     description: "Apple Intelligence cloud needs a newer iOS."
@@ -330,11 +343,13 @@ private func isContextOverflowError(_ error: Error) -> Bool {
   if let generation = error as? LanguageModelSession.GenerationError {
     if case .exceededContextWindowSize(_) = generation { return true }
   }
+  #if WORKOUT_APPLE_PCC
   if #available(iOS 27.0, *) {
     if let modelError = error as? LanguageModelError {
       if case .contextSizeExceeded(_) = modelError { return true }
     }
   }
+  #endif
   // GenerationError's localizedDescription is often "error 4"; the enum
   // case name still shows up in String(describing:).
   let text = "\(error) \(error.localizedDescription)".lowercased()
@@ -362,6 +377,7 @@ private func mapGenerateError(_ error: Error, model: String) -> Exception {
     }
   }
 
+  #if WORKOUT_APPLE_PCC
   if #available(iOS 27.0, *) {
     if let modelError = error as? LanguageModelError {
       if case .guardrailViolation(_) = modelError {
@@ -383,6 +399,7 @@ private func mapGenerateError(_ error: Error, model: String) -> Exception {
       }
     }
   }
+  #endif
 
   let text = "\(error) \(error.localizedDescription)".lowercased()
   if text.contains("guardrail") || text.contains("unsafe") {
