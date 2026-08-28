@@ -21,7 +21,8 @@
         "UIBackgroundModes": ["healthkit"]
       },
       "entitlements": {
-        "com.apple.developer.healthkit": true
+        "com.apple.developer.healthkit": true,
+        "com.apple.developer.private-cloud-compute": true
       }
     },
     "plugins": [

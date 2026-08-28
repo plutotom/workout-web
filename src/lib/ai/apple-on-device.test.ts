@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  APPLE_INTELLIGENCE_CONTEXT_CODE,
   APPLE_ON_DEVICE_PROMPT_CHARS,
   assertApplePromptLength,
   buildOnDeviceSessionPrompt,
   buildOnDeviceTemplatePrompt,
   catalogExercisesForAi,
   estimateAppleTokens,
+  fallbackAppleLanguageModel,
+  generateWithAppleModelFallback,
   parseOnDeviceSessionDraft,
   parseOnDeviceTemplateDraft,
   pickAppleLanguageModel,
@@ -61,6 +64,78 @@ describe("pickAppleLanguageModel", () => {
         200,
       ),
     ).toBe("unavailable");
+  });
+});
+
+describe("fallbackAppleLanguageModel", () => {
+  const overflow = Object.assign(new Error("too large for on-device AI"), {
+    code: APPLE_INTELLIGENCE_CONTEXT_CODE,
+  });
+
+  it("overflows to PCC when on-device generate blows the context window", () => {
+    expect(fallbackAppleLanguageModel("onDevice", overflow, available)).toBe(
+      "pcc",
+    );
+  });
+
+  it("does not retry PCC after a guardrail or generic failure", () => {
+    expect(
+      fallbackAppleLanguageModel(
+        "onDevice",
+        new Error("Apple Intelligence couldn’t generate that."),
+        available,
+      ),
+    ).toBeNull();
+  });
+
+  it("does not retry when PCC is at quota or already in use", () => {
+    expect(
+      fallbackAppleLanguageModel("onDevice", overflow, {
+        ...available,
+        pccQuotaReached: true,
+      }),
+    ).toBeNull();
+    expect(fallbackAppleLanguageModel("pcc", overflow, available)).toBeNull();
+  });
+});
+
+describe("generateWithAppleModelFallback", () => {
+  it("retries PCC after an on-device context overflow", async () => {
+    const models: string[] = [];
+    const result = await generateWithAppleModelFallback({
+      availability: available,
+      inputTokens: 1200,
+      toUserError: (error) =>
+        error instanceof Error ? error : new Error(String(error)),
+      generate: async (model) => {
+        models.push(model);
+        if (model === "onDevice") {
+          throw Object.assign(new Error("too large for on-device AI"), {
+            code: APPLE_INTELLIGENCE_CONTEXT_CODE,
+          });
+        }
+        return { model, draft: { name: "Push" } };
+      },
+    });
+    expect(models).toEqual(["onDevice", "pcc"]);
+    expect(result.model).toBe("pcc");
+  });
+
+  it("does not call PCC when the on-device error is not a context overflow", async () => {
+    const models: string[] = [];
+    await expect(
+      generateWithAppleModelFallback({
+        availability: available,
+        inputTokens: 1200,
+        toUserError: (error) =>
+          error instanceof Error ? error : new Error(String(error)),
+        generate: async (model) => {
+          models.push(model);
+          throw new Error("Couldn’t generate on this iPhone.");
+        },
+      }),
+    ).rejects.toThrow(/Couldn’t generate/);
+    expect(models).toEqual(["onDevice"]);
   });
 });
 

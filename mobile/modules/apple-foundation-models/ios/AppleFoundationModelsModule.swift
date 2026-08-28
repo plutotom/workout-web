@@ -54,11 +54,12 @@ public class AppleFoundationModelsModule: Module {
       case .available:
         payload["onDevice"] = true
         payload["onDeviceReason"] = NSNull()
-        if #available(iOS 26.4, *) {
-          payload["onDeviceContextSize"] = onDevice.contextSize > 0 ? onDevice.contextSize : 4096
-        } else {
-          payload["onDeviceContextSize"] = 4096
-        }
+        // iOS 26.4: `contextSize` is `try await` (not a stored Int). 4k on
+        // iPhone 15 Pro class; later silicon may report 8k.
+        payload["onDeviceContextSize"] = await resolvedContextSize(
+          try? await onDevice.contextSize,
+          fallback: 4096
+        )
       case .unavailable(let reason):
         payload["onDeviceReason"] = stringifyUnavailable(reason)
       @unknown default:
@@ -72,7 +73,10 @@ public class AppleFoundationModelsModule: Module {
       case .available:
         payload["pcc"] = true
         payload["pccReason"] = NSNull()
-        payload["pccContextSize"] = pcc.contextSize > 0 ? pcc.contextSize : 32768
+        payload["pccContextSize"] = await resolvedContextSize(
+          try? await pcc.contextSize,
+          fallback: 32768
+        )
         payload["pccQuotaReached"] = pcc.quotaUsage.isLimitReached
       case .unavailable(let reason):
         payload["pccReason"] = stringifyUnavailable(reason)
@@ -164,6 +168,12 @@ struct WorkoutSessionDraft {
 }
 
 @available(iOS 26.0, *)
+private func resolvedContextSize(_ size: Int?, fallback: Int) -> Int {
+  if let size, size > 0 { return size }
+  return fallback
+}
+
+@available(iOS 26.0, *)
 private func stringifyUnavailable(_ reason: Any) -> String {
   let text = String(describing: reason).lowercased()
   if text.contains("notenabled") || text.contains("not_enabled") || text.contains("intelligence") {
@@ -171,6 +181,12 @@ private func stringifyUnavailable(_ reason: Any) -> String {
   }
   if text.contains("noteligible") || text.contains("not_eligible") || text.contains("device") {
     return "deviceNotEligible"
+  }
+  if text.contains("systemnotready") || text.contains("system_not_ready") {
+    return "systemNotReady"
+  }
+  if text.contains("notready") || text.contains("not_ready") || text.contains("modelnotready") {
+    return "modelNotReady"
   }
   if text.contains("ready") {
     return "modelNotReady"
@@ -201,7 +217,7 @@ private func generateOnSupportedOs(
   } catch let error as Exception {
     throw error
   } catch {
-    throw mapGenerateError(error)
+    throw mapGenerateError(error, model: model)
   }
 }
 
@@ -220,7 +236,7 @@ private func generateWithOnDevice(
   }
   let session = LanguageModelSession(
     model: languageModel,
-    instructions: instructions
+    instructions: Instructions(instructions)
   )
   return try await respond(session: session, prompt: prompt, kind: kind, model: "onDevice")
 }
@@ -247,7 +263,7 @@ private func generateWithPcc(
     }
     let session = LanguageModelSession(
       model: languageModel,
-      instructions: instructions
+      instructions: Instructions(instructions)
     )
     return try await respond(session: session, prompt: prompt, kind: kind, model: "pcc")
   }
@@ -311,13 +327,44 @@ private func exerciseDictionary(_ exercise: WorkoutExerciseDraft) -> [String: An
 }
 
 @available(iOS 26.0, *)
-private func mapGenerateError(_ error: Error) -> Exception {
+private func mapGenerateError(_ error: Error, model: String) -> Exception {
+  if let generation = error as? LanguageModelSession.GenerationError {
+    switch generation {
+    case .exceededContextWindowSize(_):
+      let description = model == "pcc"
+        ? "This request is too large for Apple Intelligence. Shorten the description and try again."
+        : "This request is too large for on-device AI. Shorten the description and try again."
+      return Exception(name: "AppleIntelligenceContext", description: description)
+    case .guardrailViolation(_):
+      return Exception(
+        name: "AppleIntelligenceGuardrail",
+        description: "Apple Intelligence couldn’t generate that. Try a simpler description."
+      )
+    default:
+      break
+    }
+  }
+
+  if #available(iOS 27.0, *) {
+    if let pccError = error as? PrivateCloudComputeLanguageModel.Error {
+      switch pccError {
+      case .quotaLimitReached(_):
+        return Exception(
+          name: "AppleIntelligenceQuota",
+          description: "Today’s Apple Intelligence cloud limit is used up. Shorten the description or try tomorrow."
+        )
+      default:
+        break
+      }
+    }
+  }
+
   let text = error.localizedDescription.lowercased()
-  if text.contains("context") || text.contains("exceeded") {
-    return Exception(
-      name: "AppleIntelligenceContext",
-      description: "This request is too large for on-device AI. Shorten the description and try again."
-    )
+  if text.contains("context window") || text.contains("exceededcontextwindow") || text.contains("too large for on-device") {
+    let description = model == "pcc"
+      ? "This request is too large for Apple Intelligence. Shorten the description and try again."
+      : "This request is too large for on-device AI. Shorten the description and try again."
+    return Exception(name: "AppleIntelligenceContext", description: description)
   }
   if text.contains("guardrail") || text.contains("unsafe") {
     return Exception(

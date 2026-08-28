@@ -25,6 +25,9 @@ export const APPLE_ON_DEVICE_PROMPT_CHARS = 1_200;
 
 export type AppleLanguageModel = "onDevice" | "pcc";
 
+/** Native `Exception.name` when guided generation blows the context window. */
+export const APPLE_INTELLIGENCE_CONTEXT_CODE = "AppleIntelligenceContext";
+
 export type AppleFoundationAvailability = {
   onDevice: boolean;
   onDeviceReason: string | null;
@@ -72,6 +75,95 @@ export function pickAppleLanguageModel(
 
   if (availability.onDevice) return "tooLarge";
   return "unavailable";
+}
+
+function appleErrorCode(error: unknown): string {
+  if (typeof error !== "object" || error === null) return "";
+  const record = error as { code?: unknown; name?: unknown };
+  if (typeof record.code === "string" && record.code.trim()) return record.code;
+  if (typeof record.name === "string") return record.name;
+  return "";
+}
+
+function appleErrorMessageText(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "object" && error !== null && "message" in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string") return message;
+  }
+  return String(error);
+}
+
+/** On-device generate can still overflow after a token estimate that looked safe. */
+export function isAppleContextOverflowError(error: unknown): boolean {
+  const code = appleErrorCode(error).toLowerCase();
+  if (code.includes("appleintelligencecontext")) return true;
+  const message = appleErrorMessageText(error).toLowerCase();
+  return (
+    message.includes("too large for on-device") ||
+    message.includes("too large for apple intelligence") ||
+    message.includes("exceededcontextwindow") ||
+    message.includes("context window")
+  );
+}
+
+/**
+ * If on-device generation hits the 4k window, overflow to PCC when it is
+ * available and under quota. Pre-flight routing already prefers PCC when the
+ * *input* is too big; this covers schema + output that still blow the window.
+ */
+export function fallbackAppleLanguageModel(
+  failedModel: AppleLanguageModel,
+  error: unknown,
+  availability: AppleFoundationAvailability,
+): AppleLanguageModel | null {
+  if (failedModel !== "onDevice") return null;
+  if (!isAppleContextOverflowError(error)) return null;
+  if (!availability.pcc || availability.pccQuotaReached) return null;
+  return "pcc";
+}
+
+export async function generateWithAppleModelFallback<T>(options: {
+  availability: AppleFoundationAvailability;
+  inputTokens: number;
+  generate: (model: AppleLanguageModel) => Promise<T>;
+  toUserError: (error: unknown) => Error;
+}): Promise<T> {
+  const pick = pickAppleLanguageModel(
+    options.availability,
+    options.inputTokens,
+  );
+  if (pick === "tooLarge" || pick === "unavailable") {
+    throw new Error(appleAiUnavailableMessage(options.availability, pick));
+  }
+
+  try {
+    return await options.generate(pick);
+  } catch (error) {
+    const fallback = fallbackAppleLanguageModel(
+      pick,
+      error,
+      options.availability,
+    );
+    if (!fallback) {
+      if (isAppleContextOverflowError(error)) {
+        throw new Error(
+          appleAiUnavailableMessage(options.availability, "tooLarge"),
+        );
+      }
+      throw options.toUserError(error);
+    }
+    try {
+      return await options.generate(fallback);
+    } catch (fallbackError) {
+      if (isAppleContextOverflowError(fallbackError)) {
+        throw new Error(
+          appleAiUnavailableMessage(options.availability, "tooLarge"),
+        );
+      }
+      throw options.toUserError(fallbackError);
+    }
+  }
 }
 
 export function appleAiUnavailableMessage(

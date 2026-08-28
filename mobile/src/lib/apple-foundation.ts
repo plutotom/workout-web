@@ -3,13 +3,12 @@ import { requireOptionalNativeModule } from "expo-modules-core";
 
 import {
   UNAVAILABLE_APPLE_FOUNDATION,
-  appleAiUnavailableMessage,
   buildOnDeviceSessionPrompt,
   buildOnDeviceTemplatePrompt,
   estimateAppleTokens,
+  generateWithAppleModelFallback,
   parseOnDeviceSessionDraft,
   parseOnDeviceTemplateDraft,
-  pickAppleLanguageModel,
   type AppleFoundationAvailability,
   type CatalogExercise,
   type SessionDraft,
@@ -82,10 +81,11 @@ async function generateWithApple<T>(options: {
   if (!native) {
     throw new Error("Apple Intelligence is only available on iPhone.");
   }
+  const appleNative = native;
   const availability = await getAppleFoundationAvailability();
   let inputTokens = estimateAppleTokens(options.instructions + options.prompt);
   try {
-    const counted = await native.tokenCount(
+    const counted = await appleNative.tokenCount(
       options.instructions,
       options.prompt,
     );
@@ -94,23 +94,20 @@ async function generateWithApple<T>(options: {
     // Char estimate is enough to choose on-device vs PCC.
   }
 
-  const pick = pickAppleLanguageModel(availability, inputTokens);
-  if (pick === "tooLarge" || pick === "unavailable") {
-    throw new Error(appleAiUnavailableMessage(availability, pick));
-  }
-
-  let raw: { model: "onDevice" | "pcc"; draft: unknown };
-  try {
-    raw = await native.generate(
-      options.instructions,
-      options.prompt,
-      options.kind,
-      pick,
-    );
-  } catch (caught) {
-    throw new Error(appleErrorMessage(caught));
-  }
-  return { ...options.parse(raw.draft), model: raw.model };
+  return generateWithAppleModelFallback({
+    availability,
+    inputTokens,
+    toUserError: (error) => new Error(appleErrorMessage(error)),
+    generate: async (model) => {
+      const raw = await appleNative.generate(
+        options.instructions,
+        options.prompt,
+        options.kind,
+        model,
+      );
+      return { ...options.parse(raw.draft), model: raw.model };
+    },
+  });
 }
 
 export async function generateTemplateOnApple(options: {
