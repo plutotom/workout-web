@@ -13,6 +13,7 @@ import {
   appleAiIsUsable,
   catalogExercisesForAi,
   nextAppleAvailabilityPollMs,
+  resolveAiGenerationAccess,
   shouldFallBackToApple,
   UNAVAILABLE_APPLE_FOUNDATION,
   type AppleFoundationAvailability,
@@ -79,9 +80,13 @@ export function useAiGeneration() {
   );
   const catalog = useCatalog();
   const apple = useAppleAiAvailability();
-  const isPro = entitlement?.isPro === true;
   const appleReady = appleAiIsUsable(apple);
-  const available = isPro || appleReady;
+  const access = resolveAiGenerationAccess({
+    isAuthenticated,
+    entitlement,
+    appleReady,
+  });
+  const { available, usesApple, isPro } = access;
 
   const catalogForAi = useMemo(
     () => catalogExercisesForAi(catalog.all),
@@ -125,7 +130,9 @@ export function useAiGeneration() {
             body,
           );
         } catch (error) {
-          if (!appleReady || !shouldFallBackToApple(error)) throw error;
+          if (!appleReady || !shouldFallBackToApple(error, body.prompt)) {
+            throw error;
+          }
         }
       }
       if (!appleReady) {
@@ -159,7 +166,9 @@ export function useAiGeneration() {
             body,
           );
         } catch (error) {
-          if (!appleReady || !shouldFallBackToApple(error)) throw error;
+          if (!appleReady || !shouldFallBackToApple(error, body.prompt)) {
+            throw error;
+          }
         }
       }
       if (!appleReady) {
@@ -180,7 +189,7 @@ export function useAiGeneration() {
 
   return {
     available,
-    usesApple: !isPro && appleReady,
+    usesApple,
     generateTemplate,
     generateSession,
   };

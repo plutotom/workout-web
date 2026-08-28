@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   APPLE_INTELLIGENCE_CONTEXT_CODE,
   APPLE_ON_DEVICE_PROMPT_CHARS,
+  appleAiIsUsable,
   assertApplePromptLength,
   buildOnDeviceSessionPrompt,
   buildOnDeviceTemplatePrompt,
@@ -13,6 +14,7 @@ import {
   parseOnDeviceSessionDraft,
   parseOnDeviceTemplateDraft,
   pickAppleLanguageModel,
+  resolveAiGenerationAccess,
   shouldFallBackToApple,
   summarizeSessionForOnDevicePrompt,
   summarizeTemplateForOnDevicePrompt,
@@ -291,6 +293,91 @@ describe("shouldFallBackToApple", () => {
     expect(shouldFallBackToApple(new Error("Request body is too large"))).toBe(
       false,
     );
+  });
+
+  it("does not retry Apple when the prompt already exceeds the on-device cap", () => {
+    expect(
+      shouldFallBackToApple(
+        new Error("AI generation failed"),
+        "x".repeat(APPLE_ON_DEVICE_PROMPT_CHARS + 1),
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("appleAiIsUsable", () => {
+  it("is usable on-device even when PCC quota is spent", () => {
+    expect(appleAiIsUsable({ ...available, pccQuotaReached: true })).toBe(true);
+  });
+
+  it("is not usable when only PCC is listed and today’s quota is spent", () => {
+    expect(
+      appleAiIsUsable({
+        ...available,
+        onDevice: false,
+        pccQuotaReached: true,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("resolveAiGenerationAccess", () => {
+  it("uses Apple for logged-out and Free when Intelligence is ready", () => {
+    expect(
+      resolveAiGenerationAccess({
+        isAuthenticated: false,
+        entitlement: undefined,
+        appleReady: true,
+      }),
+    ).toMatchObject({
+      available: true,
+      usesApple: true,
+      isPro: false,
+      entitlementPending: false,
+    });
+    expect(
+      resolveAiGenerationAccess({
+        isAuthenticated: true,
+        entitlement: { isPro: false },
+        appleReady: true,
+      }),
+    ).toMatchObject({ available: true, usesApple: true, isPro: false });
+  });
+
+  it("uses Gateway for Pro and does not treat a loading entitlement as Free", () => {
+    expect(
+      resolveAiGenerationAccess({
+        isAuthenticated: true,
+        entitlement: { isPro: true },
+        appleReady: true,
+      }),
+    ).toMatchObject({
+      available: true,
+      usesApple: false,
+      isPro: true,
+      entitlementPending: false,
+    });
+    expect(
+      resolveAiGenerationAccess({
+        isAuthenticated: true,
+        entitlement: undefined,
+        appleReady: true,
+      }),
+    ).toMatchObject({
+      available: false,
+      usesApple: false,
+      entitlementPending: true,
+    });
+  });
+
+  it("hides generate when logged out and Apple Intelligence is not ready", () => {
+    expect(
+      resolveAiGenerationAccess({
+        isAuthenticated: false,
+        entitlement: undefined,
+        appleReady: false,
+      }),
+    ).toMatchObject({ available: false, usesApple: false });
   });
 });
 

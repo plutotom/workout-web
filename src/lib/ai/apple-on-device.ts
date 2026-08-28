@@ -365,11 +365,57 @@ export function catalogExercisesForAi(
 }
 
 export function appleAiIsUsable(availability: AppleFoundationAvailability) {
-  return availability.onDevice || availability.pcc;
+  if (availability.onDevice) return true;
+  return availability.pcc && !availability.pccQuotaReached;
+}
+
+export type AiGenerationAccess = {
+  available: boolean;
+  usesApple: boolean;
+  isPro: boolean;
+  entitlementPending: boolean;
+};
+
+/**
+ * Logged-out and Free → on-device / PCC. Pro → Gateway.
+ * `entitlement === undefined` while Convex is still loading must not look like
+ * Free, or a signed-in Pro tap would hit Apple instead of `/api/ai/*`.
+ */
+export function resolveAiGenerationAccess(options: {
+  isAuthenticated: boolean;
+  entitlement: { isPro: boolean } | null | undefined;
+  appleReady: boolean;
+}): AiGenerationAccess {
+  const isPro = options.entitlement?.isPro === true;
+  const entitlementPending =
+    options.isAuthenticated && options.entitlement === undefined;
+  if (entitlementPending) {
+    return {
+      available: false,
+      usesApple: false,
+      isPro: false,
+      entitlementPending: true,
+    };
+  }
+  return {
+    available: isPro || options.appleReady,
+    usesApple: !isPro && options.appleReady,
+    isPro,
+    entitlementPending: false,
+  };
+}
+
+function promptFitsAppleFallback(prompt: string | undefined): boolean {
+  if (prompt == null) return true;
+  return prompt.trim().length <= APPLE_ON_DEVICE_PROMPT_CHARS;
 }
 
 /** Server 4xx that already ran the model should not retry on-device. */
-export function shouldFallBackToApple(error: unknown): boolean {
+export function shouldFallBackToApple(
+  error: unknown,
+  prompt?: string,
+): boolean {
+  if (!promptFitsAppleFallback(prompt)) return false;
   if (!(error instanceof Error)) return true;
   const message = error.message.toLowerCase();
   if (message.includes("invalid request") || message.includes("too large")) {

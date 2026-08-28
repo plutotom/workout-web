@@ -55,3 +55,16 @@ describe("app.json PCC entitlement", () => {
     ).toBe(true);
   });
 });
+
+describe("pnpm ios KEEP_PAID_IOS_ENTITLEMENTS", () => {
+  it("skips the Personal Team signing shim so paid-team PCC can stay in the binary", () => {
+    const source = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), "../../scripts/mobile.mjs"),
+      "utf8",
+    );
+    expect(source).toContain('KEEP_PAID_IOS_ENTITLEMENTS === "1"');
+    expect(source).toMatch(
+      /skipping Personal Team signing shim|keeping Push, Associated Domains, and Private Cloud Compute/,
+    );
+  });
+});

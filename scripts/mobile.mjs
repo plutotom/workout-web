@@ -64,6 +64,14 @@ function wantsPhysicalDevice(extra) {
 
 function childEnv(extra) {
   const env = { ...process.env, ...mobileEnvironment };
+  if (process.env.KEEP_PAID_IOS_ENTITLEMENTS === "1") {
+    // Paid-team / TestFlight / App Store: the strip plugin is a no-op so PCC
+    // can overflow on-device 4k. Do not inject the Personal Team signing shim.
+    console.log(
+      "[mobile] KEEP_PAID_IOS_ENTITLEMENTS=1 — keeping Push, Associated Domains, and Private Cloud Compute. Use a paid team; rebuild native if this binary was prebuilt without the flag.",
+    );
+    return env;
+  }
   if (!wantsPhysicalDevice(extra)) {
     return env;
   }
