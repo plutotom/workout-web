@@ -17,6 +17,7 @@ import {
   summarizeSessionForOnDevicePrompt,
   summarizeTemplateForOnDevicePrompt,
   appleAiUnavailableMessage,
+  nextAppleAvailabilityPollMs,
 } from "./apple-on-device";
 import { ON_DEVICE_PROMPT_CATALOG_MAX } from "./template-draft";
 
@@ -161,6 +162,34 @@ describe("appleAiUnavailableMessage", () => {
         "tooLarge",
       ),
     ).toMatch(/cloud limit/);
+  });
+});
+
+describe("nextAppleAvailabilityPollMs", () => {
+  it("polls while the on-device model is still downloading", () => {
+    expect(
+      nextAppleAvailabilityPollMs({
+        ...available,
+        onDevice: false,
+        pcc: false,
+        onDeviceReason: "modelNotReady",
+      }),
+    ).toBe(8_000);
+  });
+
+  it("does not poll once Apple Intelligence is usable", () => {
+    expect(nextAppleAvailabilityPollMs(available)).toBeNull();
+  });
+
+  it("waits for foreground instead of polling an ineligible device", () => {
+    expect(
+      nextAppleAvailabilityPollMs({
+        ...available,
+        onDevice: false,
+        pcc: false,
+        onDeviceReason: "deviceNotEligible",
+      }),
+    ).toBeNull();
   });
 });
 

@@ -1,6 +1,7 @@
 import { api } from "@backend/api";
 import { useQuery } from "convex/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { AppState } from "react-native";
 
 import { useMobileAuth } from "@/auth/auth-provider";
 import {
@@ -11,6 +12,7 @@ import {
 import {
   appleAiIsUsable,
   catalogExercisesForAi,
+  nextAppleAvailabilityPollMs,
   shouldFallBackToApple,
   UNAVAILABLE_APPLE_FOUNDATION,
   type AppleFoundationAvailability,
@@ -35,11 +37,34 @@ export function useAppleAiAvailability() {
 
   useEffect(() => {
     let cancelled = false;
-    void getAppleFoundationAvailability().then((next) => {
-      if (!cancelled) setAvailability(next);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let requestId = 0;
+
+    const load = async () => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = undefined;
+      }
+      const id = ++requestId;
+      const next = await getAppleFoundationAvailability();
+      if (cancelled || id !== requestId) return;
+      setAvailability(next);
+      const delay = nextAppleAvailabilityPollMs(next);
+      if (delay != null) {
+        timer = setTimeout(() => {
+          void load();
+        }, delay);
+      }
+    };
+
+    void load();
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") void load();
     });
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
+      sub.remove();
     };
   }, []);
 

@@ -190,6 +190,18 @@ export function appleAiUnavailableMessage(
   return "AI generation isn’t available on this iPhone.";
 }
 
+/** Re-check while the on-device model is downloading; other reasons wait for foreground. */
+export function nextAppleAvailabilityPollMs(
+  availability: AppleFoundationAvailability,
+): number | null {
+  if (appleAiIsUsable(availability)) return null;
+  const reasons = [availability.onDeviceReason, availability.pccReason];
+  if (reasons.includes("modelNotReady") || reasons.includes("systemNotReady")) {
+    return 8_000;
+  }
+  return null;
+}
+
 export function assertApplePromptLength(prompt: string): string {
   const trimmed = prompt.trim();
   if (!trimmed) throw new Error("Describe the workout first");
