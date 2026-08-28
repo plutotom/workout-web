@@ -1,5 +1,5 @@
 import { Sparkles, X } from "lucide-react-native";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Keyboard,
   KeyboardAvoidingView,
@@ -43,6 +43,20 @@ export function AiPromptModal({
   const [prompt, setPrompt] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
+
+  useEffect(() => {
+    const showEvent =
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent =
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const show = Keyboard.addListener(showEvent, () => setKeyboardOpen(true));
+    const hide = Keyboard.addListener(hideEvent, () => setKeyboardOpen(false));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
 
   async function submit() {
     if (!prompt.trim()) return;
@@ -191,12 +205,14 @@ export function AiPromptModal({
                 onPress={submit}
               />
             )}
-            <Button
-              label="Cancel"
-              variant="ghost"
-              disabled={loading}
-              onPress={onClose}
-            />
+            {loading || keyboardOpen ? null : (
+              <Button
+                label="Cancel"
+                variant="ghost"
+                disabled={loading}
+                onPress={onClose}
+              />
+            )}
           </View>
         </KeyboardAvoidingView>
       </SafeAreaView>
