@@ -536,6 +536,7 @@ export function TemplateEditor({
               : "AI will draft catalog exercises and set targets for you to review before saving."
           }
           loadingLabel="Building your template…"
+          onDevice={usesApple}
           onClose={() => setAiOpen(false)}
           onGenerate={generate}
         />

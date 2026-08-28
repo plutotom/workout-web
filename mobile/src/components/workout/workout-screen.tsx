@@ -511,6 +511,7 @@ function ListWorkout({
               : "Ask for additions, removals, or a new direction. You’ll review the exact draft before it changes the session."
           }
           loadingLabel="Reshaping your session…"
+          onDevice={usesApple}
           onClose={() => setAiOpen(false)}
           onGenerate={generate}
         />
