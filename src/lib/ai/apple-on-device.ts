@@ -103,6 +103,7 @@ export function isAppleContextOverflowError(error: unknown): boolean {
     message.includes("too large for on-device") ||
     message.includes("too large for apple intelligence") ||
     message.includes("exceededcontextwindow") ||
+    message.includes("contextsizeexceeded") ||
     message.includes("context window")
   );
 }

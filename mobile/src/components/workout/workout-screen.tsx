@@ -43,7 +43,7 @@ import {
 import { PlateModal } from "@/components/workout/plate-modal";
 import { RestBar } from "@/components/workout/rest-bar";
 import { WatchCompanionCard } from "@/health/watch-companion-card";
-import { useAiGeneration } from "@/lib/ai";
+import { useSessionAi } from "@/components/workout/use-session-ai";
 import { formatDate, formatDuration, formatWeight } from "@/lib/format";
 import { formatHealthDistance, formatHealthEnergy } from "@/health/mapping";
 import {
@@ -173,18 +173,14 @@ function ListWorkout({
     saveNote,
   } = useLocalData();
   const [picker, setPicker] = useState(false);
-  const [aiOpen, setAiOpen] = useState(false);
   // Collapsed cards are opt-in and independent, so a session can mix open and
   // closed exercises. Missing id means expanded.
   const [collapsed, setCollapsed] = useState<Record<string, true>>({});
   const rest = useRestTimer({
     notificationsEnabled: user.restTimerNotificationsEnabled,
   });
-  const {
-    generateSession,
-    available: aiAvailable,
-    usesApple,
-  } = useAiGeneration();
+  const { aiAvailable, usesApple, aiOpen, setAiOpen, generate } =
+    useSessionAi(session);
 
   function toggleCollapsed(exerciseId: string) {
     void Haptics.selectionAsync();
@@ -199,66 +195,6 @@ function ListWorkout({
   async function addPicked(slugs: string[]) {
     for (const exerciseSlug of slugs)
       await addExercise(session._id, exerciseSlug);
-  }
-
-  async function generate(prompt: string) {
-    const result = await generateSession({
-      prompt,
-      current: {
-        // The route only summarises progress as done/total, so sending set
-        // rows would ship weights and reps it never reads.
-        exercises: session.exercises.map((exercise) => ({
-          slug: exercise.slug,
-          done: exercise.sets.filter((set) => set.completed).length,
-          total: exercise.sets.length,
-        })),
-      },
-    });
-    const description = [
-      result.draft.removeSlugs.length
-        ? `Remove: ${result.draft.removeSlugs.map(catalog.short).join(", ")}`
-        : null,
-      result.draft.add.length
-        ? `Add: ${result.draft.add
-            .map((exercise) => {
-              const reps = exercise.sets.map((set) => set.reps);
-              const sameReps = reps.every((rep) => rep === reps[0]);
-              const summary =
-                sameReps && (reps[0] ?? 0) > 0
-                  ? `${exercise.sets.length} × ${reps[0]}`
-                  : `${exercise.sets.length} sets`;
-              return `${catalog.short(exercise.slug)} (${summary})`;
-            })
-            .join(", ")}`
-        : null,
-    ]
-      .filter(Boolean)
-      .join("\n\n");
-    await new Promise<void>((resolve, reject) => {
-      Alert.alert("Review AI changes", description || "No changes", [
-        {
-          text: "Cancel",
-          style: "cancel",
-          onPress: () => reject(new Error("Cancelled")),
-        },
-        {
-          text: "Apply",
-          onPress: () =>
-            void (async () => {
-              for (const slug of result.draft.removeSlugs) {
-                const exercise = session.exercises.find(
-                  (candidate) => candidate.slug === slug,
-                );
-                if (exercise) await removeExercise(exercise._id);
-              }
-              for (const exercise of result.draft.add) {
-                await addExercise(session._id, exercise.slug, exercise.sets);
-              }
-              resolve();
-            })().catch(reject),
-        },
-      ]);
-    });
   }
 
   return (
@@ -683,35 +619,69 @@ function FocusWorkout({
     notificationsEnabled: user.restTimerNotificationsEnabled,
   });
   const { updateSet } = useLocalData();
+  const { aiAvailable, usesApple, aiOpen, setAiOpen, generate } =
+    useSessionAi(session);
   const [drafts, setDrafts] = useState<
     Record<string, { weight: string; reps: string }>
   >({});
   const [plates, setPlates] = useState(false);
   const last = useLocalLastSet(item?.exercise.slug);
+  const aiModal = aiAvailable ? (
+    <AiPromptModal
+      visible={aiOpen}
+      title={item ? "Reshape this workout" : "Describe this workout"}
+      description={
+        usesApple
+          ? "Runs on this iPhone — nothing is sent to Workout’s servers. You’ll review the draft before it changes the session."
+          : "Ask for additions, removals, or a new direction. You’ll review the exact draft before it changes the session."
+      }
+      loadingLabel="Reshaping your session…"
+      onDevice={usesApple}
+      onClose={() => setAiOpen(false)}
+      onGenerate={generate}
+    />
+  ) : null;
 
   if (!item) {
     return (
-      <Screen>
-        <PageHeader
-          back
-          title={session.templateName}
-          action={
+      <>
+        <Screen>
+          <PageHeader
+            back
+            title={session.templateName}
+            action={
+              <Button
+                size="sm"
+                label="Finish"
+                onPress={() => finishWorkout(session)}
+              />
+            }
+          />
+          <WatchCompanionCard
+            sessionId={session._id}
+            startedAt={session.startedAt}
+          />
+          {aiAvailable ? (
             <Button
-              size="sm"
-              label="Finish"
-              onPress={() => finishWorkout(session)}
+              label="Describe with AI"
+              variant="outline"
+              icon={Sparkles}
+              onPress={() => setAiOpen(true)}
             />
-          }
-        />
-        <WatchCompanionCard
-          sessionId={session._id}
-          startedAt={session.startedAt}
-        />
-        <EmptyState
-          title="No sets yet"
-          description="Switch to List mode in Settings to add exercises and sets."
-        />
-      </Screen>
+          ) : null}
+          <EmptyState
+            title="No sets yet"
+            description={
+              aiAvailable
+                ? usesApple
+                  ? "Describe the session with on-device AI, or switch to List in Settings to add lifts by hand."
+                  : "Describe the session with AI, or switch to List in Settings to add lifts by hand."
+                : "Switch to List mode in Settings to add exercises and sets."
+            }
+          />
+        </Screen>
+        {aiModal}
+      </>
     );
   }
   const draft = drafts[item.set._id] ?? {
@@ -764,6 +734,14 @@ function FocusWorkout({
           sessionId={session._id}
           startedAt={session.startedAt}
         />
+        {aiAvailable ? (
+          <Button
+            label="Edit workout with AI"
+            variant="outline"
+            icon={Sparkles}
+            onPress={() => setAiOpen(true)}
+          />
+        ) : null}
         <View style={{ flex: 1, justifyContent: "center", gap: 24 }}>
           <View>
             <Text
@@ -905,6 +883,7 @@ function FocusWorkout({
           onClear={() => void rest.clear()}
         />
       ) : null}
+      {aiModal}
     </>
   );
 }

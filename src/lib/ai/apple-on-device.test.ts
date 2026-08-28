@@ -81,6 +81,16 @@ describe("fallbackAppleLanguageModel", () => {
     );
   });
 
+  it("treats iOS 27 LanguageModelError.contextSizeExceeded as overflow", () => {
+    expect(
+      fallbackAppleLanguageModel(
+        "onDevice",
+        new Error("LanguageModelError.contextSizeExceeded"),
+        available,
+      ),
+    ).toBe("pcc");
+  });
+
   it("does not retry PCC after a guardrail or generic failure", () => {
     expect(
       fallbackAppleLanguageModel(

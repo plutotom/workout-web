@@ -317,25 +317,58 @@ private func exerciseDictionary(_ exercise: WorkoutExerciseDraft) -> [String: An
 }
 
 @available(iOS 26.0, *)
-private func mapGenerateError(_ error: Error, model: String) -> Exception {
+private func contextOverflowDescription(model: String) -> String {
+  model == "pcc"
+    ? "This request is too large for Apple Intelligence. Shorten the description and try again."
+    : "This request is too large for on-device AI. Shorten the description and try again."
+}
+
+@available(iOS 26.0, *)
+private func isContextOverflowError(_ error: Error) -> Bool {
   if let generation = error as? LanguageModelSession.GenerationError {
-    switch generation {
-    case .exceededContextWindowSize(_):
-      let description = model == "pcc"
-        ? "This request is too large for Apple Intelligence. Shorten the description and try again."
-        : "This request is too large for on-device AI. Shorten the description and try again."
-      return Exception(name: "AppleIntelligenceContext", description: description)
-    case .guardrailViolation(_):
+    if case .exceededContextWindowSize(_) = generation { return true }
+  }
+  if #available(iOS 27.0, *) {
+    if let modelError = error as? LanguageModelError {
+      if case .contextSizeExceeded(_) = modelError { return true }
+    }
+  }
+  // GenerationError's localizedDescription is often "error 4"; the enum
+  // case name still shows up in String(describing:).
+  let text = "\(error) \(error.localizedDescription)".lowercased()
+  return text.contains("exceededcontextwindow")
+    || text.contains("contextsizeexceeded")
+    || text.contains("context window")
+    || text.contains("too large for on-device")
+}
+
+@available(iOS 26.0, *)
+private func mapGenerateError(_ error: Error, model: String) -> Exception {
+  if isContextOverflowError(error) {
+    return Exception(
+      name: "AppleIntelligenceContext",
+      description: contextOverflowDescription(model: model)
+    )
+  }
+
+  if let generation = error as? LanguageModelSession.GenerationError {
+    if case .guardrailViolation(_) = generation {
       return Exception(
         name: "AppleIntelligenceGuardrail",
         description: "Apple Intelligence couldn’t generate that. Try a simpler description."
       )
-    default:
-      break
     }
   }
 
   if #available(iOS 27.0, *) {
+    if let modelError = error as? LanguageModelError {
+      if case .guardrailViolation(_) = modelError {
+        return Exception(
+          name: "AppleIntelligenceGuardrail",
+          description: "Apple Intelligence couldn’t generate that. Try a simpler description."
+        )
+      }
+    }
     if let pccError = error as? PrivateCloudComputeLanguageModel.Error {
       switch pccError {
       case .quotaLimitReached(_):
@@ -349,20 +382,14 @@ private func mapGenerateError(_ error: Error, model: String) -> Exception {
     }
   }
 
-  let text = error.localizedDescription.lowercased()
-  if text.contains("context window") || text.contains("exceededcontextwindow") || text.contains("too large for on-device") {
-    let description = model == "pcc"
-      ? "This request is too large for Apple Intelligence. Shorten the description and try again."
-      : "This request is too large for on-device AI. Shorten the description and try again."
-    return Exception(name: "AppleIntelligenceContext", description: description)
-  }
+  let text = "\(error) \(error.localizedDescription)".lowercased()
   if text.contains("guardrail") || text.contains("unsafe") {
     return Exception(
       name: "AppleIntelligenceGuardrail",
       description: "Apple Intelligence couldn’t generate that. Try a simpler description."
     )
   }
-  if text.contains("quota") || text.contains("limit") {
+  if text.contains("quota") {
     return Exception(
       name: "AppleIntelligenceQuota",
       description: "Today’s Apple Intelligence cloud limit is used up. Shorten the description or try tomorrow."
