@@ -48,6 +48,19 @@ describe("AppleFoundationModels Expo module", () => {
     expect(withoutPcc).not.toMatch(/\bLanguageModelError\b/);
   });
 
+  it("does not call iOS 26.4 tokenCount so Xcode 26.0 still compiles on-device", () => {
+    const swift = readFileSync(
+      join(root, "ios/AppleFoundationModelsModule.swift"),
+      "utf8",
+    );
+    const withoutComments = swift
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\/\/.*$/gm, "");
+    expect(withoutComments).not.toMatch(/tokenCount\(for:/);
+    expect(withoutComments).not.toMatch(/#available\(iOS 26\.4/);
+    expect(withoutComments).toMatch(/instructions\.count \+ prompt\.count/);
+  });
+
   it("creates PCC sessions with Apple’s documented one-argument initializer", () => {
     const swift = readFileSync(
       join(root, "ios/AppleFoundationModelsModule.swift"),

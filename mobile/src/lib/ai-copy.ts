@@ -15,3 +15,16 @@ export function planAiSettingsCopy(appleReady: boolean): string {
   }
   return "Pro unlocks cloud AI workout and template generation. On supported iPhones, Apple Intelligence works on Free.";
 }
+
+/**
+ * Generate-sheet body when the request will run on Apple Intelligence.
+ * Typical prompts stay on-device; overflow may use Private Cloud Compute.
+ */
+export function appleGenerateSheetCopy(kind: "template" | "session"): string {
+  const privacy =
+    "Runs on this iPhone. A request that’s too large may use Apple Private Cloud Compute — not Workout’s servers.";
+  if (kind === "template") {
+    return `${privacy} Draft only until you save.`;
+  }
+  return `${privacy} You’ll review the draft before it changes the session.`;
+}

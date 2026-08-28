@@ -28,6 +28,7 @@ import {
 import { useLocalData, useLocalExerciseNotes } from "@/data/local/provider";
 import { isUnsyncedTemplateRemoteId } from "@/data/local/types";
 import { useAiGeneration } from "@/lib/ai";
+import { appleGenerateSheetCopy } from "@/lib/ai-copy";
 import { useCatalog } from "@/providers/catalog-provider";
 import { colors } from "@/theme";
 
@@ -534,7 +535,7 @@ export function TemplateEditor({
           title={templateId ? "Edit this template" : "Describe your workout"}
           description={
             usesApple
-              ? "Runs on this iPhone — nothing is sent to Workout’s servers. Draft only until you save."
+              ? appleGenerateSheetCopy("template")
               : "AI will draft catalog exercises and set targets for you to review before saving."
           }
           loadingLabel="Building your template…"

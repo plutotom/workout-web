@@ -23,8 +23,14 @@ public class AppleFoundationModelsModule: Module {
       await Self.availability()
     }
 
-    AsyncFunction("tokenCount") { (instructions: String, prompt: String) async -> Int in
-      await Self.tokenCount(instructions: instructions, prompt: prompt)
+    AsyncFunction("tokenCount") { (instructions: String, prompt: String) -> Int in
+      // Do not call SystemLanguageModel.tokenCount(for:). That API is iOS 26.4+
+      // and is missing from the Xcode 26.0 SDK. `#available(iOS 26.4)` is
+      // runtime-only — referencing the method still fails the compile, the same
+      // way PCC types do on an older SDK. JS already falls back to
+      // estimateAppleTokens (~3.5 chars/token); returning that estimate here
+      // keeps on-device vs PCC routing consistent across SDK versions.
+      Int((Double(instructions.count + prompt.count) / 3.5).rounded(.up))
     }
 
     AsyncFunction("generate") { (instructions: String, prompt: String, kind: String, model: String) async throws -> [String: Any] in
@@ -56,21 +62,6 @@ public class AppleFoundationModelsModule: Module {
     #endif
 
     return payload
-  }
-
-  private static func tokenCount(instructions: String, prompt: String) async -> Int {
-    let estimate = Int(ceil(Double(instructions.count + prompt.count) / 3.5))
-    #if canImport(FoundationModels)
-    if #available(iOS 26.4, *) {
-      let model = SystemLanguageModel.default
-      guard case .available = model.availability else { return estimate }
-      let text = instructions + "\n\n" + prompt
-      if let counted = try? await model.tokenCount(for: text), counted > 0 {
-        return counted
-      }
-    }
-    #endif
-    return estimate
   }
 
   private static func generate(
@@ -281,6 +272,7 @@ private func generateWithPcc(
     // The tools/instructions builder is typed as SystemLanguageModel on the iOS 26
     // docs page, so we fold instructions into the prompt instead of that overload.
     let session = LanguageModelSession(model: languageModel)
+    session.prewarm()
     return try await respond(
       session: session,
       prompt: instructions + "\n\n" + prompt,

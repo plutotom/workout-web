@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  appleGenerateSheetCopy,
   offlineAiSettingsCopy,
   planAiSettingsCopy,
   signedOutWelcomeAiCopy,
@@ -26,5 +27,15 @@ describe("AI settings copy", () => {
       /Apple Intelligence works on Free/i,
     );
     expect(offlineAiSettingsCopy(false)).toMatch(/without an account/i);
+  });
+
+  it("does not claim overflow stays on-device", () => {
+    const template = appleGenerateSheetCopy("template");
+    const session = appleGenerateSheetCopy("session");
+    expect(template).toMatch(/Private Cloud Compute/i);
+    expect(template).toMatch(/not Workout’s servers/i);
+    expect(template).not.toMatch(/nothing is sent/i);
+    expect(session).toMatch(/review the draft/i);
+    expect(session).not.toMatch(/nothing is sent/i);
   });
 });

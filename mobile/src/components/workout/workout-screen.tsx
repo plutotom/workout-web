@@ -44,6 +44,7 @@ import { PlateModal } from "@/components/workout/plate-modal";
 import { RestBar } from "@/components/workout/rest-bar";
 import { WatchCompanionCard } from "@/health/watch-companion-card";
 import { useSessionAi } from "@/components/workout/use-session-ai";
+import { appleGenerateSheetCopy } from "@/lib/ai-copy";
 import { formatDate, formatDuration, formatWeight } from "@/lib/format";
 import { formatHealthDistance, formatHealthEnergy } from "@/health/mapping";
 import {
@@ -443,7 +444,7 @@ function ListWorkout({
           title="Reshape this workout"
           description={
             usesApple
-              ? "Runs on this iPhone — nothing is sent to Workout’s servers. You’ll review the draft before it changes the session."
+              ? appleGenerateSheetCopy("session")
               : "Ask for additions, removals, or a new direction. You’ll review the exact draft before it changes the session."
           }
           loadingLabel="Reshaping your session…"
@@ -632,7 +633,7 @@ function FocusWorkout({
       title={item ? "Reshape this workout" : "Describe this workout"}
       description={
         usesApple
-          ? "Runs on this iPhone — nothing is sent to Workout’s servers. You’ll review the draft before it changes the session."
+          ? appleGenerateSheetCopy("session")
           : "Ask for additions, removals, or a new direction. You’ll review the exact draft before it changes the session."
       }
       loadingLabel="Reshaping your session…"
