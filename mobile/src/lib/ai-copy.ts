@@ -1,3 +1,7 @@
+export function signedOutWelcomeAiCopy(): string {
+  return "On supported iPhones, Apple Intelligence can draft workouts without an account.";
+}
+
 export function offlineAiSettingsCopy(appleReady: boolean): string {
   if (appleReady) {
     return "Runs on this iPhone with Apple Intelligence — no account, works offline. Connect later if you want Workout’s cloud model.";

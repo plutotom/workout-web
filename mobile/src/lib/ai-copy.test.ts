@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { offlineAiSettingsCopy, planAiSettingsCopy } from "./ai-copy";
+import {
+  offlineAiSettingsCopy,
+  planAiSettingsCopy,
+  signedOutWelcomeAiCopy,
+} from "./ai-copy";
 
 describe("AI settings copy", () => {
   it("does not tell logged-out Intelligence users they need an account", () => {
@@ -8,6 +12,8 @@ describe("AI settings copy", () => {
     expect(offlineAiSettingsCopy(true)).not.toMatch(
       /Create an account to use AI/i,
     );
+    expect(signedOutWelcomeAiCopy()).toMatch(/without an account/i);
+    expect(signedOutWelcomeAiCopy()).toMatch(/Apple Intelligence/i);
   });
 
   it("does not tell Free Intelligence users that Pro is required for generate", () => {

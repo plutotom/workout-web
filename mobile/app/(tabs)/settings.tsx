@@ -116,17 +116,7 @@ function OfflineSettingsScreen() {
         <Text style={{ color: colors.dim, fontSize: 13, lineHeight: 19 }}>
           {offlineAiSettingsCopy(usesApple)}
         </Text>
-        {usesApple ? (
-          <DescribeWithAiButton variant="outline" />
-        ) : (
-          <Button
-            label={connecting ? "Connecting…" : "Create an account"}
-            variant="outline"
-            icon={Sparkles}
-            disabled={connecting}
-            onPress={() => void connectAccount()}
-          />
-        )}
+        {usesApple ? <DescribeWithAiButton variant="outline" /> : null}
       </Card>
       <Card>
         <CircleDot color={colors.text} size={22} strokeWidth={2.3} />

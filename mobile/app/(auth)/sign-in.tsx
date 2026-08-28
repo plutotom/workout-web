@@ -6,6 +6,7 @@ import type { Href } from "expo-router";
 
 import { useMobileAuth } from "@/auth/auth-provider";
 import { Button, Screen } from "@/components/ui";
+import { signedOutWelcomeAiCopy } from "@/lib/ai-copy";
 import { colors } from "@/theme";
 
 /**
@@ -94,8 +95,8 @@ export default function SignInScreen() {
             maxWidth: 330,
           }}
         >
-          Track every workout without a connection. Connect your account when
-          you want your training to sync with the web.
+          Track every workout without a connection. {signedOutWelcomeAiCopy()}{" "}
+          Connect later if you want your training to sync with the web.
         </Text>
       </View>
 

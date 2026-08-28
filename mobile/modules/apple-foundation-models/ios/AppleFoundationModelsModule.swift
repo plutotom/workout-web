@@ -112,7 +112,7 @@ private func fillOnDeviceAvailability(_ payload: inout [String: Any]) {
       payload["onDeviceContextSize"] = 4096
     }
   case .unavailable(let reason):
-    payload["onDeviceReason"] = stringifyUnavailable(reason)
+    payload["onDeviceReason"] = stringifyOnDeviceUnavailable(reason)
   @unknown default:
     payload["onDeviceReason"] = "unavailable"
   }
@@ -129,7 +129,7 @@ private func fillPccAvailability(_ payload: inout [String: Any]) {
       payload["pccContextSize"] = 32768
       payload["pccQuotaReached"] = pcc.quotaUsage.isLimitReached
     case .unavailable(let reason):
-      payload["pccReason"] = stringifyUnavailable(reason)
+      payload["pccReason"] = stringifyUnavailableDescription(reason)
       payload["pccQuotaReached"] = pcc.quotaUsage.isLimitReached
     @unknown default:
       payload["pccReason"] = "unavailable"
@@ -177,21 +177,33 @@ struct WorkoutSessionDraft {
 }
 
 @available(iOS 26.0, *)
-private func stringifyUnavailable(_ reason: Any) -> String {
+private func stringifyOnDeviceUnavailable(
+  _ reason: SystemLanguageModel.Availability.UnavailableReason
+) -> String {
+  switch reason {
+  case .appleIntelligenceNotEnabled:
+    return "appleIntelligenceNotEnabled"
+  case .deviceNotEligible:
+    return "deviceNotEligible"
+  case .modelNotReady:
+    return "modelNotReady"
+  @unknown default:
+    return stringifyUnavailableDescription(reason)
+  }
+}
+
+private func stringifyUnavailableDescription(_ reason: Any) -> String {
   let text = String(describing: reason).lowercased()
-  if text.contains("notenabled") || text.contains("not_enabled") || text.contains("intelligence") {
+  if text.contains("notenabled") || text.contains("not_enabled") || text.contains("appleintelligencenotenabled") {
     return "appleIntelligenceNotEnabled"
   }
-  if text.contains("noteligible") || text.contains("not_eligible") || text.contains("device") {
+  if text.contains("noteligible") || text.contains("not_eligible") || text.contains("devicenoteligible") {
     return "deviceNotEligible"
   }
   if text.contains("systemnotready") || text.contains("system_not_ready") {
     return "systemNotReady"
   }
   if text.contains("notready") || text.contains("not_ready") || text.contains("modelnotready") {
-    return "modelNotReady"
-  }
-  if text.contains("ready") {
     return "modelNotReady"
   }
   return "unavailable"
