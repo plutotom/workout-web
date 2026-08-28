@@ -134,4 +134,13 @@ describe("formatCatalogForPrompt", () => {
       ]),
     ).toBe("squat | Squat | legs");
   });
+
+  it("omits category in compact form for the on-device token budget", () => {
+    expect(
+      formatCatalogForPrompt(
+        [{ slug: "squat", name: "Squat", category: "legs" }],
+        "compact",
+      ),
+    ).toBe("squat | Squat");
+  });
 });

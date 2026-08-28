@@ -29,6 +29,9 @@ const plist = plistModule.parse ? plistModule : plistModule.default;
 const PAID_ENTITLEMENT_KEYS = [
   "aps-environment",
   "com.apple.developer.associated-domains",
+  // Managed PCC entitlement — App Store / TestFlight only. Local Personal
+  // Team builds cannot sign it; on-device Foundation Models still work.
+  "com.apple.developer.private-cloud-compute",
 ];
 
 function stripPaidEntitlements(entitlements) {

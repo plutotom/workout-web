@@ -82,7 +82,11 @@ export function TemplateEditor({
     })),
     catalog,
   );
-  const { generateTemplate } = useAiGeneration();
+  const {
+    generateTemplate,
+    available: aiAvailable,
+    usesApple,
+  } = useAiGeneration();
 
   function changeExercise(
     index: number,
@@ -213,7 +217,7 @@ export function TemplateEditor({
           onChangeText={setName}
           placeholder="Push Day"
         />
-        {isAuthenticated ? (
+        {aiAvailable ? (
           <>
             <Button
               label={templateId ? "Edit with AI" : "Describe with AI"}
@@ -229,7 +233,9 @@ export function TemplateEditor({
                 marginTop: -12,
               }}
             >
-              Build by hand, or ask AI to reshape the draft.
+              {usesApple
+                ? "On this iPhone · works offline, even without an account."
+                : "Build by hand, or ask AI to reshape the draft."}
             </Text>
           </>
         ) : null}
@@ -520,11 +526,15 @@ export function TemplateEditor({
         onClose={() => setPicker(false)}
         onAdd={addExercises}
       />
-      {isAuthenticated ? (
+      {aiAvailable ? (
         <AiPromptModal
           visible={aiOpen}
           title={templateId ? "Edit this template" : "Describe your workout"}
-          description="AI will draft catalog exercises and set targets for you to review before saving."
+          description={
+            usesApple
+              ? "Runs on this iPhone — nothing is sent to Workout’s servers. Draft only until you save."
+              : "AI will draft catalog exercises and set targets for you to review before saving."
+          }
           loadingLabel="Building your template…"
           onClose={() => setAiOpen(false)}
           onGenerate={generate}

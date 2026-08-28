@@ -163,7 +163,6 @@ function ListWorkout({
   user: LocalPreferences;
 }) {
   const catalog = useCatalog();
-  const { isAuthenticated } = useMobileAuth();
   const {
     updateSet,
     addSet,
@@ -181,7 +180,11 @@ function ListWorkout({
   const rest = useRestTimer({
     notificationsEnabled: user.restTimerNotificationsEnabled,
   });
-  const { generateSession } = useAiGeneration();
+  const {
+    generateSession,
+    available: aiAvailable,
+    usesApple,
+  } = useAiGeneration();
 
   function toggleCollapsed(exerciseId: string) {
     void Haptics.selectionAsync();
@@ -267,7 +270,7 @@ function ListWorkout({
           sessionId={session._id}
           startedAt={session.startedAt}
         />
-        {isAuthenticated ? (
+        {aiAvailable ? (
           <Button
             label="Edit workout with AI"
             variant="outline"
@@ -279,8 +282,10 @@ function ListWorkout({
           <EmptyState
             title="No exercises yet"
             description={
-              isAuthenticated
-                ? "Add lifts as you go, or describe the session with AI."
+              aiAvailable
+                ? usesApple
+                  ? "Add lifts as you go, or describe the session with on-device AI."
+                  : "Add lifts as you go, or describe the session with AI."
                 : "Add lifts as you go to build this session."
             }
           />
@@ -486,11 +491,15 @@ function ListWorkout({
         onClose={() => setPicker(false)}
         onAdd={(slugs) => void addPicked(slugs)}
       />
-      {isAuthenticated ? (
+      {aiAvailable ? (
         <AiPromptModal
           visible={aiOpen}
           title="Reshape this workout"
-          description="Ask for additions, removals, or a new direction. You’ll review the exact draft before it changes the session."
+          description={
+            usesApple
+              ? "Runs on this iPhone — nothing is sent to Workout’s servers. You’ll review the draft before it changes the session."
+              : "Ask for additions, removals, or a new direction. You’ll review the exact draft before it changes the session."
+          }
           loadingLabel="Reshaping your session…"
           onClose={() => setAiOpen(false)}
           onGenerate={generate}

@@ -12,6 +12,7 @@ describe("stripPaidEntitlements", () => {
         ],
         "com.apple.developer.healthkit": true,
         "com.apple.developer.healthkit.access": [],
+        "com.apple.developer.private-cloud-compute": true,
       }),
     ).toEqual({
       "com.apple.developer.healthkit": true,
