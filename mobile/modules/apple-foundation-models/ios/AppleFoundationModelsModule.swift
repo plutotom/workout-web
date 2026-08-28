@@ -226,9 +226,10 @@ private func generateWithOnDevice(
       description: "Apple Intelligence isn’t available on this iPhone."
     )
   }
-  let session = LanguageModelSession(model: languageModel) {
+  let session = LanguageModelSession(model: languageModel, tools: []) {
     instructions
   }
+  session.prewarm()
   return try await respond(session: session, prompt: prompt, kind: kind, model: "onDevice")
 }
 
@@ -252,9 +253,10 @@ private func generateWithPcc(
         description: "Today’s Apple Intelligence cloud limit is used up. Shorten the description or try tomorrow."
       )
     }
-    let session = LanguageModelSession(model: languageModel) {
+    let session = LanguageModelSession(model: languageModel, tools: []) {
       instructions
     }
+    session.prewarm()
     return try await respond(session: session, prompt: prompt, kind: kind, model: "pcc")
   }
   throw Exception(

@@ -738,6 +738,7 @@ function FocusWorkout({
           <Button
             label="Edit workout with AI"
             variant="outline"
+            size="sm"
             icon={Sparkles}
             onPress={() => setAiOpen(true)}
           />
