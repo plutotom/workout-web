@@ -277,11 +277,16 @@ private func generateWithPcc(
         description: "Today’s Apple Intelligence cloud limit is used up. Shorten the description or try tomorrow."
       )
     }
-    let session = LanguageModelSession(model: languageModel, tools: []) {
-      instructions
-    }
-    session.prewarm()
-    return try await respond(session: session, prompt: prompt, kind: kind, model: "pcc")
+    // Documented PCC session: `LanguageModelSession(model: PrivateCloudComputeLanguageModel())`.
+    // The tools/instructions builder is typed as SystemLanguageModel on the iOS 26
+    // docs page, so we fold instructions into the prompt instead of that overload.
+    let session = LanguageModelSession(model: languageModel)
+    return try await respond(
+      session: session,
+      prompt: instructions + "\n\n" + prompt,
+      kind: kind,
+      model: "pcc"
+    )
   }
   #endif
   throw Exception(

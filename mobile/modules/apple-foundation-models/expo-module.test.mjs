@@ -47,4 +47,18 @@ describe("AppleFoundationModels Expo module", () => {
     expect(withoutPcc).not.toMatch(/\bPrivateCloudComputeLanguageModel\b/);
     expect(withoutPcc).not.toMatch(/\bLanguageModelError\b/);
   });
+
+  it("creates PCC sessions with Apple’s documented one-argument initializer", () => {
+    const swift = readFileSync(
+      join(root, "ios/AppleFoundationModelsModule.swift"),
+      "utf8",
+    );
+    const pccBlocks = [
+      ...swift.matchAll(/#if WORKOUT_APPLE_PCC([\s\S]*?)#endif/g),
+    ]
+      .map((match) => match[1])
+      .join("\n");
+    expect(pccBlocks).toContain("LanguageModelSession(model: languageModel)");
+    expect(pccBlocks).not.toContain("tools:");
+  });
 });
