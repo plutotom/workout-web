@@ -10,7 +10,8 @@ import { api } from "@backend/api";
 import { BundlePreview } from "@/components/app/bundle-preview";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { parseBundle, type WorkoutExportBundle } from "@/lib/workout-export";
+import { parseImportedFile } from "@/lib/workout-backup";
+import { type WorkoutExportBundle } from "@/lib/workout-export";
 
 /**
  * Import from a pasted code or a `.json` file. The bundle is parsed and shown
@@ -29,7 +30,7 @@ export function TemplateImportPanel() {
   const [done, setDone] = useState(false);
 
   function preview(input: string) {
-    const result = parseBundle(input);
+    const result = parseImportedFile(input);
     if (!result.ok) {
       setBundle(null);
       setError(result.error);

@@ -11,7 +11,8 @@ import {
   pickBundleFile,
 } from "@/lib/workout-transfer";
 import { colors } from "@/theme";
-import { parseBundle, type WorkoutExportBundle } from "@shared/workout-export";
+import { parseImportedFile } from "@shared/workout-backup";
+import { type WorkoutExportBundle } from "@shared/workout-export";
 
 /**
  * Import from a file, the clipboard, or a typed code.
@@ -61,7 +62,7 @@ export default function ImportWorkoutsScreen() {
       setError(null);
       return;
     }
-    apply(parseBundle(next));
+    apply(parseImportedFile(next));
   }
 
   async function handleImport() {

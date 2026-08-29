@@ -411,7 +411,8 @@ function SettingsContent({
  * success and danger, and a stale backup is neither.
  */
 function BackupCard({ signedIn }: { signedIn: boolean }) {
-  const { createBackup, restoreBackup, noteBackupSaved } = useLocalData();
+  const { createBackup, restoreBackup, importBundle, noteBackupSaved } =
+    useLocalData();
   // `undefined` while loading — render nothing rather than flash "no backup".
   const backup = useBackupStatus();
   const [busy, setBusy] = useState<"save" | "restore" | null>(null);
@@ -456,6 +457,34 @@ function BackupCard({ signedIn }: { signedIn: boolean }) {
       if (!parsed) return;
       if (!parsed.ok) {
         Alert.alert("Couldn't read that backup", parsed.error);
+        return;
+      }
+
+      if (parsed.kind === "bundle") {
+        const confirmed = await new Promise<boolean>((resolve) => {
+          Alert.alert(
+            "Import templates from this file?",
+            `${parsed.bundle.templates.length} template${
+              parsed.bundle.templates.length === 1 ? "" : "s"
+            }. This is a template export, not a full backup — workout history isn't in the file. Nothing you already have is replaced.`,
+            [
+              {
+                text: "Cancel",
+                style: "cancel",
+                onPress: () => resolve(false),
+              },
+              { text: "Import", onPress: () => resolve(true) },
+            ],
+          );
+        });
+        if (!confirmed) return;
+        const result = await importBundle(parsed.bundle);
+        Alert.alert(
+          "Imported",
+          result.templatesImported === 1
+            ? `Added "${result.names[0]}" to your templates.`
+            : `Added ${result.templatesImported} templates.`,
+        );
         return;
       }
 

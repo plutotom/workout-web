@@ -8,132 +8,38 @@ import {
 } from "@/data/local/repository";
 import type {
   LocalMuscleGroup,
-  LocalPreferences,
   LocalSessionKind,
   LocalSessionStatus,
   LocalTemplateSet,
 } from "@/data/local/types";
 import { localTemplateRemoteId } from "@/data/local/types";
+import {
+  BACKUP_FORMAT,
+  BACKUP_VERSION,
+  backupFileName,
+  parseBackup,
+  serializeBackup,
+  validateBackup,
+  type BackupParseResult,
+  type WorkoutBackupSnapshot,
+} from "@shared/workout-backup";
 
 /**
- * A full snapshot of the phone's local database — the thing the portable
- * bundle deliberately isn't.
- *
- * `@shared/workout-export` carries templates, custom lifts and notes because
- * it exists to hand a workout to somebody else. A backup has to carry the part
- * that can't be re-derived or re-shared: every session, exercise and set the
- * user has ever logged. So this is a second, mobile-only format.
- *
- * Two properties matter more than compactness:
- *
- * - **Restore is idempotent.** Every row travels with its primary key, and
- *   restore inserts only ids the phone doesn't already have. Restoring the
- *   same file twice, or onto a phone that already has some of the data,
- *   changes nothing the second time. That's what makes a restore button safe
- *   to press when you're not sure whether you need it.
- * - **No server identity travels.** `remote_id` columns are omitted, not
- *   nulled-out-on-read: a backup may be restored into a different account, and
- *   local rows pointing at another account's documents would be worse than
- *   useless. Row ids double as sync client ids (see
- *   `queueCustomExerciseSnapshot`), so restored rows still upload without
- *   duplicating anything the account already has.
+ * SQLite read/restore for the phone-database snapshot. The wire format lives in
+ * `@shared/workout-backup` so web can parse the same file (and turn it into a
+ * portable bundle of templates).
  */
 
-export const BACKUP_FORMAT = "workout.backup";
-export const BACKUP_VERSION = 1;
-
-export type BackupCustomExercise = {
-  id: string;
-  slug: string;
-  name: string;
-  short: string | null;
-  category: LocalMuscleGroup;
-  usesBar: boolean;
-  archived: boolean;
-  updatedAt: number;
+export {
+  BACKUP_FORMAT,
+  BACKUP_VERSION,
+  backupFileName,
+  parseBackup,
+  serializeBackup,
+  validateBackup,
+  type BackupParseResult,
+  type WorkoutBackupSnapshot,
 };
-
-export type BackupTemplate = {
-  id: string;
-  name: string;
-  updatedAt: number;
-  exercises: Array<{
-    id: string;
-    slug: string;
-    orderIndex: number;
-    sets: LocalTemplateSet[];
-  }>;
-};
-
-export type BackupExerciseNote = {
-  slug: string;
-  notes: string;
-  updatedAt: number;
-};
-
-export type BackupSet = {
-  id: string;
-  orderIndex: number;
-  targetWeight: number;
-  targetReps: number;
-  weight: number;
-  reps: number;
-  completed: boolean;
-  completedAt: number | null;
-};
-
-export type BackupSessionExercise = {
-  id: string;
-  slug: string;
-  orderIndex: number;
-  restSeconds: number;
-  notes: string | null;
-  sets: BackupSet[];
-};
-
-export type BackupSession = {
-  id: string;
-  templateId: string | null;
-  templateName: string;
-  status: LocalSessionStatus;
-  sessionKind?: LocalSessionKind;
-  startedAt: number;
-  completedAt: number | null;
-  updatedAt: number;
-  countsTowardGoals?: boolean;
-  externalProvider?: "apple_health" | null;
-  externalId?: string | null;
-  activityType?: string | null;
-  sourceName?: string | null;
-  sourceBundleId?: string | null;
-  durationSeconds?: number | null;
-  energyKcal?: number | null;
-  distanceMeters?: number | null;
-  importedAt?: number | null;
-  exercises: BackupSessionExercise[];
-};
-
-export type WorkoutBackupSnapshot = {
-  format: typeof BACKUP_FORMAT;
-  version: typeof BACKUP_VERSION;
-  createdAt: number;
-  preferences: LocalPreferences;
-  customExercises: BackupCustomExercise[];
-  templates: BackupTemplate[];
-  exerciseNotes: BackupExerciseNote[];
-  sessions: BackupSession[];
-};
-
-// Ceilings for untrusted input. A real backup is nowhere near these; they
-// exist so a malformed or hostile file fails fast instead of locking the UI
-// while SQLite chews through it.
-const MAX_INPUT_LENGTH = 32_000_000;
-const MAX_SESSIONS = 20_000;
-const MAX_TEMPLATES = 1_000;
-const MAX_CUSTOM_EXERCISES = 1_000;
-const MAX_NOTES = 5_000;
-const MAX_EXERCISES_PER_SESSION = 200;
-const MAX_SETS_PER_EXERCISE = 200;
 
 const MUSCLE_GROUPS: readonly LocalMuscleGroup[] = [
   "chest",
@@ -142,12 +48,6 @@ const MUSCLE_GROUPS: readonly LocalMuscleGroup[] = [
   "shoulders",
   "arms",
   "core",
-];
-
-const SESSION_STATUSES: readonly LocalSessionStatus[] = [
-  "in_progress",
-  "completed",
-  "abandoned",
 ];
 
 type TemplateRow = { id: string; name: string; updated_at: number };
@@ -208,6 +108,10 @@ type SetRow = {
   completed: number;
   completed_at: number | null;
 };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 /** Template presets are stored as JSON; a corrupt blob shouldn't sink a backup. */
 function parseTemplateSets(json: string): LocalTemplateSet[] {
@@ -369,20 +273,6 @@ export async function createLocalBackup(
   };
 }
 
-/**
- * Compact, unlike `serializeBundle`. A share bundle is a handful of templates
- * somebody might open in a text editor; a backup is years of sets, and the
- * indentation would be most of the file.
- */
-export function serializeBackup(snapshot: WorkoutBackupSnapshot): string {
-  return JSON.stringify(snapshot);
-}
-
-export function backupFileName(snapshot: WorkoutBackupSnapshot): string {
-  const date = new Date(snapshot.createdAt).toISOString().slice(0, 10);
-  return `workout-backup-${date}.json`;
-}
-
 const LAST_BACKUP_KEY = "last_backup_at";
 
 /**
@@ -422,276 +312,6 @@ export async function markBackupSaved(
     LAST_BACKUP_KEY,
     String(at),
   );
-}
-
-export type BackupParseResult =
-  | { ok: true; snapshot: WorkoutBackupSnapshot }
-  | { ok: false; error: string };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isFiniteNumber(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value);
-}
-
-function optionalString(value: unknown): string | null {
-  return typeof value === "string" ? value : null;
-}
-
-export function parseBackup(input: string): BackupParseResult {
-  const text = input.trim();
-  if (!text) return { ok: false, error: "That file is empty" };
-  if (text.length > MAX_INPUT_LENGTH)
-    return { ok: false, error: "That backup is too large to restore" };
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    return {
-      ok: false,
-      error: "That doesn't look like a backup file — expected a .json backup",
-    };
-  }
-  return validateBackup(parsed);
-}
-
-/**
- * Structural check on an untrusted file. Restore runs raw SQL against these
- * values, so everything that reaches the database is proved here first.
- */
-export function validateBackup(value: unknown): BackupParseResult {
-  if (!isRecord(value)) return { ok: false, error: "Backup is not an object" };
-  if (value.format !== BACKUP_FORMAT) {
-    return {
-      ok: false,
-      error:
-        value.format === "workout.export"
-          ? "That's a shared workout file, not a backup — use Import templates instead"
-          : "That file isn't a workout backup",
-    };
-  }
-  if (value.version !== BACKUP_VERSION) {
-    return {
-      ok: false,
-      error:
-        isFiniteNumber(value.version) && value.version > BACKUP_VERSION
-          ? "This backup was made by a newer version of the app — update and try again"
-          : "This backup uses an unsupported format version",
-    };
-  }
-
-  const preferences = validatePreferences(value.preferences);
-
-  const customExercises: BackupCustomExercise[] = [];
-  const rawCustoms = Array.isArray(value.customExercises)
-    ? value.customExercises
-    : [];
-  if (rawCustoms.length > MAX_CUSTOM_EXERCISES)
-    return { ok: false, error: "That backup has too many custom exercises" };
-  for (const raw of rawCustoms) {
-    if (!isRecord(raw)) continue;
-    if (typeof raw.id !== "string" || typeof raw.slug !== "string") continue;
-    if (typeof raw.name !== "string") continue;
-    customExercises.push({
-      id: raw.id,
-      slug: raw.slug,
-      name: raw.name,
-      short: optionalString(raw.short),
-      category: MUSCLE_GROUPS.includes(raw.category as LocalMuscleGroup)
-        ? (raw.category as LocalMuscleGroup)
-        : "chest",
-      usesBar: raw.usesBar === true,
-      archived: raw.archived === true,
-      updatedAt: isFiniteNumber(raw.updatedAt) ? raw.updatedAt : 0,
-    });
-  }
-
-  const templates: BackupTemplate[] = [];
-  const rawTemplates = Array.isArray(value.templates) ? value.templates : [];
-  if (rawTemplates.length > MAX_TEMPLATES)
-    return { ok: false, error: "That backup has too many templates" };
-  for (const raw of rawTemplates) {
-    if (!isRecord(raw)) continue;
-    if (typeof raw.id !== "string" || typeof raw.name !== "string") continue;
-    const rawExercises = Array.isArray(raw.exercises) ? raw.exercises : [];
-    const exercises: BackupTemplate["exercises"] = [];
-    for (const rawExercise of rawExercises.slice(
-      0,
-      MAX_EXERCISES_PER_SESSION,
-    )) {
-      if (!isRecord(rawExercise)) continue;
-      if (
-        typeof rawExercise.id !== "string" ||
-        typeof rawExercise.slug !== "string"
-      )
-        continue;
-      const rawSets = Array.isArray(rawExercise.sets) ? rawExercise.sets : [];
-      exercises.push({
-        id: rawExercise.id,
-        slug: rawExercise.slug,
-        orderIndex: isFiniteNumber(rawExercise.orderIndex)
-          ? rawExercise.orderIndex
-          : exercises.length,
-        sets: rawSets
-          .slice(0, MAX_SETS_PER_EXERCISE)
-          .flatMap((set) =>
-            isRecord(set) &&
-            isFiniteNumber(set.weight) &&
-            isFiniteNumber(set.reps)
-              ? [{ weight: set.weight, reps: set.reps }]
-              : [],
-          ),
-      });
-    }
-    templates.push({
-      id: raw.id,
-      name: raw.name,
-      updatedAt: isFiniteNumber(raw.updatedAt) ? raw.updatedAt : 0,
-      exercises,
-    });
-  }
-
-  const exerciseNotes: BackupExerciseNote[] = [];
-  const rawNotes = Array.isArray(value.exerciseNotes)
-    ? value.exerciseNotes
-    : [];
-  if (rawNotes.length > MAX_NOTES)
-    return { ok: false, error: "That backup has too many exercise notes" };
-  for (const raw of rawNotes) {
-    if (!isRecord(raw)) continue;
-    if (typeof raw.slug !== "string" || typeof raw.notes !== "string") continue;
-    exerciseNotes.push({
-      slug: raw.slug,
-      notes: raw.notes,
-      updatedAt: isFiniteNumber(raw.updatedAt) ? raw.updatedAt : 0,
-    });
-  }
-
-  const sessions: BackupSession[] = [];
-  const rawSessions = Array.isArray(value.sessions) ? value.sessions : [];
-  if (rawSessions.length > MAX_SESSIONS)
-    return { ok: false, error: "That backup has too many workouts" };
-  for (const raw of rawSessions) {
-    if (!isRecord(raw)) continue;
-    if (typeof raw.id !== "string") continue;
-    if (!SESSION_STATUSES.includes(raw.status as LocalSessionStatus)) continue;
-
-    const rawExercises = Array.isArray(raw.exercises) ? raw.exercises : [];
-    const exercises: BackupSessionExercise[] = [];
-    for (const rawExercise of rawExercises.slice(
-      0,
-      MAX_EXERCISES_PER_SESSION,
-    )) {
-      if (!isRecord(rawExercise)) continue;
-      if (
-        typeof rawExercise.id !== "string" ||
-        typeof rawExercise.slug !== "string"
-      )
-        continue;
-      const rawSets = Array.isArray(rawExercise.sets) ? rawExercise.sets : [];
-      const sets: BackupSet[] = [];
-      for (const rawSet of rawSets.slice(0, MAX_SETS_PER_EXERCISE)) {
-        if (!isRecord(rawSet) || typeof rawSet.id !== "string") continue;
-        sets.push({
-          id: rawSet.id,
-          orderIndex: isFiniteNumber(rawSet.orderIndex)
-            ? rawSet.orderIndex
-            : sets.length,
-          targetWeight: isFiniteNumber(rawSet.targetWeight)
-            ? rawSet.targetWeight
-            : 0,
-          targetReps: isFiniteNumber(rawSet.targetReps) ? rawSet.targetReps : 0,
-          weight: isFiniteNumber(rawSet.weight) ? rawSet.weight : 0,
-          reps: isFiniteNumber(rawSet.reps) ? rawSet.reps : 0,
-          completed: rawSet.completed === true,
-          completedAt: isFiniteNumber(rawSet.completedAt)
-            ? rawSet.completedAt
-            : null,
-        });
-      }
-      exercises.push({
-        id: rawExercise.id,
-        slug: rawExercise.slug,
-        orderIndex: isFiniteNumber(rawExercise.orderIndex)
-          ? rawExercise.orderIndex
-          : exercises.length,
-        restSeconds: isFiniteNumber(rawExercise.restSeconds)
-          ? rawExercise.restSeconds
-          : 75,
-        notes: optionalString(rawExercise.notes),
-        sets,
-      });
-    }
-
-    sessions.push({
-      id: raw.id,
-      templateId: optionalString(raw.templateId),
-      templateName:
-        typeof raw.templateName === "string" ? raw.templateName : "Workout",
-      status: raw.status as LocalSessionStatus,
-      sessionKind:
-        raw.sessionKind === "health_summary" ? "health_summary" : "tracked",
-      startedAt: isFiniteNumber(raw.startedAt) ? raw.startedAt : 0,
-      completedAt: isFiniteNumber(raw.completedAt) ? raw.completedAt : null,
-      updatedAt: isFiniteNumber(raw.updatedAt) ? raw.updatedAt : 0,
-      countsTowardGoals: raw.countsTowardGoals !== false,
-      externalProvider:
-        raw.externalProvider === "apple_health" ? "apple_health" : null,
-      externalId: optionalString(raw.externalId),
-      activityType: optionalString(raw.activityType),
-      sourceName: optionalString(raw.sourceName),
-      sourceBundleId: optionalString(raw.sourceBundleId),
-      durationSeconds: isFiniteNumber(raw.durationSeconds)
-        ? raw.durationSeconds
-        : null,
-      energyKcal: isFiniteNumber(raw.energyKcal) ? raw.energyKcal : null,
-      distanceMeters: isFiniteNumber(raw.distanceMeters)
-        ? raw.distanceMeters
-        : null,
-      importedAt: isFiniteNumber(raw.importedAt) ? raw.importedAt : null,
-      exercises,
-    });
-  }
-
-  if (
-    sessions.length === 0 &&
-    templates.length === 0 &&
-    customExercises.length === 0 &&
-    exerciseNotes.length === 0
-  ) {
-    return { ok: false, error: "That backup is empty" };
-  }
-
-  return {
-    ok: true,
-    snapshot: {
-      format: BACKUP_FORMAT,
-      version: BACKUP_VERSION,
-      createdAt: isFiniteNumber(value.createdAt) ? value.createdAt : Date.now(),
-      preferences,
-      customExercises,
-      templates,
-      exerciseNotes,
-      sessions,
-    },
-  };
-}
-
-function validatePreferences(value: unknown): LocalPreferences {
-  const raw = isRecord(value) ? value : {};
-  return {
-    unit: raw.unit === "kg" ? "kg" : "lb",
-    barWeightLb: isFiniteNumber(raw.barWeightLb) ? raw.barWeightLb : 45,
-    barWeightKg: isFiniteNumber(raw.barWeightKg) ? raw.barWeightKg : 20,
-    activeWorkoutMode: raw.activeWorkoutMode === "focus" ? "focus" : "list",
-    restTimerEnabled: raw.restTimerEnabled !== false,
-    restTimerNotificationsEnabled: raw.restTimerNotificationsEnabled !== false,
-    appleHealthImportNotificationsEnabled:
-      raw.appleHealthImportNotificationsEnabled === true,
-  };
 }
 
 export type LocalRestoreResult = {

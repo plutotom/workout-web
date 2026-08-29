@@ -4,6 +4,7 @@ import { buildCatalog } from "./exercises";
 import {
   CODE_PREFIX,
   bundleFileName,
+  convertWeight,
   describeBundle,
   encodeBundleCode,
   parseBundle,
@@ -233,5 +234,131 @@ describe("bundleFileName", () => {
     const bundle = makeBundle();
     bundle.templates[0]!.name = "!!!";
     expect(bundleFileName(bundle)).toBe("workout-2026-03-14.json");
+  });
+});
+
+function expectConvexSafe(bundle: WorkoutExportBundle) {
+  expect(Object.keys(bundle).sort()).toEqual(
+    [
+      "customExercises",
+      "exportedAt",
+      "format",
+      "templates",
+      "unit",
+      "version",
+    ].sort(),
+  );
+  for (const template of bundle.templates) {
+    expect(Object.keys(template).sort()).toEqual(["exercises", "name"].sort());
+    for (const exercise of template.exercises) {
+      for (const key of Object.keys(exercise)) {
+        expect(["name", "notes", "sets", "slug"]).toContain(key);
+      }
+      for (const set of exercise.sets) {
+        expect(Object.keys(set).sort()).toEqual(["reps", "weight"].sort());
+      }
+    }
+  }
+  for (const custom of bundle.customExercises) {
+    for (const key of Object.keys(custom)) {
+      expect(["category", "name", "short", "slug", "usesBar"]).toContain(key);
+    }
+  }
+}
+
+describe("cross-client compatibility", () => {
+  it("strips iOS-only extras a local row might leak into the JSON", () => {
+    const noisy = {
+      ...makeBundle(),
+      templates: [
+        {
+          ...makeBundle().templates[0]!,
+          id: "local-template-1",
+          updatedAt: 1,
+        },
+      ],
+      customExercises: [
+        {
+          ...makeBundle().customExercises[0]!,
+          _id: "row-1",
+          archived: false,
+          updatedAt: 99,
+        },
+      ],
+    };
+    const result = parseBundle(JSON.stringify(noisy));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expectConvexSafe(result.bundle);
+    expect(result.bundle.templates[0]).not.toHaveProperty("id");
+    expect(result.bundle.customExercises[0]).not.toHaveProperty("archived");
+  });
+
+  it("imports an older v1 file that's missing names, customExercises, and version", () => {
+    const older = {
+      format: "workout.export",
+      unit: "kg",
+      templates: [
+        {
+          name: "Legs",
+          exercises: [
+            { slug: "squat", sets: [{ weight: 100, reps: 5 }] },
+            {
+              slug: "custom:local-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+              name: "Hack Squat Machine",
+              sets: [{ weight: 80, reps: 8 }],
+            },
+          ],
+        },
+      ],
+    };
+    const result = parseBundle(JSON.stringify(older));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expectConvexSafe(result.bundle);
+    expect(result.bundle.version).toBe(1);
+    expect(result.bundle.templates[0]!.exercises[0]!.name).toBe("squat");
+    expect(result.bundle.customExercises).toEqual([]);
+  });
+
+  it("accepts a UTF-8 BOM that some browsers prepend on download", () => {
+    const json = serializeBundle(makeBundle());
+    expect(parseBundle(`\uFEFF${json}`).ok).toBe(true);
+  });
+
+  it("does not leak undefined short onto custom lifts — Convex rejects extras", () => {
+    const catalog = buildCatalog();
+    const bundle = toBundle(
+      {
+        unit: "lb",
+        templates: [
+          {
+            name: "Push",
+            exercises: [{ slug: "bench", sets: [{ weight: 135, reps: 5 }] }],
+          },
+        ],
+        customExercises: [
+          {
+            slug: "custom:x",
+            name: "Fly",
+            short: undefined,
+            category: "chest",
+            usesBar: false,
+          },
+        ],
+      },
+      catalog,
+      { exportedAt: EXPORTED_AT },
+    );
+    expect(bundle.customExercises[0]).not.toHaveProperty("short");
+    expectConvexSafe(bundle);
+  });
+});
+
+describe("convertWeight", () => {
+  it("keeps 0 as 0 and converts kg to lb", () => {
+    expect(convertWeight(0, "kg", "lb")).toBe(0);
+    expect(convertWeight(100, "kg", "lb")).toBe(220);
+    expect(convertWeight(225, "lb", "kg")).toBe(102);
   });
 });

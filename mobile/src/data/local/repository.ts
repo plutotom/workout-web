@@ -37,7 +37,10 @@ import {
   localTemplateRemoteId,
   remoteCustomSlug,
 } from "@/data/local/types";
-import type { WorkoutExportBundle } from "@shared/workout-export";
+import {
+  convertWeight,
+  type WorkoutExportBundle,
+} from "@shared/workout-export";
 
 const DEFAULT_REST_SECONDS = 75;
 const DEFAULT_SET_ROWS = 3;
@@ -49,7 +52,6 @@ const MAX_CUSTOM_EXERCISES = 200;
 const MAX_CUSTOM_NAME_LENGTH = 80;
 const MAX_TEMPLATES_PER_IMPORT = 50;
 const CUSTOM_SLUG_PREFIX = "custom:";
-const LB_PER_KG = 2.2046226218;
 /** Orphan `custom:` lifts with no definition fall back to chest / no bar. */
 const ORPHAN_FALLBACK_CATEGORY: LocalMuscleGroup = "chest";
 const MUSCLE_GROUPS: readonly LocalMuscleGroup[] = [
@@ -1014,17 +1016,6 @@ export async function saveLocalTemplate(
   return templateId;
 }
 
-/** Sets carry no unit of their own, so a cross-unit import converts them. */
-function convertImportWeight(
-  weight: number,
-  from: "lb" | "kg",
-  to: "lb" | "kg",
-): number {
-  if (from === to || weight === 0) return weight;
-  const converted = from === "kg" ? weight * LB_PER_KG : weight / LB_PER_KG;
-  return Math.round(converted);
-}
-
 /** `Push Day` + an existing `Push Day` becomes `Push Day (2)`. */
 function uniqueImportName(name: string, taken: Set<string>): string {
   const base = name.trim() || "Untitled";
@@ -1199,7 +1190,7 @@ export async function importLocalBundle(
       exercises.push({
         slug,
         sets: exercise.sets.map((set) => ({
-          weight: convertImportWeight(set.weight, bundle.unit, targetUnit),
+          weight: convertWeight(set.weight, bundle.unit, targetUnit),
           reps: set.reps,
         })),
       });
