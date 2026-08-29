@@ -1,8 +1,26 @@
 import { describe, expect, it } from "vitest";
 
+import { convertWeight as sharedConvertWeight } from "../../src/lib/workout-export";
 import { convertWeight, uniqueName } from "./portableTemplates";
 
 describe("convertWeight", () => {
+  it("matches the shared client helper — web and iOS must convert the same way", () => {
+    const cases = [
+      [185, "lb", "lb"],
+      [100, "kg", "kg"],
+      [100, "kg", "lb"],
+      [60, "kg", "lb"],
+      [225, "lb", "kg"],
+      [45, "lb", "kg"],
+      [0, "kg", "lb"],
+      [0, "lb", "kg"],
+    ] as const;
+    for (const [weight, from, to] of cases) {
+      expect(convertWeight(weight, from, to)).toBe(
+        sharedConvertWeight(weight, from, to),
+      );
+    }
+  });
   it("leaves weights alone when the units match", () => {
     expect(convertWeight(185, "lb", "lb")).toBe(185);
     expect(convertWeight(100, "kg", "kg")).toBe(100);

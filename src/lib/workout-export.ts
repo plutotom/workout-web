@@ -13,6 +13,23 @@ export type WorkoutExportTemplate = WorkoutExportBundle["templates"][number];
 export const EXPORT_FORMAT = "workout.export";
 export const EXPORT_VERSION = 1;
 
+/** Same factor the server uses in `portableTemplates.convertWeight`. */
+const LB_PER_KG = 2.2046226218;
+
+/**
+ * Sets carry no unit of their own, so a cross-unit import converts them.
+ * `0` means "no preset" and stays `0`.
+ */
+export function convertWeight(
+  weight: number,
+  from: "lb" | "kg",
+  to: "lb" | "kg",
+): number {
+  if (from === to || weight === 0) return weight;
+  const converted = from === "kg" ? weight * LB_PER_KG : weight / LB_PER_KG;
+  return Math.round(converted);
+}
+
 /** Prefix on pasted codes — lets us recognise one and give a real error. */
 export const CODE_PREFIX = "WKT1-";
 
@@ -58,13 +75,27 @@ export function toBundle(
       exercises: template.exercises.map((exercise) => ({
         slug: exercise.slug,
         name: catalog.name(exercise.slug),
-        // Copied, not aliased: the bundle is handed to callers that serialize
-        // and sometimes edit it, and it must not write back into query data.
-        sets: exercise.sets.map((set) => ({ ...set })),
+        // Copied field-by-field: a local set row must not leak extra keys into
+        // a payload Convex will reject, and callers must not alias query data.
+        sets: exercise.sets.map((set) => ({
+          weight: set.weight,
+          reps: set.reps,
+        })),
         ...(exercise.notes ? { notes: exercise.notes } : {}),
       })),
     })),
-    customExercises: data.customExercises.map((entry) => ({ ...entry })),
+    // Explicit fields only: spreading a local custom-exercise row would leak
+    // `archived` / `_id` / `updatedAt`, and Convex's object validator rejects
+    // extras. The iOS and web exporters must emit the same keys.
+    customExercises: data.customExercises.map((entry) => ({
+      slug: entry.slug,
+      name: entry.name,
+      category: entry.category,
+      usesBar: entry.usesBar,
+      ...(typeof entry.short === "string" && entry.short.trim()
+        ? { short: entry.short }
+        : {}),
+    })),
   };
 }
 
@@ -178,8 +209,12 @@ const MAX_INPUT_LENGTH = 512_000;
  * The server re-validates everything; this exists to fail fast with a message
  * a human can act on.
  */
+function stripBom(text: string): string {
+  return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+}
+
 export function parseBundle(input: string): ParseResult {
-  const text = input.trim();
+  const text = stripBom(input).trim();
   if (!text)
     return { ok: false, error: "Paste an export code or choose a file" };
   if (text.length > MAX_INPUT_LENGTH)
@@ -231,15 +266,30 @@ const MUSCLE_GROUPS: MuscleGroup[] = [
  */
 export function validateBundle(value: unknown): ParseResult {
   if (!isRecord(value)) return { ok: false, error: "Export is not an object" };
-  if (value.format !== EXPORT_FORMAT)
-    return { ok: false, error: "That file isn't a workout export" };
-  if (value.version !== EXPORT_VERSION) {
+  if (value.format !== EXPORT_FORMAT) {
     return {
       ok: false,
       error:
-        typeof value.version === "number" && value.version > EXPORT_VERSION
-          ? "This export was made by a newer version of the app — update and try again"
-          : "This export uses an unsupported format version",
+        value.format === "workout.backup"
+          ? "That's a phone backup — restore it in iOS Settings, or import it here to bring over the templates"
+          : "That file isn't a workout export",
+    };
+  }
+  // Missing version is treated as v1 — the first shipping clients sometimes
+  // omitted it after a hand-edit, and rejecting those files strands people
+  // with a still-valid payload. Newer-than-current is a hard stop.
+  const version = value.version === undefined ? EXPORT_VERSION : value.version;
+  if (typeof version !== "number" || !Number.isFinite(version) || version < 1) {
+    return {
+      ok: false,
+      error: "This export uses an unsupported format version",
+    };
+  }
+  if (version > EXPORT_VERSION) {
+    return {
+      ok: false,
+      error:
+        "This export was made by a newer version of the app — update and try again",
     };
   }
   if (value.unit !== "lb" && value.unit !== "kg")
