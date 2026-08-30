@@ -157,6 +157,7 @@ export function SessionRows({
     sourceName?: string | null;
     distanceMeters?: number | null;
     energyKcal?: number | null;
+    healthSegments?: import("@shared/health-summary").HealthWorkoutSegment[];
     exercises: Array<{ slug: string; completedCount: number }>;
   }>;
 }) {

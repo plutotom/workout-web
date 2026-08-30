@@ -1,3 +1,5 @@
+import type { HealthWorkoutSegment } from "@shared/health-summary";
+
 export type LocalId = string;
 export type LocalSessionStatus = "in_progress" | "completed" | "abandoned";
 export type LocalSessionKind = "tracked" | "health_summary";
@@ -35,6 +37,7 @@ export type LocalHealthSummary = {
   energyKcal: number | null;
   distanceMeters: number | null;
   importedAt: number | null;
+  segments: HealthWorkoutSegment[];
 };
 
 export type LocalWorkoutSession = {
@@ -206,6 +209,7 @@ export type SessionSyncSnapshot = {
   energyKcal: number | null;
   distanceMeters: number | null;
   importedAt: number | null;
+  healthSegments: HealthWorkoutSegment[];
   exercises: Array<{
     clientId: string;
     slug: string;

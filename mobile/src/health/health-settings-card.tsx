@@ -79,8 +79,9 @@ export function HealthSettingsCard() {
       <HeartPulse color={colors.text} size={22} strokeWidth={2.3} />
       <SectionTitle title="Apple Health" />
       <Text style={{ color: colors.dim, fontSize: 13, lineHeight: 19 }}>
-        Import a run, ride, swim, or other activity from Health. You can save
-        workouts you finish here, and automatically import matching types.
+        Import a run, ride, swim, triathlon, or other activity from Health. You
+        can save workouts you finish here, and automatically import matching
+        types.
       </Text>
       <Text style={{ color: colors.text, fontSize: 13, fontWeight: "600" }}>
         {available === null ? "Checking…" : statusLabel}

@@ -3,6 +3,8 @@ import type { QueryCtx } from "../_generated/server";
 import {
   normalizeSessionKind,
   sessionCountsTowardGoals,
+  sessionHealthSegments,
+  type HealthSegment,
 } from "./health_sessions";
 
 export type InsightsDays = 7 | 30 | 90 | null;
@@ -101,6 +103,7 @@ export type LoadedSession = {
   distanceMeters: number | null;
   sourceName: string | null;
   activityType: string | null;
+  healthSegments: HealthSegment[];
   exercises: LoadedExercise[];
 };
 
@@ -165,6 +168,7 @@ async function loadCompletedSessions(
           distanceMeters: s.distanceMeters ?? null,
           sourceName: s.sourceName ?? null,
           activityType: s.activityType ?? null,
+          healthSegments: sessionHealthSegments(s),
           exercises: withSets,
         };
       }),
@@ -300,6 +304,7 @@ export type InsightsSessionSummary = {
   activityType: string | null;
   distanceMeters: number | null;
   energyKcal: number | null;
+  healthSegments: HealthSegment[];
   exercises: { slug: string; completedCount: number }[];
 };
 
@@ -324,6 +329,7 @@ function formatSessionSummary(session: LoadedSession): InsightsSessionSummary {
     activityType: session.activityType,
     distanceMeters: session.distanceMeters,
     energyKcal: session.energyKcal,
+    healthSegments: session.healthSegments,
     exercises: session.exercises.map((e) => ({
       slug: e.slug,
       completedCount: e.sets.filter((set) => set.completed).length,

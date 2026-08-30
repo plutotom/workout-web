@@ -38,6 +38,16 @@ export const aiUndoBatchValidator = v.object({
   removed: v.array(aiUndoExerciseValidator),
 });
 
+export const healthSegmentValidator = v.object({
+  activityType: v.string(),
+  activityName: v.string(),
+  startedAt: v.number(),
+  endedAt: v.number(),
+  durationSeconds: v.number(),
+  distanceMeters: v.union(v.number(), v.null()),
+  energyKcal: v.union(v.number(), v.null()),
+});
+
 export const workoutTables = {
   workoutSessions: defineTable({
     userId: v.id("users"),
@@ -68,6 +78,7 @@ export const workoutTables = {
     distanceMeters: v.optional(v.number()),
     countsTowardGoals: v.optional(v.boolean()),
     importedAt: v.optional(v.number()),
+    healthSegments: v.optional(v.array(healthSegmentValidator)),
   })
     .index("by_user", ["userId"])
     .index("by_user_status", ["userId", "status"])

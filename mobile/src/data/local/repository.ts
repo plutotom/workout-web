@@ -1,6 +1,12 @@
 import { randomUUID } from "expo-crypto";
 import type { SQLiteDatabase } from "expo-sqlite";
 
+import type { HealthWorkoutSegment } from "@shared/health-summary";
+import {
+  parseHealthSegmentsJson,
+  serializeHealthSegments,
+} from "@shared/health-summary";
+
 import { parseHealthAutoImportPrefs } from "@/health/auto-import";
 import { healthExportEndMs, shouldQueueHealthExport } from "@/health/export";
 import {
@@ -84,13 +90,14 @@ type SessionRow = {
   energy_kcal: number | null;
   distance_meters: number | null;
   imported_at: number | null;
+  health_segments_json: string | null;
 };
 
 const SESSION_COLUMNS = `id, remote_id, template_id, remote_template_id, template_name,
             status, session_kind, started_at, completed_at, updated_at,
             counts_toward_goals, external_provider, external_id, activity_type,
             source_name, source_bundle_id, duration_seconds, energy_kcal,
-            distance_meters, imported_at`;
+            distance_meters, imported_at, health_segments_json`;
 
 function mapHealthSummary(row: SessionRow): LocalHealthSummary | null {
   if (row.external_provider !== "apple_health" || !row.external_id) return null;
@@ -104,6 +111,7 @@ function mapHealthSummary(row: SessionRow): LocalHealthSummary | null {
     energyKcal: row.energy_kcal,
     distanceMeters: row.distance_meters,
     importedAt: row.imported_at,
+    segments: parseHealthSegmentsJson(row.health_segments_json),
   };
 }
 
@@ -376,6 +384,7 @@ function snapshotFromSession(
     energyKcal: session.health?.energyKcal ?? null,
     distanceMeters: session.health?.distanceMeters ?? null,
     importedAt: session.health?.importedAt ?? null,
+    healthSegments: session.health?.segments ?? [],
     exercises: session.exercises.map((exercise) => ({
       clientId: exercise._id,
       slug: exercise.slug,
@@ -2589,6 +2598,7 @@ export type HealthSummaryImport = {
   distanceMeters: number | null;
   sourceName: string | null;
   sourceBundleId: string | null;
+  segments?: HealthWorkoutSegment[];
 };
 
 export async function importHealthSummarySession(
@@ -2611,10 +2621,10 @@ export async function importHealthSummarySession(
            id, template_name, status, session_kind, started_at, completed_at,
            updated_at, counts_toward_goals, external_provider, external_id,
            activity_type, source_name, source_bundle_id, duration_seconds,
-           energy_kcal, distance_meters, imported_at
+           energy_kcal, distance_meters, imported_at, health_segments_json
          ) VALUES (
            ?, ?, 'completed', 'health_summary', ?, ?, ?, 1, 'apple_health', ?,
-           ?, ?, ?, ?, ?, ?, ?
+           ?, ?, ?, ?, ?, ?, ?, ?
          )`,
         sessionId,
         workout.activityName,
@@ -2629,6 +2639,7 @@ export async function importHealthSummarySession(
         workout.energyKcal,
         workout.distanceMeters,
         now,
+        serializeHealthSegments(workout.segments),
       );
       await queueSessionSnapshot(txn, sessionId, now);
     });
@@ -2676,6 +2687,7 @@ export async function linkHealthSummaryToSession(
             duration_seconds = COALESCE(duration_seconds, ?),
             energy_kcal = COALESCE(energy_kcal, ?),
             distance_meters = COALESCE(distance_meters, ?),
+            health_segments_json = COALESCE(health_segments_json, ?),
             imported_at = COALESCE(imported_at, ?),
             updated_at = ?
       WHERE id = ?`,
@@ -2686,6 +2698,7 @@ export async function linkHealthSummaryToSession(
     workout.durationSeconds,
     workout.energyKcal,
     workout.distanceMeters,
+    serializeHealthSegments(workout.segments),
     now,
     now,
     sessionId,

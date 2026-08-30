@@ -81,6 +81,42 @@ describe("workoutPassesAutoImportFilter", () => {
     ).toBe(false);
   });
 
+  it("imports a triathlon when the Triathlon chip is on", () => {
+    expect(
+      workoutPassesAutoImportFilter(
+        { activityType: "swimBikeRun" },
+        {
+          enabled: true,
+          importAllTypes: false,
+          types: ["swimBikeRun"],
+        },
+      ),
+    ).toBe(true);
+  });
+
+  it("imports a triathlon when run, ride, and swim are all selected", () => {
+    expect(
+      workoutPassesAutoImportFilter(
+        { activityType: "swimBikeRun" },
+        {
+          enabled: true,
+          importAllTypes: false,
+          types: ["running", "cycling", "swimming"],
+        },
+      ),
+    ).toBe(true);
+    expect(
+      workoutPassesAutoImportFilter(
+        { activityType: "swimBikeRun" },
+        {
+          enabled: true,
+          importAllTypes: false,
+          types: ["yoga"],
+        },
+      ),
+    ).toBe(false);
+  });
+
   it("imports every type when Import all is on", () => {
     expect(
       workoutPassesAutoImportFilter(

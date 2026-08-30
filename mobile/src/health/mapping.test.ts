@@ -13,6 +13,20 @@ import {
 } from "./mapping";
 
 describe("resolveActivityMeta", () => {
+  it("maps triathlon and transition HealthKit codes", () => {
+    expect(resolveActivityMeta(82)).toMatchObject({
+      type: "swimBikeRun",
+      name: "Triathlon",
+    });
+    expect(resolveActivityMeta("swimBikeRun")).toMatchObject({
+      name: "Triathlon",
+    });
+    expect(resolveActivityMeta(83)).toMatchObject({
+      type: "transition",
+      name: "Transition",
+    });
+  });
+
   it("maps running, walking, cycling, swimming, and strength", () => {
     expect(resolveActivityMeta("running")).toMatchObject({
       name: "Run",
@@ -103,6 +117,173 @@ describe("normalizeHealthWorkout", () => {
       sourceBundleId: "com.apple.health",
       syncIdentifier: null,
     });
+  });
+
+  it("names a swim-bike-run workout Triathlon and lists typed legs", () => {
+    const start = Date.parse("2026-08-22T07:00:00.000Z");
+    const swimEnd = start + 32 * 60 * 1000;
+    const t1End = swimEnd + 3 * 60 * 1000;
+    const bikeEnd = t1End + 60 * 60 * 1000;
+    const t2End = bikeEnd + 3 * 60 * 1000;
+    const runEnd = t2End + 82 * 60 * 1000;
+    const workout = normalizeHealthWorkout({
+      uuid: "tri-1",
+      workoutActivityType: 82,
+      startDate: start,
+      endDate: runEnd,
+      duration: { quantity: 3, unit: "hr" },
+      totalDistance: { quantity: 34.2, unit: "km" },
+      totalEnergyBurned: { quantity: 1480, unit: "kcal" },
+      sourceName: "Apple Watch",
+      activities: [
+        {
+          uuid: "swim",
+          startDate: start,
+          endDate: swimEnd,
+          duration: 32 * 60,
+          workoutConfiguration: { activityType: 46 },
+          totalDistance: { quantity: 1500, unit: "m" },
+        },
+        {
+          uuid: "t1",
+          startDate: swimEnd,
+          endDate: t1End,
+          duration: 3 * 60,
+          workoutActivityType: 83,
+        },
+        {
+          uuid: "bike",
+          startDate: t1End,
+          endDate: bikeEnd,
+          duration: 3600,
+          workoutConfiguration: { activityType: 13 },
+          totalDistance: { quantity: 25, unit: "km" },
+        },
+        {
+          uuid: "t2",
+          startDate: bikeEnd,
+          endDate: t2End,
+          duration: 3 * 60,
+          workoutActivityType: 83,
+        },
+        {
+          uuid: "run",
+          startDate: t2End,
+          endDate: runEnd,
+          duration: 82 * 60,
+          workoutConfiguration: { activityType: 37 },
+          totalDistance: { quantity: 7.7, unit: "km" },
+        },
+      ],
+    });
+    expect(workout).toMatchObject({
+      activityType: "swimBikeRun",
+      activityName: "Triathlon",
+      durationSeconds: 10800,
+      distanceMeters: 34200,
+    });
+    expect(workout?.segments).toEqual([
+      expect.objectContaining({
+        activityType: "swimming",
+        activityName: "Swim",
+        durationSeconds: 1920,
+        distanceMeters: 1500,
+      }),
+      expect.objectContaining({
+        activityType: "transition",
+        activityName: "Transition",
+      }),
+      expect.objectContaining({
+        activityType: "cycling",
+        activityName: "Bike",
+        distanceMeters: 25000,
+      }),
+      expect.objectContaining({
+        activityType: "transition",
+        activityName: "Transition",
+      }),
+      expect.objectContaining({
+        activityType: "running",
+        activityName: "Run",
+        distanceMeters: 7700,
+      }),
+    ]);
+  });
+
+  it("reads typed legs from the native WorkoutActivityLegs metadata JSON", () => {
+    const start = Date.parse("2026-08-22T07:00:00.000Z");
+    const workout = normalizeHealthWorkout({
+      uuid: "tri-meta",
+      workoutActivityType: "swimBikeRun",
+      startDate: start,
+      endDate: start + 90 * 60 * 1000,
+      metadata: {
+        WorkoutActivityLegs: JSON.stringify([
+          {
+            startDate: start,
+            endDate: start + 30 * 60 * 1000,
+            duration: 1800,
+            workoutActivityType: 37,
+          },
+          {
+            startDate: start + 30 * 60 * 1000,
+            endDate: start + 90 * 60 * 1000,
+            duration: 3600,
+            workoutActivityType: 13,
+            totalDistance: { quantity: 20, unit: "km" },
+          },
+        ]),
+      },
+      activities: [
+        {
+          uuid: "untyped-1",
+          startDate: start,
+          endDate: start + 30 * 60 * 1000,
+          duration: 1800,
+        },
+      ],
+    });
+    expect(workout?.activityName).toBe("Multisport");
+    expect(workout?.segments?.map((segment) => segment.activityName)).toEqual([
+      "Run",
+      "Bike",
+    ]);
+  });
+
+  it("keeps untyped nested activities as splits instead of inventing sports", () => {
+    const start = Date.parse("2026-08-22T07:00:00.000Z");
+    const workout = normalizeHealthWorkout({
+      uuid: "tri-untyped",
+      workoutActivityType: 82,
+      startDate: start,
+      endDate: start + 60 * 60 * 1000,
+      activities: [
+        {
+          uuid: "a",
+          startDate: start,
+          endDate: start + 20 * 60 * 1000,
+          duration: 1200,
+        },
+        {
+          uuid: "b",
+          startDate: start + 20 * 60 * 1000,
+          endDate: start + 40 * 60 * 1000,
+          duration: 1200,
+        },
+        {
+          uuid: "c",
+          startDate: start + 40 * 60 * 1000,
+          endDate: start + 60 * 60 * 1000,
+          duration: 1200,
+        },
+      ],
+    });
+    expect(workout?.activityName).toBe("Triathlon");
+    expect(workout?.segments?.map((segment) => segment.activityName)).toEqual([
+      "Split",
+      "Split",
+      "Split",
+    ]);
   });
 
   it("rejects samples without a UUID", () => {

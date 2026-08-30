@@ -40,6 +40,7 @@ describe("getLocalOverview health summaries", () => {
             energyKcal: 410,
             distanceMeters: 5000,
             importedAt: now,
+            segments: [],
           },
         }),
       ],

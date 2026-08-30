@@ -1,8 +1,22 @@
+import {
+  multiSportDisplayName,
+  parseHealthSegments,
+  type HealthWorkoutSegment,
+} from "@shared/health-summary";
+
 import type {
   HealthQuantity,
   HealthWorkoutSample,
   HealthWorkoutSummary,
 } from "./types";
+
+export {
+  formatHealthDistance,
+  formatHealthEnergy,
+  formatHealthHistoryLine,
+  formatHealthSportLine,
+} from "@shared/health-summary";
+export type { HealthWorkoutSegment } from "@shared/health-summary";
 
 export const HEALTH_LOOKBACK_MS = 90 * 24 * 60 * 60 * 1000;
 export const HEALTH_QUERY_PAGE_SIZE = 100;
@@ -94,6 +108,16 @@ const ACTIVITY_BY_CODE: Record<number, ActivityMeta> = {
   68: { type: "stairs", name: "Stairs", symbol: "figure.stairs" },
   73: { type: "mixedCardio", name: "Cardio", symbol: "figure.mixed.cardio" },
   80: { type: "socialDance", name: "Dance", symbol: "figure.socialdance" },
+  82: {
+    type: "swimBikeRun",
+    name: "Triathlon",
+    symbol: "figure.mixed.cardio",
+  },
+  83: {
+    type: "transition",
+    name: "Transition",
+    symbol: "figure.flexibility",
+  },
   3000: { type: "other", name: "Workout", symbol: "figure.mixed.cardio" },
 };
 
@@ -258,39 +282,158 @@ export function isAppAuthoredHealthWorkout(
   return Boolean(syncId && syncId.startsWith(`${appBundleId}:session:`));
 }
 
-export function formatHealthDistance(
-  meters: number | null | undefined,
-  unit: "lb" | "kg" = "lb",
-) {
-  if (meters == null || !Number.isFinite(meters) || meters <= 0) return null;
-  if (unit === "kg") {
-    const km = meters / 1000;
-    return `${km >= 10 ? km.toFixed(1) : km.toFixed(2)} km`;
+export function isMultiSportActivityType(activityType: string) {
+  return activityType === "swimBikeRun";
+}
+
+function rawActivityTypeFromUnknown(value: unknown): string | number | null {
+  if (value == null) return null;
+  if (typeof value === "string" || typeof value === "number") return value;
+  if (typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  if (
+    typeof record.workoutActivityType === "string" ||
+    typeof record.workoutActivityType === "number"
+  ) {
+    return record.workoutActivityType;
   }
-  const miles = meters / 1609.344;
-  return `${miles >= 10 ? miles.toFixed(1) : miles.toFixed(2)} mi`;
+  if (
+    typeof record.activityType === "string" ||
+    typeof record.activityType === "number"
+  ) {
+    return record.activityType;
+  }
+  const config = record.workoutConfiguration;
+  if (config && typeof config === "object") {
+    const activityType = (config as { activityType?: unknown }).activityType;
+    if (typeof activityType === "string" || typeof activityType === "number") {
+      return activityType;
+    }
+  }
+  return null;
 }
 
-export function formatHealthEnergy(kcal: number | null | undefined) {
-  if (kcal == null || !Number.isFinite(kcal) || kcal <= 0) return null;
-  return `${Math.round(kcal)} kcal`;
+function quantityFromUnknown(value: unknown): HealthQuantity | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as {
+    quantity?: unknown;
+    value?: unknown;
+    unit?: unknown;
+  };
+  const amount =
+    typeof record.quantity === "number"
+      ? record.quantity
+      : typeof record.value === "number"
+        ? record.value
+        : null;
+  if (amount == null || !Number.isFinite(amount)) return null;
+  return {
+    quantity: amount,
+    unit: typeof record.unit === "string" ? record.unit : "",
+  };
 }
 
-export function formatHealthHistoryLine(input: {
-  sessionKind?: string | null;
-  sourceName?: string | null;
-  distanceMeters?: number | null;
-  energyKcal?: number | null;
-  unit?: "lb" | "kg";
-}) {
-  if (input.sessionKind !== "health_summary") return null;
-  return [
-    input.sourceName ? `Health · ${input.sourceName}` : "Apple Health",
-    formatHealthDistance(input.distanceMeters, input.unit ?? "lb"),
-    formatHealthEnergy(input.energyKcal),
-  ]
-    .filter((part): part is string => Boolean(part))
-    .join(" · ");
+function segmentFromRawActivity(value: unknown): HealthWorkoutSegment | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown> & {
+    startDate?: unknown;
+    endDate?: unknown;
+    duration?: unknown;
+    totalDistance?: unknown;
+    totalEnergyBurned?: unknown;
+  };
+  const startedAt = toEpochMs(
+    record.startDate as Date | string | number | null | undefined,
+  );
+  const endedAt = toEpochMs(
+    record.endDate as Date | string | number | null | undefined,
+  );
+  if (startedAt <= 0 || endedAt < startedAt) return null;
+  const rawType = rawActivityTypeFromUnknown(record);
+  const meta = rawType == null ? null : resolveActivityMeta(rawType);
+  const typed = Boolean(meta && meta.type !== "other");
+  const duration =
+    typeof record.duration === "number" && Number.isFinite(record.duration)
+      ? Math.max(0, record.duration)
+      : durationSecondsFromSample({
+          duration: record.duration as HealthQuantity | number | null,
+          startDate: startedAt,
+          endDate: endedAt,
+        });
+  return {
+    activityType: typed ? meta!.type : "other",
+    activityName: typed ? meta!.name : "Split",
+    startedAt,
+    endedAt,
+    durationSeconds: duration,
+    distanceMeters: distanceMetersFromQuantity(
+      quantityFromUnknown(record.totalDistance) ??
+        quantityFromUnknown(record.distance),
+    ),
+    energyKcal: energyKcalFromQuantity(
+      quantityFromUnknown(record.totalEnergyBurned) ??
+        quantityFromUnknown(record.energyBurned),
+    ),
+  };
+}
+
+/** Native patch writes typed triathlon legs here. The library's
+ *  `activities` type only has uuid / dates / duration. */
+export const HEALTH_ACTIVITY_LEGS_METADATA_KEY = "WorkoutActivityLegs";
+
+function metadataRecord(
+  metadata: HealthWorkoutSample["metadata"],
+): Record<string, unknown> | null {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return null;
+  }
+  return metadata as Record<string, unknown>;
+}
+
+function legsFromMetadata(metadata: HealthWorkoutSample["metadata"]) {
+  const record = metadataRecord(metadata);
+  if (!record) return [];
+  const raw = record[HEALTH_ACTIVITY_LEGS_METADATA_KEY];
+  if (typeof raw === "string") {
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return Array.isArray(raw) ? raw : [];
+}
+
+function applyMultiSportSegmentNames(
+  parentType: string,
+  segments: HealthWorkoutSegment[],
+) {
+  if (parentType !== "swimBikeRun") return segments;
+  return segments.map((segment) =>
+    segment.activityType === "cycling"
+      ? { ...segment, activityName: "Bike" }
+      : segment,
+  );
+}
+
+export function segmentsFromHealthSample(sample: HealthWorkoutSample) {
+  const fromMeta = legsFromMetadata(sample.metadata);
+  const raw =
+    fromMeta.length > 0
+      ? fromMeta
+      : (sample.activities ?? sample.workoutActivities);
+  if (!Array.isArray(raw)) return [];
+  const parent = resolveActivityMeta(sample.workoutActivityType);
+  return applyMultiSportSegmentNames(
+    parent.type,
+    parseHealthSegments(
+      raw
+        .map(segmentFromRawActivity)
+        .filter((segment): segment is HealthWorkoutSegment => Boolean(segment))
+        .sort((a, b) => a.startedAt - b.startedAt),
+    ),
+  );
 }
 
 export function normalizeHealthWorkout(
@@ -303,10 +446,12 @@ export function normalizeHealthWorkout(
   if (startedAt <= 0 || endedAt < startedAt) return null;
   const meta = resolveActivityMeta(sample.workoutActivityType);
   const source = sourceFromSample(sample);
+  const segments = segmentsFromHealthSample(sample);
+  const activityName = multiSportDisplayName(meta.type, segments) ?? meta.name;
   return {
     uuid,
     activityType: meta.type,
-    activityName: meta.name,
+    activityName,
     symbolName: meta.symbol,
     startedAt,
     endedAt,
@@ -316,5 +461,6 @@ export function normalizeHealthWorkout(
     sourceName: source.name,
     sourceBundleId: source.bundleId,
     syncIdentifier: syncIdentifierFromSample(sample),
+    segments,
   };
 }

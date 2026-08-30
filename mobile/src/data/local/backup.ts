@@ -23,6 +23,10 @@ import {
   type BackupParseResult,
   type WorkoutBackupSnapshot,
 } from "@shared/workout-backup";
+import {
+  parseHealthSegmentsJson,
+  serializeHealthSegments,
+} from "@shared/health-summary";
 
 /**
  * SQLite read/restore for the phone-database snapshot. The wire format lives in
@@ -88,6 +92,7 @@ type SessionRow = {
   energy_kcal: number | null;
   distance_meters: number | null;
   imported_at: number | null;
+  health_segments_json: string | null;
 };
 type SessionExerciseRow = {
   id: string;
@@ -172,7 +177,8 @@ export async function createLocalBackup(
     `SELECT id, template_id, template_name, status, session_kind, started_at,
             completed_at, updated_at, counts_toward_goals, external_provider,
             external_id, activity_type, source_name, source_bundle_id,
-            duration_seconds, energy_kcal, distance_meters, imported_at
+            duration_seconds, energy_kcal, distance_meters, imported_at,
+            health_segments_json
        FROM local_sessions
       ORDER BY started_at`,
   );
@@ -252,6 +258,7 @@ export async function createLocalBackup(
       energyKcal: row.energy_kcal,
       distanceMeters: row.distance_meters,
       importedAt: row.imported_at,
+      healthSegments: parseHealthSegmentsJson(row.health_segments_json),
       exercises: (exercisesBySession.get(row.id) ?? []).map((exercise) => ({
         id: exercise.id,
         slug: exercise.slug,
@@ -459,11 +466,11 @@ export async function restoreLocalBackup(
            status, session_kind, started_at, completed_at, updated_at,
            counts_toward_goals, external_provider, external_id, activity_type,
            source_name, source_bundle_id, duration_seconds, energy_kcal,
-           distance_meters, imported_at
+           distance_meters, imported_at, health_segments_json
          ) VALUES (
            ?, NULL,
            (SELECT id FROM local_templates WHERE id = ?),
-           NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+           NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
          )`,
         session.id,
         session.templateId,
@@ -483,6 +490,7 @@ export async function restoreLocalBackup(
         session.energyKcal ?? null,
         session.distanceMeters ?? null,
         session.importedAt ?? null,
+        serializeHealthSegments(session.healthSegments),
       );
       if (result.changes === 0) {
         skipped++;

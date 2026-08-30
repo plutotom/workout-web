@@ -1,4 +1,16 @@
+import type { Infer } from "convex/values";
+
+import { healthSegmentValidator } from "../schemas/workouts";
+
 export type SessionKind = "tracked" | "health_summary";
+
+export type HealthSegment = Infer<typeof healthSegmentValidator>;
+
+export function sessionHealthSegments(session: {
+  healthSegments?: HealthSegment[] | null;
+}): HealthSegment[] {
+  return session.healthSegments ?? [];
+}
 
 export function normalizeSessionKind(
   value: string | null | undefined,

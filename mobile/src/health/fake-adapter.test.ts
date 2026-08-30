@@ -47,6 +47,7 @@ describe("createFakeHealthAdapter", () => {
     });
     expect(workouts.map((workout) => workout.uuid)).toEqual([
       "health-run-1",
+      "health-tri-1",
       "health-strength-1",
     ]);
   });
@@ -86,6 +87,7 @@ describe("createFakeHealthAdapter", () => {
     });
     expect(workouts.map((workout) => workout.uuid)).toEqual([
       "health-run-1",
+      "health-tri-1",
       "health-strength-1",
     ]);
   });
@@ -136,6 +138,7 @@ describe("createFakeHealthAdapter", () => {
       limit: 10,
     });
     expect(second.workouts.map((workout) => workout.uuid)).toEqual([
+      "health-tri-1",
       "health-run-1",
     ]);
   });

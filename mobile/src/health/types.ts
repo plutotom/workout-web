@@ -1,3 +1,7 @@
+import type { HealthWorkoutSegment } from "@shared/health-summary";
+
+export type { HealthWorkoutSegment };
+
 export const APPLE_HEALTH_PROVIDER = "apple_health" as const;
 
 export type HealthProvider = typeof APPLE_HEALTH_PROVIDER;
@@ -30,6 +34,9 @@ export type HealthWorkoutSample = {
     } | null;
   } | null;
   metadata?: Record<string, unknown> | null;
+  /** Nested HKWorkoutActivity legs (triathlon / multisport). */
+  activities?: readonly unknown[] | null;
+  workoutActivities?: readonly unknown[] | null;
 };
 
 export type HealthWorkoutSummary = {
@@ -45,6 +52,7 @@ export type HealthWorkoutSummary = {
   sourceName: string | null;
   sourceBundleId: string | null;
   syncIdentifier?: string | null;
+  segments?: HealthWorkoutSegment[];
 };
 
 export type HealthOverlapCandidate = {

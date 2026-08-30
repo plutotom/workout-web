@@ -28,6 +28,7 @@ import { useLocalWorkoutRecap } from "@/data/local/use-local-insights";
 import { useLocalPreferences } from "@/data/local/provider";
 import { formatDate, formatDuration } from "@/lib/format";
 import { formatHealthDistance, formatHealthEnergy } from "@/health/mapping";
+import { HealthSegmentList } from "@/health/segment-list";
 import { useCatalog } from "@/providers/catalog-provider";
 import { colors, radius, space } from "@/theme";
 
@@ -437,6 +438,7 @@ function useWorkoutRecap(sessionId: string) {
       activityType: remote.session.activityType ?? null,
       distanceMeters: remote.session.distanceMeters ?? null,
       energyKcal: remote.session.energyKcal ?? null,
+      healthSegments: remote.session.healthSegments ?? [],
     },
     consistency: {
       ...remote.consistency,
@@ -558,17 +560,24 @@ export default function WorkoutRecapScreen() {
         [healthDistance, healthEnergy].filter(Boolean).join(" · ") ||
         "Summary only — no lifts, sets, or volume.",
       extra: (
-        <View
-          style={{ flexDirection: "row", gap: space.sm, marginTop: space.xl }}
-        >
-          <Stat
-            label="Minutes"
-            value={formatDuration(recap.totals.durationMs)}
-          />
-          {healthDistance ? (
-            <Stat label="Distance" value={healthDistance} />
+        <View style={{ marginTop: space.xl, gap: space.md }}>
+          <View style={{ flexDirection: "row", gap: space.sm }}>
+            <Stat
+              label="Minutes"
+              value={formatDuration(recap.totals.durationMs)}
+            />
+            {healthDistance ? (
+              <Stat label="Distance" value={healthDistance} />
+            ) : null}
+            {healthEnergy ? <Stat label="Energy" value={healthEnergy} /> : null}
+          </View>
+          {recap.session.healthSegments &&
+          recap.session.healthSegments.length > 0 ? (
+            <HealthSegmentList
+              segments={recap.session.healthSegments}
+              unit={unit}
+            />
           ) : null}
-          {healthEnergy ? <Stat label="Energy" value={healthEnergy} /> : null}
         </View>
       ),
     },
