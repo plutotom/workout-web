@@ -3,10 +3,15 @@ import { requireOptionalNativeModule } from "expo-modules-core";
 
 import {
   UNAVAILABLE_APPLE_FOUNDATION,
+  buildCompactOnDeviceSessionPrompt,
+  buildCompactOnDeviceTemplatePrompt,
+  buildDeterministicExactListTemplate,
   buildOnDeviceSessionPrompt,
   buildOnDeviceTemplatePrompt,
   estimateAppleTokens,
   generateWithAppleModelFallback,
+  parseCompactOnDeviceSessionPlan,
+  parseCompactOnDeviceTemplatePlan,
   parseOnDeviceSessionDraft,
   parseOnDeviceTemplateDraft,
   type AppleFoundationAvailability,
@@ -21,7 +26,7 @@ type AppleFoundationNative = {
   generate: (
     instructions: string,
     prompt: string,
-    kind: "template" | "session",
+    kind: "template" | "session" | "templateCompact" | "sessionCompact",
     model: "onDevice" | "pcc",
   ) => Promise<{ model: "onDevice" | "pcc"; draft: unknown }>;
 };
@@ -42,6 +47,10 @@ const native =
         "AppleFoundationModels",
       )
     : null;
+
+/** Set to "0" to compare against the legacy nested-set Apple schema. */
+export const APPLE_COMPACT_PLANS_ENABLED =
+  process.env.EXPO_PUBLIC_APPLE_COMPACT_PLANS !== "0";
 
 function normalizeAvailability(
   raw: NativeAvailability | null,
@@ -73,7 +82,7 @@ function appleErrorMessage(caught: unknown): string {
 }
 
 async function generateWithApple<T>(options: {
-  kind: "template" | "session";
+  kind: "template" | "session" | "templateCompact" | "sessionCompact";
   instructions: string;
   prompt: string;
   parse: (draft: unknown) => T;
@@ -118,8 +127,31 @@ export async function generateTemplateOnApple(options: {
 }): Promise<{
   draft: TemplateDraft;
   droppedSlugs: string[];
-  model: "onDevice" | "pcc";
+  model: "local" | "onDevice" | "pcc";
 }> {
+  if (APPLE_COMPACT_PLANS_ENABLED && options.mode === "create") {
+    const deterministic = buildDeterministicExactListTemplate(options);
+    if (deterministic) {
+      return { draft: deterministic, droppedSlugs: [], model: "local" };
+    }
+  }
+
+  if (APPLE_COMPACT_PLANS_ENABLED) {
+    const built = buildCompactOnDeviceTemplatePrompt(options);
+    return generateWithApple({
+      kind: "templateCompact",
+      instructions: built.instructions,
+      prompt: built.prompt,
+      parse: (draft) =>
+        parseCompactOnDeviceTemplatePlan(draft, built.allowedSlugs, {
+          prompt: options.prompt,
+          requiredSlugs: built.requiredSlugs,
+          exactListSlugs: built.exactListSlugs,
+          candidateSlugs: built.candidateSlugs,
+        }),
+    });
+  }
+
   const built = buildOnDeviceTemplatePrompt(options);
   return generateWithApple({
     kind: "template",
@@ -142,6 +174,30 @@ export async function generateSessionOnApple(options: {
   droppedSlugs: string[];
   model: "onDevice" | "pcc";
 }> {
+  if (APPLE_COMPACT_PLANS_ENABLED) {
+    const built = buildCompactOnDeviceSessionPrompt(options);
+    const existingSlugs = new Set(
+      options.current.exercises
+        .map((exercise) => exercise.slug.trim())
+        .filter(Boolean),
+    );
+    return generateWithApple({
+      kind: "sessionCompact",
+      instructions: built.instructions,
+      prompt: built.prompt,
+      parse: (draft) =>
+        parseCompactOnDeviceSessionPlan(
+          draft,
+          built.allowedSlugs,
+          existingSlugs,
+          {
+            prompt: options.prompt,
+            requiredSlugs: built.requiredSlugs,
+          },
+        ),
+    });
+  }
+
   const built = buildOnDeviceSessionPrompt(options);
   const existingSlugs = new Set(
     options.current.exercises

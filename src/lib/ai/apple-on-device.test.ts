@@ -5,16 +5,22 @@ import {
   APPLE_ON_DEVICE_PROMPT_CHARS,
   appleAiIsUsable,
   assertApplePromptLength,
+  buildCompactOnDeviceSessionPrompt,
+  buildCompactOnDeviceTemplatePrompt,
+  buildDeterministicExactListTemplate,
   buildOnDeviceSessionPrompt,
   buildOnDeviceTemplatePrompt,
   catalogExercisesForAi,
   estimateAppleTokens,
   fallbackAppleLanguageModel,
   generateWithAppleModelFallback,
+  parseCompactOnDeviceSessionPlan,
+  parseCompactOnDeviceTemplatePlan,
   parseOnDeviceSessionDraft,
   parseOnDeviceTemplateDraft,
   pickAppleLanguageModel,
   resolveAiGenerationAccess,
+  selectCompactOnDeviceCatalog,
   shouldFallBackToApple,
   summarizeSessionForOnDevicePrompt,
   summarizeTemplateForOnDevicePrompt,
@@ -275,6 +281,143 @@ describe("on-device prompts", () => {
     expect(built.requiredSlugs).toContain("ohp");
     expect(built.requiredSlugs).not.toContain("squat");
     expect(built.prompt).toContain("Required exercises");
+  });
+});
+
+describe("compact on-device plans", () => {
+  it("uses a smaller candidate catalog and compact prescription prompt", () => {
+    const built = buildCompactOnDeviceTemplatePrompt({
+      prompt: "make me a push day with bench and fly",
+      mode: "create",
+      catalog,
+    });
+    expect(built.instructions).toContain("setCount");
+    expect(built.instructions).not.toContain("set rows");
+    expect(built.requiredSlugs).toEqual(["bench", "chest-fly-db"]);
+    expect(built.exactListSlugs).toBeNull();
+    expect(estimateAppleTokens(built.instructions + built.prompt)).toBeLessThan(
+      1_500,
+    );
+  });
+
+  it("caps unrelated custom exercises without losing a named custom lift", () => {
+    const largeCatalog = catalogExercisesForAi([
+      { slug: "bench", name: "Bench Press", category: "chest" },
+      ...Array.from({ length: 20 }, (_, index) => ({
+        slug: `custom:${index}`,
+        name: index === 19 ? "Dragon Press" : `Custom Lift ${index}`,
+        category: "arms" as const,
+        custom: true,
+      })),
+    ]);
+    const selected = selectCompactOnDeviceCatalog({
+      prompt: "bench and dragon press",
+      catalog: largeCatalog,
+      mustIncludeSlugs: ["bench", "custom:19"],
+    });
+    expect(selected.map((exercise) => exercise.slug)).toContain("custom:19");
+    expect(
+      selected.filter((exercise) => exercise.slug.startsWith("custom:")),
+    ).toHaveLength(8);
+    expect(selected.map((exercise) => exercise.slug)).toContain("bench");
+  });
+
+  it("prioritizes the requested workout categories before generic lifts", () => {
+    const selected = selectCompactOnDeviceCatalog({
+      prompt: "arm day",
+      catalog,
+    });
+    const firstBuiltIn = selected.find(
+      (exercise) => !exercise.slug.startsWith("custom:"),
+    );
+    expect(firstBuiltIn?.category).toBe("arms");
+    expect(
+      selected.filter((exercise) => exercise.category === "arms").length,
+    ).toBeGreaterThan(3);
+  });
+
+  it("expands scalar prescriptions into repeated set rows", () => {
+    const { draft, droppedSlugs } = parseCompactOnDeviceTemplatePlan(
+      {
+        name: "Push",
+        exercises: [
+          { slug: "bench", setCount: 5, reps: 8, weight: 135.4 },
+          { slug: "nope", setCount: 3, reps: 10, weight: 0 },
+        ],
+      },
+      new Set(["bench", "pullup"]),
+      { prompt: "4x8 bench and pull up", requiredSlugs: ["bench", "pullup"] },
+    );
+    expect(draft.exercises.map((exercise) => exercise.slug)).toEqual([
+      "bench",
+      "pullup",
+    ]);
+    expect(draft.exercises[0]?.sets).toEqual(
+      Array.from({ length: 4 }, () => ({ weight: 135, reps: 8 })),
+    );
+    expect(draft.exercises[1]?.sets).toEqual(
+      Array.from({ length: 4 }, () => ({ weight: 0, reps: 8 })),
+    );
+    expect(droppedSlugs).toEqual(["nope"]);
+  });
+
+  it("grounds compact session operations and expands additions", () => {
+    const built = buildCompactOnDeviceSessionPrompt({
+      prompt: "drop squat and add ohp 4x8",
+      catalog,
+      current: { exercises: [{ slug: "squat", done: 0, total: 3 }] },
+    });
+    const { draft } = parseCompactOnDeviceSessionPlan(
+      {
+        removeSlugs: ["squat", "ghost"],
+        add: [{ slug: "ohp", setCount: 4, reps: 8, weight: 0 }],
+      },
+      built.allowedSlugs,
+      new Set(["squat"]),
+      { prompt: "drop squat and add ohp 4x8", requiredSlugs: ["ohp"] },
+    );
+    expect(draft.removeSlugs).toEqual(["squat"]);
+    expect(draft.add[0]?.sets).toHaveLength(4);
+  });
+
+  it("fills an explicit exercise count deterministically if the model stops early", () => {
+    const { draft } = parseCompactOnDeviceTemplatePlan(
+      {
+        name: "Push",
+        exercises: [
+          { slug: "bench", setCount: 3, reps: 0, weight: 0 },
+          { slug: "ohp", setCount: 3, reps: 0, weight: 0 },
+        ],
+      },
+      new Set(["bench", "ohp", "chest-fly-db", "pullup"]),
+      {
+        prompt: "make 4 exercises with bench",
+        requiredSlugs: ["bench"],
+        candidateSlugs: ["bench", "ohp", "chest-fly-db", "pullup"],
+      },
+    );
+    expect(draft.exercises.map((exercise) => exercise.slug)).toEqual([
+      "bench",
+      "ohp",
+      "chest-fly-db",
+      "pullup",
+    ]);
+  });
+
+  it("builds a clear list locally without a model call", () => {
+    const draft = buildDeterministicExactListTemplate({
+      prompt: "squat, bench, pull up, and fly — 4x8",
+      catalog,
+    });
+    expect(draft?.name).toBe("Custom Workout");
+    expect(draft?.exercises.map((exercise) => exercise.slug)).toEqual([
+      "squat",
+      "bench",
+      "pullup",
+      "chest-fly-db",
+    ]);
+    expect(draft?.exercises[0]?.sets).toHaveLength(4);
+    expect(draft?.exercises[0]?.sets[0]?.reps).toBe(8);
   });
 });
 

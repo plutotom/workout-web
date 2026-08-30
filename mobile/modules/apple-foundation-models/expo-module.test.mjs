@@ -78,4 +78,20 @@ describe("AppleFoundationModels Expo module", () => {
     expect(pccBlocks).toContain("LanguageModelSession(model: languageModel)");
     expect(pccBlocks).not.toContain("tools:");
   });
+
+  it("keeps compact plans scalar and expands their rows in JavaScript", () => {
+    const swift = readFileSync(
+      join(root, "ios/AppleFoundationModelsModule.swift"),
+      "utf8",
+    );
+    const compactExercise = swift.match(
+      /struct WorkoutCompactExercisePlan \{([\s\S]*?)\n\}/,
+    )?.[1];
+    expect(compactExercise).toContain("var setCount: Int");
+    expect(compactExercise).toContain("var reps: Double");
+    expect(compactExercise).toContain("var weight: Double");
+    expect(compactExercise).not.toContain("WorkoutSetDraft");
+    expect(swift).toContain('kind == "templateCompact"');
+    expect(swift).toContain('kind == "sessionCompact"');
+  });
 });

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatCatalogForPrompt,
   groundTemplateDraft,
+  detectExactExerciseListSlugs,
   detectRequiredExerciseSlugs,
   applyRequiredExercisesToTemplate,
   inferWorkingSetCount,
@@ -218,6 +219,35 @@ describe("detectRequiredExerciseSlugs", () => {
         sampleCatalog,
       ),
     ).toEqual(["squat", "bench", "pullup"]);
+  });
+});
+
+describe("detectExactExerciseListSlugs", () => {
+  it("resolves a list-only prompt for the deterministic fast path", () => {
+    expect(
+      detectExactExerciseListSlugs(
+        "squat, bench, pull up, and fly",
+        sampleCatalog,
+      ),
+    ).toEqual(["squat", "bench", "pullup", "chest-fly-db"]);
+  });
+
+  it("keeps required-plus-fill prompts on the semantic path", () => {
+    expect(
+      detectExactExerciseListSlugs(
+        "make a push day with bench and fly",
+        sampleCatalog,
+      ),
+    ).toBeNull();
+  });
+
+  it("refuses a fast path when any list item is unresolved", () => {
+    expect(
+      detectExactExerciseListSlugs(
+        "squat, mystery lift, and bench",
+        sampleCatalog,
+      ),
+    ).toBeNull();
   });
 });
 

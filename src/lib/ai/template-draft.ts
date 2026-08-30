@@ -449,6 +449,47 @@ function extractListPhrases(prompt: string): string[] {
 }
 
 /**
+ * Resolve a list-only request without asking the model to reinterpret it.
+ * Returns null when any list item is ambiguous, or when the prompt also asks
+ * for a broader session ("push day with bench and fly"). In those cases the
+ * exercises are still required, but the model may fill the rest of the day.
+ */
+export function detectExactExerciseListSlugs(
+  prompt: string,
+  catalog: CatalogExercise[],
+): string[] | null {
+  const schemes = [...prompt.matchAll(/\b(\d+)\s*[x×]\s*(\d+)\b/gi)].map(
+    (match) => `${match[1]}x${match[2]}`,
+  );
+  if (new Set(schemes).size > 1) return null;
+
+  const explicitlyExact =
+    /\b(?:only|exactly|just(?:\s+these)?|nothing\s+else)\b/i.test(prompt);
+  const hasListShape = /,|\band\b|\n|;|\d+[.)]|[-•*]\s+/i.test(prompt);
+  if (!explicitlyExact && !hasListShape) return null;
+
+  const asksForBroaderSession =
+    /\b(?:(?:push|pull|upper|lower|leg|chest|back)\s+day|full[- ]?body|day|session|workout|strength|power|hypertrophy|accessor(?:y|ies)|balanced?)\b/i.test(
+      prompt,
+    );
+  if (asksForBroaderSession && !explicitlyExact) return null;
+
+  const cleaned = prompt
+    .replace(/\b(?:only|exactly|just(?:\s+these)?|nothing\s+else)\b/gi, "")
+    .replace(/\b\d+\s*[x×]\s*\d+\b/gi, "");
+  const phrases = extractListPhrases(cleaned);
+  if (phrases.length < (explicitlyExact ? 1 : 2)) return null;
+
+  const slugs = phrases.map((phrase) =>
+    matchPhraseToCatalogSlug(phrase, catalog),
+  );
+  if (slugs.some((slug) => slug === null)) return null;
+
+  const unique = [...new Set(slugs as string[])];
+  return unique.length === phrases.length ? unique : null;
+}
+
+/**
  * Slugs the user likely named in plain language. Used to pin the prompt catalog
  * and to merge missing lifts after generation (on-device models often stop at ~3).
  */

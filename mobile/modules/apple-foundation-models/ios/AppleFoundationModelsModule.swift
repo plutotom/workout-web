@@ -164,6 +164,50 @@ struct WorkoutSetDraft {
   var reps: Double
 }
 
+/**
+ * Compact Apple-only plan. JavaScript expands the scalar prescription into
+ * repeated set rows after generation, keeping guided output small.
+ */
+@available(iOS 26.0, *)
+@Generable
+struct WorkoutCompactExercisePlan {
+  @Guide(description: "Exact slug from the candidate catalog.")
+  var slug: String
+  @Guide(description: "Working set count. Use 3 when unspecified.")
+  var setCount: Int
+  @Guide(description: "Reps repeated for every set. Use 0 when unspecified.")
+  var reps: Double
+  @Guide(description: "Weight repeated for every set. Use 0 when unspecified.")
+  var weight: Double
+}
+
+@available(iOS 26.0, *)
+@Generable
+struct WorkoutCompactTemplatePlan {
+  @Guide(description: "Short workout name.")
+  var name: String
+  @Guide(
+    description: "Ordered exercise plan. Include every required slug and fill broad sessions to 5–7 exercises.",
+    .count(1...12)
+  )
+  var exercises: [WorkoutCompactExercisePlan]
+}
+
+@available(iOS 26.0, *)
+@Generable
+struct WorkoutCompactSessionPlan {
+  @Guide(
+    description: "Current-session slugs to remove. Empty when only adding.",
+    .maximumCount(12)
+  )
+  var removeSlugs: [String]
+  @Guide(
+    description: "New exercise plan. Include every required add slug.",
+    .maximumCount(12)
+  )
+  var add: [WorkoutCompactExercisePlan]
+}
+
 @available(iOS 26.0, *)
 @Generable
 struct WorkoutSessionDraft {
@@ -306,6 +350,26 @@ private func respond(
   kind: String,
   model: String
 ) async throws -> [String: Any] {
+  if kind == "sessionCompact" {
+    let response = try await session.respond(
+      to: prompt,
+      generating: WorkoutCompactSessionPlan.self
+    )
+    return [
+      "model": model,
+      "draft": compactSessionDictionary(response.content),
+    ]
+  }
+  if kind == "templateCompact" {
+    let response = try await session.respond(
+      to: prompt,
+      generating: WorkoutCompactTemplatePlan.self
+    )
+    return [
+      "model": model,
+      "draft": compactTemplateDictionary(response.content),
+    ]
+  }
   if kind == "session" {
     let response = try await session.respond(
       to: prompt,
@@ -349,6 +413,32 @@ private func exerciseDictionary(_ exercise: WorkoutExerciseDraft) -> [String: An
     "sets": exercise.sets.map { set -> [String: Any] in
       ["weight": set.weight, "reps": set.reps]
     },
+  ]
+}
+
+@available(iOS 26.0, *)
+private func compactTemplateDictionary(_ plan: WorkoutCompactTemplatePlan) -> [String: Any] {
+  [
+    "name": plan.name,
+    "exercises": plan.exercises.map(compactExerciseDictionary),
+  ]
+}
+
+@available(iOS 26.0, *)
+private func compactSessionDictionary(_ plan: WorkoutCompactSessionPlan) -> [String: Any] {
+  [
+    "removeSlugs": plan.removeSlugs,
+    "add": plan.add.map(compactExerciseDictionary),
+  ]
+}
+
+@available(iOS 26.0, *)
+private func compactExerciseDictionary(_ exercise: WorkoutCompactExercisePlan) -> [String: Any] {
+  [
+    "slug": exercise.slug,
+    "setCount": exercise.setCount,
+    "reps": exercise.reps,
+    "weight": exercise.weight,
   ]
 }
 
