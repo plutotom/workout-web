@@ -3,9 +3,25 @@ import { describe, expect, it } from "vitest";
 import {
   formatCatalogForPrompt,
   groundTemplateDraft,
+  detectRequiredExerciseSlugs,
+  applyRequiredExercisesToTemplate,
+  inferWorkingSetCount,
+  isExplicitExerciseList,
+  padExerciseSets,
   selectCatalogForAiPrompt,
   templateDraftSchema,
 } from "./template-draft";
+
+const sampleCatalog = [
+  { slug: "squat", name: "Squat", category: "legs" as const },
+  { slug: "bench", name: "Bench Press", category: "chest" as const },
+  { slug: "pullup", name: "Pull-Up", category: "back" as const },
+  {
+    slug: "chest-fly-db",
+    name: "Chest Fly (Dumbbell)",
+    category: "chest" as const,
+  },
+];
 
 describe("groundTemplateDraft", () => {
   const allowed = new Set(["bench-press", "squat", "row"]);
@@ -42,12 +58,16 @@ describe("groundTemplateDraft", () => {
     expect(droppedSlugs).toEqual(["unknown-lift", "bench-press"]);
   });
 
-  it("fills empty sets with a zero preset row", () => {
+  it("fills empty sets with three default working-set rows", () => {
     const { draft } = groundTemplateDraft(
       { name: "Legs", exercises: [{ slug: "squat", sets: [] }] },
       allowed,
     );
-    expect(draft.exercises[0]?.sets).toEqual([{ weight: 0, reps: 0 }]);
+    expect(draft.exercises[0]?.sets).toEqual([
+      { weight: 0, reps: 0 },
+      { weight: 0, reps: 0 },
+      { weight: 0, reps: 0 },
+    ]);
   });
 });
 
@@ -116,6 +136,16 @@ describe("selectCatalogForAiPrompt", () => {
     expect(slugs).toContain("lateral-raise");
   });
 
+  it("keeps prompt-named lifts even when the cap would be filled by priority slugs", () => {
+    const selected = selectCatalogForAiPrompt({
+      prompt: "hip thrust and pendlay row",
+      max: 42,
+    });
+    const slugs = selected.map((e) => e.slug);
+    expect(slugs).toContain("hip-thrust");
+    expect(slugs).toContain("pendlay-row");
+  });
+
   it("is much smaller than the full curated catalog", () => {
     const full = formatCatalogForPrompt(
       selectCatalogForAiPrompt({ prompt: "full body", max: 96 }),
@@ -133,5 +163,139 @@ describe("formatCatalogForPrompt", () => {
         { slug: "squat", name: "Squat", category: "legs" },
       ]),
     ).toBe("squat | Squat | legs");
+  });
+
+  it("omits category in compact form for the on-device token budget", () => {
+    expect(
+      formatCatalogForPrompt(
+        [{ slug: "squat", name: "Squat", category: "legs" }],
+        "compact",
+      ),
+    ).toBe("squat | Squat");
+  });
+});
+
+describe("detectRequiredExerciseSlugs", () => {
+  it("resolves a comma-and list of common lift names", () => {
+    expect(
+      detectRequiredExerciseSlugs(
+        "do squat, bench, pull up, and fly",
+        sampleCatalog,
+      ),
+    ).toEqual(["squat", "bench", "pullup", "chest-fly-db"]);
+  });
+
+  it("picks cable fly when the user says cable fly", () => {
+    const catalog = [
+      ...sampleCatalog,
+      { slug: "cable-fly", name: "Cable Fly", category: "chest" as const },
+    ];
+    expect(detectRequiredExerciseSlugs("bench and cable fly", catalog)).toEqual(
+      ["bench", "cable-fly"],
+    );
+  });
+
+  it("resolves a 6-item comma list including short aliases", () => {
+    const catalog = [
+      ...sampleCatalog,
+      { slug: "rdl", name: "Romanian Deadlift", category: "legs" as const },
+      { slug: "ohp", name: "Overhead Press", category: "shoulders" as const },
+      { slug: "barbell-row", name: "Barbell Row", category: "back" as const },
+      { slug: "barbell-curl", name: "Barbell Curl", category: "arms" as const },
+    ];
+    expect(
+      detectRequiredExerciseSlugs(
+        "squat, bench, rdl, ohp, rows, curls",
+        catalog,
+      ),
+    ).toEqual(["squat", "bench", "rdl", "ohp", "barbell-row", "barbell-curl"]);
+  });
+
+  it("resolves newline and numbered lists", () => {
+    expect(
+      detectRequiredExerciseSlugs(
+        "1. squat\n2. bench\n3. pull up",
+        sampleCatalog,
+      ),
+    ).toEqual(["squat", "bench", "pullup"]);
+  });
+});
+
+describe("applyRequiredExercisesToTemplate", () => {
+  it("replaces the draft with the named list in strict mode", () => {
+    const draft = applyRequiredExercisesToTemplate(
+      {
+        name: "Day",
+        exercises: [
+          { slug: "squat", sets: [{ weight: 0, reps: 5 }] },
+          { slug: "bench", sets: [{ weight: 0, reps: 5 }] },
+        ],
+      },
+      ["squat", "bench", "pullup", "chest-fly-db"],
+      { strictList: true },
+    );
+    expect(draft.exercises.map((e) => e.slug)).toEqual([
+      "squat",
+      "bench",
+      "pullup",
+      "chest-fly-db",
+    ]);
+    expect(draft.exercises[2]?.sets).toHaveLength(3);
+  });
+
+  it("appends missing named lifts without strict mode", () => {
+    const draft = applyRequiredExercisesToTemplate(
+      {
+        name: "Day",
+        exercises: [{ slug: "squat", sets: [{ weight: 0, reps: 5 }] }],
+      },
+      ["squat", "bench"],
+    );
+    expect(draft.exercises.map((e) => e.slug)).toEqual(["squat", "bench"]);
+  });
+});
+
+describe("isExplicitExerciseList", () => {
+  it("treats comma lists and 3+ names as explicit", () => {
+    expect(isExplicitExerciseList("squat, bench, fly", 3)).toBe(true);
+    expect(isExplicitExerciseList("squat bench pullup fly", 4)).toBe(true);
+    expect(isExplicitExerciseList("push day", 2)).toBe(false);
+    expect(isExplicitExerciseList("1. squat\n2. bench", 2)).toBe(true);
+  });
+});
+
+describe("inferWorkingSetCount / padExerciseSets", () => {
+  it("defaults to 3 and expands a lone set row", () => {
+    expect(inferWorkingSetCount("push day")).toBe(3);
+    expect(
+      padExerciseSets(
+        [{ slug: "bench", sets: [{ weight: 135, reps: 8 }] }],
+        "push day",
+      )[0]?.sets,
+    ).toEqual([
+      { weight: 135, reps: 8 },
+      { weight: 135, reps: 8 },
+      { weight: 135, reps: 8 },
+    ]);
+  });
+
+  it("uses a single NxM count from the prompt", () => {
+    expect(inferWorkingSetCount("bench 4x8")).toBe(4);
+    expect(
+      padExerciseSets(
+        [{ slug: "bench", sets: [{ weight: 0, reps: 8 }] }],
+        "bench 4x8",
+      )[0]?.sets,
+    ).toHaveLength(4);
+  });
+
+  it("keeps a single set when the user asked for one", () => {
+    expect(inferWorkingSetCount("1 set of deadlifts")).toBe(1);
+    expect(
+      padExerciseSets(
+        [{ slug: "deadlift", sets: [{ weight: 0, reps: 5 }] }],
+        "1 set of deadlifts",
+      )[0]?.sets,
+    ).toHaveLength(1);
   });
 });

@@ -186,7 +186,7 @@ describe("createHealthKitAdapter", () => {
             endDate: Date.parse("2026-08-01T14:00:00.000Z"),
             sourceRevision: {
               source: {
-                name: "Workout",
+                name: "Grayed Lift",
                 bundleIdentifier: "com.isaiahproctor.workout.local",
               },
             },

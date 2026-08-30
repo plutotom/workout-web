@@ -83,7 +83,7 @@ export function DeleteWorkoutButton({
           onClick={() => setOpen(true)}
         >
           <Trash2 className="size-4" />
-          {fromHealth ? "Remove from Workout" : "Delete workout"}
+          {fromHealth ? "Remove from Grayed Lift" : "Delete workout"}
         </Button>
       )}
 
@@ -91,11 +91,11 @@ export function DeleteWorkoutButton({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {fromHealth ? "Remove from Workout?" : "Delete this workout?"}
+              {fromHealth ? "Remove from Grayed Lift?" : "Delete this workout?"}
             </DialogTitle>
             <DialogDescription>
               {fromHealth
-                ? "The original workout stays in Apple Health. Only this copy in Workout is removed."
+                ? "The original workout stays in Apple Health. Only this copy in Grayed Lift is removed."
                 : "This permanently removes the session from your history and insights. It cannot be undone."}
             </DialogDescription>
           </DialogHeader>

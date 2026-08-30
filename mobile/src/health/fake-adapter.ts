@@ -1,6 +1,7 @@
 import {
   APP_BUNDLE_ID,
   HEALTH_EXPORT_ACTIVITY_TYPE,
+  HEALTH_EXPORT_SOURCE_NAME,
   healthSyncIdentifier,
   isAppAuthoredHealthWorkout,
 } from "./mapping";
@@ -156,7 +157,7 @@ export function createFakeHealthAdapter(options?: {
         durationSeconds: Math.max(0, (input.endedAt - input.startedAt) / 1000),
         distanceMeters: null,
         energyKcal: null,
-        sourceName: "Workout",
+        sourceName: HEALTH_EXPORT_SOURCE_NAME,
         sourceBundleId: APP_BUNDLE_ID,
         syncIdentifier: healthSyncIdentifier(input.sessionId),
       });

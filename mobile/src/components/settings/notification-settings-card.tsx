@@ -37,7 +37,7 @@ export function NotificationSettingsCard() {
       if (next && !(await requestNotificationPermission())) {
         Alert.alert(
           "Notifications are off",
-          "Allow notifications for Workout in iPhone Settings, then try again.",
+          "Allow notifications for Grayed Lift in iPhone Settings, then try again.",
         );
         return;
       }
@@ -131,8 +131,8 @@ export function NotificationSettingsCard() {
                 <Text
                   style={{ color: colors.dim, fontSize: 13, lineHeight: 19 }}
                 >
-                  Choose which updates Workout can send while you are away from
-                  the app.
+                  Choose which updates Grayed Lift can send while you are away
+                  from the app.
                 </Text>
               </View>
               <NotificationToggle

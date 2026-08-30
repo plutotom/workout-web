@@ -2,8 +2,8 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Workout",
-    short_name: "Workout",
+    name: "Grayed Lift",
+    short_name: "Grayed Lift",
     description: "Track workouts in the browser.",
     start_url: "/dashboard",
     scope: "/",
@@ -38,7 +38,7 @@ export default function manifest(): MetadataRoute.Manifest {
         sizes: "1170x2532",
         type: "image/png",
         form_factor: "narrow",
-        label: "Workout splash screen",
+        label: "Grayed Lift splash screen",
       },
     ],
   };

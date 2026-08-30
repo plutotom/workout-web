@@ -5,11 +5,11 @@ import { redirect } from "next/navigation";
 import { LandingPage } from "@/components/marketing/landing-page";
 
 export const metadata: Metadata = {
-  title: "Workout",
+  title: "Grayed Lift",
   description:
     "Track strength sessions in the browser — templates when you want a plan, quick start when you just want to lift.",
   openGraph: {
-    title: "Workout",
+    title: "Grayed Lift",
     description:
       "Track strength sessions in the browser — templates when you want a plan, quick start when you just want to lift.",
   },

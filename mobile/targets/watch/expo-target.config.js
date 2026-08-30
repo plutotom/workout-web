@@ -2,7 +2,7 @@
 module.exports = (config) => ({
   type: "watch",
   name: "Watch",
-  displayName: "Workout",
+  displayName: "Grayed Lift",
   bundleIdentifier: ".watchkitapp",
   icon: "../../assets/icon.png",
   deploymentTarget: "10.0",

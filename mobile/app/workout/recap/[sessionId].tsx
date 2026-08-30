@@ -733,7 +733,7 @@ export default function WorkoutRecapScreen() {
                   textTransform: "uppercase",
                 }}
               >
-                Workout
+                Grayed Lift
               </Text>
             </Card>
           </View>

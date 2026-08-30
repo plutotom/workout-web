@@ -262,7 +262,7 @@ export default function HealthSettingsScreen() {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setNotice(
         result.alreadyImported
-          ? "Already in Workout"
+          ? "Already in Grayed Lift"
           : isAuthenticated
             ? `${workout.activityName} imported`
             : `${workout.activityName} imported. It will sync to your account after you sign in.`,
@@ -359,8 +359,8 @@ export default function HealthSettingsScreen() {
 
   async function removeImported(sessionId: string) {
     Alert.alert(
-      "Remove from Workout?",
-      "The original workout stays in Apple Health. Only this copy in Workout is removed.",
+      "Remove from Grayed Lift?",
+      "The original workout stays in Apple Health. Only this copy in Grayed Lift is removed.",
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -368,7 +368,7 @@ export default function HealthSettingsScreen() {
           style: "destructive",
           onPress: () =>
             void deleteSession(sessionId).then(() => {
-              setNotice("Removed from Workout");
+              setNotice("Removed from Grayed Lift");
             }),
         },
       ],
@@ -632,8 +632,8 @@ export default function HealthSettingsScreen() {
 
       {isAuthenticated ? null : (
         <Text style={{ color: colors.dim, fontSize: 12, lineHeight: 18 }}>
-          Import works on this phone now. The copy syncs to your Workout account
-          after you sign in.
+          Import works on this phone now. The copy syncs to your Grayed Lift
+          account after you sign in.
         </Text>
       )}
 
@@ -877,7 +877,7 @@ function ReviewCard({
       <SectionTitle title="Possible overlap" />
       <Text style={{ color: colors.dim, fontSize: 13, lineHeight: 19 }}>
         This Apple Health strength workout is close to a workout you already
-        logged in Workout. Linking keeps one weekly count.
+        logged in Grayed Lift. Linking keeps one weekly count.
       </Text>
       <Text style={{ color: colors.text, fontSize: 14, fontWeight: "600" }}>
         Health · {item.activityName} · {formatWhen(item.startedAt)}
@@ -891,7 +891,7 @@ function ReviewCard({
         }
       >
         <Text style={{ color: colors.text, fontSize: 14, fontWeight: "600" }}>
-          Workout · {overlap.templateName} · {formatWhen(overlap.startedAt)}
+          Grayed Lift · {overlap.templateName} · {formatWhen(overlap.startedAt)}
         </Text>
       </Pressable>
       <Button

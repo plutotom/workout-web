@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { groundSessionDraft, sessionDraftSchema } from "./session-draft";
+import {
+  groundSessionDraft,
+  applyRequiredExercisesToSession,
+  sessionDraftSchema,
+} from "./session-draft";
 
 describe("groundSessionDraft", () => {
   const allowed = new Set(["bench-press", "squat", "row", "ohp", "deadlift"]);
@@ -55,13 +59,56 @@ describe("groundSessionDraft", () => {
     expect(droppedSlugs).toEqual([]);
   });
 
-  it("fills empty add sets with a zero preset row", () => {
+  it("fills empty add sets with three default working-set rows", () => {
     const { draft } = groundSessionDraft(
       { removeSlugs: [], add: [{ slug: "ohp", sets: [] }] },
       allowed,
       existing,
     );
-    expect(draft.add[0]?.sets).toEqual([{ weight: 0, reps: 0 }]);
+    expect(draft.add[0]?.sets).toEqual([
+      { weight: 0, reps: 0 },
+      { weight: 0, reps: 0 },
+      { weight: 0, reps: 0 },
+    ]);
+  });
+});
+
+describe("applyRequiredExercisesToSession", () => {
+  it("appends named lifts the model omitted", () => {
+    const draft = applyRequiredExercisesToSession(
+      {
+        removeSlugs: [],
+        add: [{ slug: "ohp", sets: [{ weight: 0, reps: 8 }] }],
+      },
+      ["ohp", "deadlift", "row"],
+      new Set(["bench-press"]),
+    );
+    expect(draft.add.map((exercise) => exercise.slug)).toEqual([
+      "ohp",
+      "deadlift",
+      "row",
+    ]);
+  });
+
+  it("does not re-add a lift already in the session", () => {
+    const draft = applyRequiredExercisesToSession(
+      { removeSlugs: [], add: [] },
+      ["squat"],
+      new Set(["squat"]),
+    );
+    expect(draft.add).toEqual([]);
+  });
+
+  it("does not re-add a lift the draft is removing", () => {
+    const draft = applyRequiredExercisesToSession(
+      {
+        removeSlugs: ["squat"],
+        add: [{ slug: "ohp", sets: [{ weight: 0, reps: 8 }] }],
+      },
+      ["squat", "ohp"],
+      new Set(["squat"]),
+    );
+    expect(draft.add.map((exercise) => exercise.slug)).toEqual(["ohp"]);
   });
 });
 

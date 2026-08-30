@@ -10,7 +10,7 @@ export const APP_BUNDLE_ID = "com.isaiahproctor.workout.local";
 export const WATCH_BUNDLE_ID = `${APP_BUNDLE_ID}.watchkitapp`;
 export const HEALTH_EXPORT_ACTIVITY_TYPE = "traditionalStrengthTraining";
 export const HEALTH_EXPORT_ACTIVITY_CODE = 50;
-export const HEALTH_EXPORT_SOURCE_NAME = "Workout";
+export const HEALTH_EXPORT_SOURCE_NAME = "Grayed Lift";
 export const HEALTH_SYNC_IDENTIFIER_PREFIX = `${APP_BUNDLE_ID}:session:`;
 
 type ActivityMeta = {

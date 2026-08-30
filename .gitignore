@@ -40,6 +40,7 @@ yarn-error.log*
 .env*
 !.env.example
 !.env.mobile.preview.example
+!.env.mobile.production.example
 
 # vercel
 .vercel
@@ -70,3 +71,6 @@ mobile/*.key
 mobile/*.mobileprovision
 
 ./claude/headroom_wrap_marker.json
+# EAS local iOS builds
+mobile/build-*.ipa
+*.ipa

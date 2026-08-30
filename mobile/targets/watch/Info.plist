@@ -7,9 +7,9 @@
     <key>WKRunsIndependentlyOfCompanionApp</key>
     <false/>
     <key>NSHealthShareUsageDescription</key>
-    <string>Workout records heart rate and active energy on Apple Watch so a lift can save one Health workout with live metrics.</string>
+    <string>Grayed Lift records heart rate and active energy on Apple Watch so a lift can save one Health workout with live metrics.</string>
     <key>NSHealthUpdateUsageDescription</key>
-    <string>Workout saves the Watch-recorded strength session to Apple Health, including heart rate and active energy.</string>
+    <string>Grayed Lift saves the Watch-recorded strength session to Apple Health, including heart rate and active energy.</string>
     <key>WKBackgroundModes</key>
     <array>
       <string>workout-processing</string>

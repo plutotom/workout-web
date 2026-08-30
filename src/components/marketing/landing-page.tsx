@@ -45,7 +45,7 @@ export function LandingPage() {
         />
 
         <header className="relative z-10 flex items-center justify-between px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-2 sm:px-6">
-          <p className="text-sm font-semibold tracking-tight">Workout</p>
+          <p className="text-sm font-semibold tracking-tight">Grayed Lift</p>
           <Button asChild variant="ghost" size="sm" className="min-h-11 px-3">
             <Link href="/sign-in">Sign in</Link>
           </Button>
@@ -55,7 +55,7 @@ export function LandingPage() {
           <div className="flex flex-1 flex-col items-center justify-center gap-8 py-6 text-center">
             <div className="animate-rise-in flex flex-col gap-3">
               <p className="text-5xl font-semibold tracking-tight sm:text-6xl">
-                Workout
+                Grayed Lift
               </p>
               <h1 className="text-2xl font-medium tracking-tight text-balance sm:text-3xl">
                 Lift. Log. Repeat.
@@ -136,7 +136,7 @@ export function LandingPage() {
 
       <footer className="text-muted-foreground border-border/60 border-t px-4 py-8 text-sm sm:px-6">
         <div className="mx-auto flex w-full max-w-lg items-center justify-between gap-4">
-          <p className="font-medium text-foreground">Workout</p>
+          <p className="font-medium text-foreground">Grayed Lift</p>
           <p>Track workouts in the browser.</p>
         </div>
       </footer>

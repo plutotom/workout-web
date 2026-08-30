@@ -6,9 +6,10 @@ packages:
 
 allowBuilds:
   "@swc/core": true
+  dtrace-provider: true
   esbuild: true
-  sharp: false
-  unrs-resolver: false
+  sharp: true
+  unrs-resolver: true
 
 overrides:
   brace-expansion@<1.1.16: 1.1.16

@@ -33,8 +33,12 @@ import {
   Segmented,
 } from "@/components/ui";
 import { PlateModal } from "@/components/workout/plate-modal";
+import { DescribeWithAiButton } from "@/components/describe-with-ai-button";
 import { NotificationSettingsCard } from "@/components/settings/notification-settings-card";
 import { useBackupStatus, useLocalData } from "@/data/local/provider";
+import { offlineAiSettingsCopy, planAiSettingsCopy } from "@/lib/ai-copy";
+import { useAiGeneration, useAppleAiAvailability } from "@/lib/ai";
+import { appleAiIsUsable } from "@shared/ai/apple-on-device";
 import { requirePublicConfig } from "@/lib/config";
 import { formatRelativeDay } from "@/lib/format";
 import { pickBackupFile, shareBackupFile } from "@/lib/workout-transfer";
@@ -69,6 +73,7 @@ function AuthenticatedSettingsScreen() {
 
 function OfflineSettingsScreen() {
   const { signIn } = useMobileAuth();
+  const { usesApple } = useAiGeneration();
   const [connecting, setConnecting] = useState(false);
 
   async function connectAccount() {
@@ -94,7 +99,7 @@ function OfflineSettingsScreen() {
         </Text>
         <Text style={{ color: colors.dim, fontSize: 13, lineHeight: 19 }}>
           Workouts are saved on this phone. Connect your account whenever you
-          want to synchronize them with Workout on the web.
+          want to synchronize them with Grayed Lift on the web.
         </Text>
         <Button
           label={connecting ? "Connecting…" : "Connect account"}
@@ -109,16 +114,9 @@ function OfflineSettingsScreen() {
         <Sparkles color={colors.text} size={22} />
         <SectionTitle title="AI workouts" />
         <Text style={{ color: colors.dim, fontSize: 13, lineHeight: 19 }}>
-          Create an account to use AI to generate workout templates and reshape
-          sessions as you train.
+          {offlineAiSettingsCopy(usesApple)}
         </Text>
-        <Button
-          label={connecting ? "Connecting…" : "Create an account"}
-          variant="outline"
-          icon={Sparkles}
-          disabled={connecting}
-          onPress={() => void connectAccount()}
-        />
+        {usesApple ? <DescribeWithAiButton variant="outline" /> : null}
       </Card>
       <Card>
         <CircleDot color={colors.text} size={22} strokeWidth={2.3} />
@@ -411,7 +409,8 @@ function SettingsContent({
  * success and danger, and a stale backup is neither.
  */
 function BackupCard({ signedIn }: { signedIn: boolean }) {
-  const { createBackup, restoreBackup, noteBackupSaved } = useLocalData();
+  const { createBackup, restoreBackup, importBundle, noteBackupSaved } =
+    useLocalData();
   // `undefined` while loading — render nothing rather than flash "no backup".
   const backup = useBackupStatus();
   const [busy, setBusy] = useState<"save" | "restore" | null>(null);
@@ -456,6 +455,34 @@ function BackupCard({ signedIn }: { signedIn: boolean }) {
       if (!parsed) return;
       if (!parsed.ok) {
         Alert.alert("Couldn't read that backup", parsed.error);
+        return;
+      }
+
+      if (parsed.kind === "bundle") {
+        const confirmed = await new Promise<boolean>((resolve) => {
+          Alert.alert(
+            "Import templates from this file?",
+            `${parsed.bundle.templates.length} template${
+              parsed.bundle.templates.length === 1 ? "" : "s"
+            }. This is a template export, not a full backup — workout history isn't in the file. Nothing you already have is replaced.`,
+            [
+              {
+                text: "Cancel",
+                style: "cancel",
+                onPress: () => resolve(false),
+              },
+              { text: "Import", onPress: () => resolve(true) },
+            ],
+          );
+        });
+        if (!confirmed) return;
+        const result = await importBundle(parsed.bundle);
+        Alert.alert(
+          "Imported",
+          result.templatesImported === 1
+            ? `Added "${result.names[0]}" to your templates.`
+            : `Added ${result.templatesImported} templates.`,
+        );
         return;
       }
 
@@ -587,8 +614,10 @@ function PlanCard() {
   const setPlan = useMutation(api.routes.auth.users.setPlanForTesting);
   const checkout = useAction(api.routes.billing.polar.generateCheckoutLink);
   const portal = useAction(api.routes.billing.polar.generateCustomerPortalUrl);
+  const apple = useAppleAiAvailability();
   const [busy, setBusy] = useState(false);
   const isPro = entitlement?.isPro === true;
+  const appleReady = appleAiIsUsable(apple);
   const productIds = [products?.proMonthly?.id, products?.proYearly?.id].filter(
     (id): id is string => Boolean(id),
   );
@@ -623,8 +652,9 @@ function PlanCard() {
       <Crown color={colors.text} size={22} />
       <SectionTitle title="Plan" />
       <Text style={{ color: colors.dim, fontSize: 13 }}>
-        Pro unlocks AI workout and template generation.
+        {planAiSettingsCopy(appleReady)}
       </Text>
+      {appleReady && !isPro ? <DescribeWithAiButton variant="outline" /> : null}
       <View
         style={{
           flexDirection: "row",

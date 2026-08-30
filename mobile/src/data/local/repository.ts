@@ -37,10 +37,13 @@ import {
   localTemplateRemoteId,
   remoteCustomSlug,
 } from "@/data/local/types";
-import type { WorkoutExportBundle } from "@shared/workout-export";
+import { setRowsForNewExercise } from "@/data/local/exercise-sets";
+import {
+  convertWeight,
+  type WorkoutExportBundle,
+} from "@shared/workout-export";
 
 const DEFAULT_REST_SECONDS = 75;
-const DEFAULT_SET_ROWS = 3;
 const MAX_EXERCISES = 50;
 const MAX_SETS = 20;
 const MAX_WEIGHT = 10_000;
@@ -49,7 +52,6 @@ const MAX_CUSTOM_EXERCISES = 200;
 const MAX_CUSTOM_NAME_LENGTH = 80;
 const MAX_TEMPLATES_PER_IMPORT = 50;
 const CUSTOM_SLUG_PREFIX = "custom:";
-const LB_PER_KG = 2.2046226218;
 /** Orphan `custom:` lifts with no definition fall back to chest / no bar. */
 const ORPHAN_FALLBACK_CATEGORY: LocalMuscleGroup = "chest";
 const MUSCLE_GROUPS: readonly LocalMuscleGroup[] = [
@@ -663,6 +665,7 @@ export async function addLocalExercise(
   db: SQLiteDatabase,
   sessionId: string,
   value: string,
+  presets?: { weight: number; reps: number }[],
 ) {
   await requireEditableSession(db, sessionId);
   const slug = normalizedSlug(value);
@@ -697,6 +700,7 @@ export async function addLocalExercise(
     slug,
   );
   const seed = previous ?? { weight: 0, reps: 0 };
+  const rows = setRowsForNewExercise(presets, seed);
   const exerciseId = randomUUID();
   await db.withExclusiveTransactionAsync(async (txn) => {
     await txn.runAsync(
@@ -709,7 +713,9 @@ export async function addLocalExercise(
       exercises.length,
       DEFAULT_REST_SECONDS,
     );
-    for (let index = 0; index < DEFAULT_SET_ROWS; index++) {
+    for (let index = 0; index < rows.length; index++) {
+      const weight = boundedWhole(rows[index]!.weight, MAX_WEIGHT, "Weight");
+      const reps = boundedWhole(rows[index]!.reps, MAX_REPS, "Reps");
       await txn.runAsync(
         `INSERT INTO local_sets (
            id, session_exercise_id, order_index, target_weight, target_reps,
@@ -718,10 +724,10 @@ export async function addLocalExercise(
         randomUUID(),
         exerciseId,
         index,
-        seed.weight,
-        seed.reps,
-        seed.weight,
-        seed.reps,
+        weight,
+        reps,
+        weight,
+        reps,
       );
     }
   });
@@ -1014,17 +1020,6 @@ export async function saveLocalTemplate(
   return templateId;
 }
 
-/** Sets carry no unit of their own, so a cross-unit import converts them. */
-function convertImportWeight(
-  weight: number,
-  from: "lb" | "kg",
-  to: "lb" | "kg",
-): number {
-  if (from === to || weight === 0) return weight;
-  const converted = from === "kg" ? weight * LB_PER_KG : weight / LB_PER_KG;
-  return Math.round(converted);
-}
-
 /** `Push Day` + an existing `Push Day` becomes `Push Day (2)`. */
 function uniqueImportName(name: string, taken: Set<string>): string {
   const base = name.trim() || "Untitled";
@@ -1199,7 +1194,7 @@ export async function importLocalBundle(
       exercises.push({
         slug,
         sets: exercise.sets.map((set) => ({
-          weight: convertImportWeight(set.weight, bundle.unit, targetUnit),
+          weight: convertWeight(set.weight, bundle.unit, targetUnit),
           reps: set.reps,
         })),
       });

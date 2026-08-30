@@ -16,7 +16,12 @@ import {
   curatedCatalogForPrompt,
   formatCatalogForPrompt,
   GENERATE_SYSTEM_PROMPT,
+  applyRequiredExercisesToTemplate,
+  detectRequiredExerciseSlugs,
+  formatRequiredExercisesPromptBlock,
   groundTemplateDraft,
+  isExplicitExerciseList,
+  padExerciseSets,
   selectCatalogForAiPrompt,
   templateDraftSchema,
   type TemplateDraft,
@@ -80,17 +85,25 @@ export async function POST(request: Request) {
     }));
 
   // Ground against the full catalog; only send a compact subset to the model.
-  const allowedSlugs = new Set(
-    [...curatedCatalogForPrompt(), ...customCatalog].map((e) => e.slug),
-  );
+  const fullCatalog = [...curatedCatalogForPrompt(), ...customCatalog];
+  const allowedSlugs = new Set(fullCatalog.map((e) => e.slug));
+  const requiredSlugs = detectRequiredExerciseSlugs(body.prompt, fullCatalog);
   const promptCatalog = selectCatalogForAiPrompt({
     customs: customCatalog,
-    mustIncludeSlugs: body.current?.exercises.map((e) => e.slug) ?? [],
+    mustIncludeSlugs: [
+      ...(body.current?.exercises.map((e) => e.slug) ?? []),
+      ...requiredSlugs,
+    ],
     prompt: body.prompt,
   });
 
   const catalogBlock = formatCatalogForPrompt(promptCatalog);
   const userParts = [`Mode: ${body.mode}`, `User request:\n${body.prompt}`];
+  const requiredBlock = formatRequiredExercisesPromptBlock(
+    requiredSlugs,
+    fullCatalog,
+  );
+  if (requiredBlock) userParts.push(requiredBlock);
   if (body.mode === "edit" && body.current) {
     userParts.push(
       `Current template JSON (edit this; keep exercises the user did not ask to change unless needed):\n${JSON.stringify(body.current)}`,
@@ -123,7 +136,14 @@ export async function POST(request: Request) {
     });
   }
 
-  const { draft, droppedSlugs } = groundTemplateDraft(object, allowedSlugs);
+  const { draft: grounded, droppedSlugs } = groundTemplateDraft(
+    object,
+    allowedSlugs,
+  );
+  const draft = applyRequiredExercisesToTemplate(grounded, requiredSlugs, {
+    strictList: isExplicitExerciseList(body.prompt, requiredSlugs.length),
+  });
+  draft.exercises = padExerciseSets(draft.exercises, body.prompt);
   if (draft.exercises.length === 0) {
     return aiJsonError(
       422,

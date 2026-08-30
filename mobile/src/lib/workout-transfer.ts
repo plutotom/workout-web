@@ -6,17 +6,16 @@ import {
   backupFileName,
   parseBackup,
   serializeBackup,
-  type BackupParseResult,
   type WorkoutBackupSnapshot,
 } from "@/data/local/backup";
 import {
   bundleFileName,
   encodeBundleCode,
-  parseBundle,
   serializeBundle,
   type ParseResult,
   type WorkoutExportBundle,
 } from "@shared/workout-export";
+import { parseImportedFile } from "@shared/workout-backup";
 
 /**
  * Native transports for the portable bundle. The format itself lives in
@@ -60,13 +59,13 @@ export async function shareBundleFile(
 export async function pickBundleFile(): Promise<ParseResult | null> {
   const picked = await File.pickFileAsync({
     // Some apps hand a .json attachment over as text/plain or octet-stream, so
-    // the filter stays wide and `parseBundle` does the real validation.
+    // the filter stays wide and `parseImportedFile` does the real validation.
     mimeTypes: ["application/json", "text/plain", "application/octet-stream"],
   });
   if (picked.canceled) return null;
 
   try {
-    return parseBundle(await picked.result.text());
+    return parseImportedFile(await picked.result.text());
   } catch {
     return { ok: false, error: "Couldn't read that file" };
   }
@@ -101,15 +100,27 @@ export async function shareBackupFile(
   }
 }
 
-/** Open the system file picker and parse whatever the user chose as a backup. */
-export async function pickBackupFile(): Promise<BackupParseResult | null> {
+export type PickedBackupFile =
+  | { ok: true; kind: "backup"; snapshot: WorkoutBackupSnapshot }
+  | { ok: true; kind: "bundle"; bundle: WorkoutExportBundle }
+  | { ok: false; error: string };
+
+/** Open the system file picker and parse a backup or a portable template export. */
+export async function pickBackupFile(): Promise<PickedBackupFile | null> {
   const picked = await File.pickFileAsync({
     mimeTypes: ["application/json", "text/plain", "application/octet-stream"],
   });
   if (picked.canceled) return null;
 
   try {
-    return parseBackup(await picked.result.text());
+    const text = await picked.result.text();
+    const backup = parseBackup(text);
+    if (backup.ok)
+      return { ok: true, kind: "backup", snapshot: backup.snapshot };
+    const imported = parseImportedFile(text);
+    if (imported.ok)
+      return { ok: true, kind: "bundle", bundle: imported.bundle };
+    return { ok: false, error: backup.error };
   } catch {
     return { ok: false, error: "Couldn't read that file" };
   }
@@ -132,5 +143,5 @@ export async function pasteBundleFromClipboard(): Promise<ParseResult> {
   if (!text.trim()) {
     return { ok: false, error: "Your clipboard is empty" };
   }
-  return parseBundle(text);
+  return parseImportedFile(text);
 }

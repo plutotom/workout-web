@@ -85,7 +85,7 @@ describe("watch launch copy", () => {
         installed: false,
         reachable: false,
       }),
-    ).toMatch(/Install Workout on Apple Watch/);
+    ).toMatch(/Install Grayed Lift on Apple Watch/);
     expect(
       watchStartBlockedReason({
         supported: true,
@@ -107,7 +107,7 @@ describe("watch launch copy", () => {
     expect(
       watchLaunchErrorMessage(
         new Error(
-          "Call to function 'WatchBridge.startWatchWorkout' has been rejected.\n→ Caused by: Couldn’t launch Workout on Apple Watch. Unlock the Watch, raise your wrist, and try Start Watch again.",
+          "Call to function 'WatchBridge.startWatchWorkout' has been rejected.\n→ Caused by: Couldn’t launch Grayed Lift on Apple Watch. Unlock the Watch, raise your wrist, and try Start Watch again.",
         ),
       ),
     ).toMatch(/Unlock the Watch/);

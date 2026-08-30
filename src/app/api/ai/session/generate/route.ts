@@ -16,11 +16,18 @@ import {
   curatedCatalogForPrompt,
   formatCatalogForPrompt,
   groundSessionDraft,
+  applyRequiredExercisesToSession,
   SESSION_GENERATE_SYSTEM_PROMPT,
   sessionDraftSchema,
   type SessionDraft,
 } from "@/lib/ai/session-draft";
-import { selectCatalogForAiPrompt } from "@/lib/ai/template-draft";
+import {
+  detectRequiredExerciseSlugs,
+  formatRequiredExercisesPromptBlock,
+  isExplicitExerciseList,
+  padExerciseSets,
+  selectCatalogForAiPrompt,
+} from "@/lib/ai/template-draft";
 import {
   parseBoundedJson,
   RequestBodyTooLargeError,
@@ -91,12 +98,15 @@ export async function POST(request: Request) {
     body.current.exercises.map((e) => e.slug.trim()).filter(Boolean),
   );
   // Ground against the full catalog; only send a compact subset to the model.
-  const allowedSlugs = new Set(
-    [...curatedCatalogForPrompt(), ...customCatalog].map((e) => e.slug),
+  const fullCatalog = [...curatedCatalogForPrompt(), ...customCatalog];
+  const allowedSlugs = new Set(fullCatalog.map((e) => e.slug));
+  const mentionedSlugs = detectRequiredExerciseSlugs(body.prompt, fullCatalog);
+  const requiredSlugs = mentionedSlugs.filter(
+    (slug) => !existingSlugs.has(slug),
   );
   const promptCatalog = selectCatalogForAiPrompt({
     customs: customCatalog,
-    mustIncludeSlugs: existingSlugs,
+    mustIncludeSlugs: [...existingSlugs, ...requiredSlugs],
     prompt: body.prompt,
   });
 
@@ -104,8 +114,15 @@ export async function POST(request: Request) {
   const userParts = [
     summarizeCurrentSession(body.current.exercises),
     `User request:\n${body.prompt}`,
-    `Exercise catalog for add (slug | name | category):\n${catalogBlock}`,
   ];
+  const requiredBlock = formatRequiredExercisesPromptBlock(
+    requiredSlugs,
+    fullCatalog,
+  );
+  if (requiredBlock) userParts.push(requiredBlock);
+  userParts.push(
+    `Exercise catalog for add (slug | name | category):\n${catalogBlock}`,
+  );
 
   const model = resolveAiGatewayModel();
   let object: SessionDraft;
@@ -130,11 +147,18 @@ export async function POST(request: Request) {
     });
   }
 
-  const { draft, droppedSlugs } = groundSessionDraft(
+  const { draft: grounded, droppedSlugs } = groundSessionDraft(
     object,
     allowedSlugs,
     existingSlugs,
   );
+  const draft = applyRequiredExercisesToSession(
+    grounded,
+    requiredSlugs,
+    existingSlugs,
+    { strictList: isExplicitExerciseList(body.prompt, requiredSlugs.length) },
+  );
+  draft.add = padExerciseSets(draft.add, body.prompt);
   if (draft.removeSlugs.length === 0 && draft.add.length === 0) {
     return aiJsonError(
       422,

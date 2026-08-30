@@ -6,6 +6,7 @@ import type { Href } from "expo-router";
 
 import { useMobileAuth } from "@/auth/auth-provider";
 import { Button, Screen } from "@/components/ui";
+import { signedOutWelcomeAiCopy } from "@/lib/ai-copy";
 import { colors } from "@/theme";
 
 /**
@@ -72,7 +73,7 @@ export default function SignInScreen() {
             letterSpacing: 2.2,
           }}
         >
-          WORKOUT
+          GRAYED LIFT
         </Text>
         <Text
           style={{
@@ -94,8 +95,8 @@ export default function SignInScreen() {
             maxWidth: 330,
           }}
         >
-          Track every workout without a connection. Connect your account when
-          you want your training to sync with the web.
+          Track every workout without a connection. {signedOutWelcomeAiCopy()}{" "}
+          Connect later if you want your training to sync with the web.
         </Text>
       </View>
 
@@ -128,7 +129,7 @@ export default function SignInScreen() {
             lineHeight: 16,
           }}
         >
-          An account backs up your training and syncs it with Workout on the
+          An account backs up your training and syncs it with Grayed Lift on the
           web. You can create one later — nothing is lost.
         </Text>
       </View>

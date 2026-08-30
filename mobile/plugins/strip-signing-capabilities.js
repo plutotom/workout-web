@@ -24,11 +24,23 @@ const plist = plistModule.parse ? plistModule : plistModule.default;
  * treats signing as "already configured" and skips CODE_SIGN_STYLE=Automatic
  * plus `-allowProvisioningUpdates`. Device installs need both so Xcode can
  * mint a free Personal Team profile — no paid provisioning required.
+ *
+ * Store / TestFlight / paid-team builds: set `KEEP_PAID_IOS_ENTITLEMENTS=1`
+ * so this plugin is a no-op. That keeps Push, Associated Domains, and the
+ * managed Private Cloud Compute entitlement (`app.json` declares PCC so a
+ * granted App ID can actually overflow on-device 4k).
  */
+
+function shouldKeepPaidIosEntitlements() {
+  return process.env.KEEP_PAID_IOS_ENTITLEMENTS === "1";
+}
 
 const PAID_ENTITLEMENT_KEYS = [
   "aps-environment",
   "com.apple.developer.associated-domains",
+  // Managed PCC entitlement — App Store / TestFlight only. Local Personal
+  // Team builds cannot sign it; on-device Foundation Models still work.
+  "com.apple.developer.private-cloud-compute",
 ];
 
 function stripPaidEntitlements(entitlements) {
@@ -81,6 +93,10 @@ function enableAutomaticSigning(project, appleTeamId) {
 }
 
 function withStripSigningCapabilities(config) {
+  if (shouldKeepPaidIosEntitlements()) {
+    return config;
+  }
+
   config = withEntitlementsPlist(config, (config) => {
     config.modResults = stripPaidEntitlements(config.modResults);
     return config;
@@ -126,3 +142,4 @@ function withStripSigningCapabilities(config) {
 module.exports = withStripSigningCapabilities;
 module.exports.enableAutomaticSigning = enableAutomaticSigning;
 module.exports.stripPaidEntitlements = stripPaidEntitlements;
+module.exports.shouldKeepPaidIosEntitlements = shouldKeepPaidIosEntitlements;

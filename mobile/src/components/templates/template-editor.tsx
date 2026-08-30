@@ -28,6 +28,7 @@ import {
 import { useLocalData, useLocalExerciseNotes } from "@/data/local/provider";
 import { isUnsyncedTemplateRemoteId } from "@/data/local/types";
 import { useAiGeneration } from "@/lib/ai";
+import { appleGenerateSheetCopy } from "@/lib/ai-copy";
 import { useCatalog } from "@/providers/catalog-provider";
 import { colors } from "@/theme";
 
@@ -39,9 +40,11 @@ type EditorExercise = {
 export function TemplateEditor({
   templateId,
   initial,
+  openAi = false,
 }: {
   templateId?: string;
   initial: { name: string; exercises: EditorExercise[] };
+  openAi?: boolean;
 }) {
   const catalog = useCatalog();
   const { isAuthenticated } = useMobileAuth();
@@ -56,7 +59,7 @@ export function TemplateEditor({
   const [exercises, setExercises] = useState(initial.exercises);
   const [expanded, setExpanded] = useState(initial.exercises.length ? 0 : -1);
   const [picker, setPicker] = useState(false);
-  const [aiOpen, setAiOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(openAi);
   const [saving, setSaving] = useState(false);
   const [localNotes, setLocalNotes] = useState<Record<string, string>>({});
   const slugs = useMemo(
@@ -82,7 +85,11 @@ export function TemplateEditor({
     })),
     catalog,
   );
-  const { generateTemplate } = useAiGeneration();
+  const {
+    generateTemplate,
+    available: aiAvailable,
+    usesApple,
+  } = useAiGeneration();
 
   function changeExercise(
     index: number,
@@ -213,7 +220,7 @@ export function TemplateEditor({
           onChangeText={setName}
           placeholder="Push Day"
         />
-        {isAuthenticated ? (
+        {aiAvailable ? (
           <>
             <Button
               label={templateId ? "Edit with AI" : "Describe with AI"}
@@ -229,7 +236,9 @@ export function TemplateEditor({
                 marginTop: -12,
               }}
             >
-              Build by hand, or ask AI to reshape the draft.
+              {usesApple
+                ? "On this iPhone · works offline, even without an account."
+                : "Build by hand, or ask AI to reshape the draft."}
             </Text>
           </>
         ) : null}
@@ -520,12 +529,17 @@ export function TemplateEditor({
         onClose={() => setPicker(false)}
         onAdd={addExercises}
       />
-      {isAuthenticated ? (
+      {aiAvailable ? (
         <AiPromptModal
           visible={aiOpen}
           title={templateId ? "Edit this template" : "Describe your workout"}
-          description="AI will draft catalog exercises and set targets for you to review before saving."
+          description={
+            usesApple
+              ? appleGenerateSheetCopy("template")
+              : "AI will draft catalog exercises and set targets for you to review before saving."
+          }
           loadingLabel="Building your template…"
+          onDevice={usesApple}
           onClose={() => setAiOpen(false)}
           onGenerate={generate}
         />

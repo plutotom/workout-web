@@ -21,7 +21,8 @@ const LB_PER_KG = 2.2046226218;
 /** See adoptOrphanCustom — only reached for bundles missing a lift definition. */
 const ORPHAN_FALLBACK_CATEGORY = "chest" as const;
 
-/** Sets carry no unit of their own, so a cross-unit import converts them. */
+/** Sets carry no unit of their own, so a cross-unit import converts them.
+ *  Keep in lockstep with `convertWeight` in `src/lib/workout-export.ts`. */
 export function convertWeight(
   weight: number,
   from: "lb" | "kg",

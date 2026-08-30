@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-const APP_NAME = "Workout";
+const APP_NAME = "Grayed Lift";
 const APP_DESCRIPTION =
   "Track strength sessions in the browser — templates when you want a plan, quick start when you just want to lift.";
 

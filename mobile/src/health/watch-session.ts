@@ -50,7 +50,7 @@ export function shouldSkipPhoneHealthExport(input: {
 export function watchStartBlockedReason(status: WatchCompanionStatus) {
   if (!status.supported || !status.paired) return null;
   if (!status.installed) {
-    return "Install Workout on Apple Watch from the Watch app on iPhone, then try again.";
+    return "Install Grayed Lift on Apple Watch from the Watch app on iPhone, then try again.";
   }
   return null;
 }
@@ -73,17 +73,17 @@ export function watchLaunchErrorMessage(raw: unknown) {
       .at(-1) ?? blocked;
   const text = cause.toLowerCase();
   if (text.includes("not installed")) {
-    return "Install Workout on Apple Watch from the Watch app on iPhone, then try again.";
+    return "Install Grayed Lift on Apple Watch from the Watch app on iPhone, then try again.";
   }
   if (text.includes("authoriz") || text.includes("denied")) {
-    return "Allow Workout to write Apple Health workouts, then try again.";
+    return "Allow Grayed Lift to write Apple Health workouts, then try again.";
   }
   if (
     text.includes("unable to launch") ||
     text.includes("no response") ||
     text.includes("concurrentfunctiondefinition")
   ) {
-    return "Couldn’t launch Workout on Apple Watch. Unlock the Watch, raise your wrist, and try Start Watch again.";
+    return "Couldn’t launch Grayed Lift on Apple Watch. Unlock the Watch, raise your wrist, and try Start Watch again.";
   }
   return cause.split("\n")[0]?.trim() || "Couldn’t start Watch.";
 }

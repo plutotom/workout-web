@@ -1,9 +1,9 @@
 {
   "expo": {
-    "name": "Workout",
+    "name": "Grayed Lift",
     "slug": "workout-ios-v1",
     "scheme": "workout",
-    "version": "0.1.0",
+    "version": "0.1.8",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "icon": "./assets/icon.png",
@@ -16,17 +16,24 @@
       "bundleIdentifier": "com.isaiahproctor.workout.local",
       "appleTeamId": "3CVY7K9AJ6",
       "infoPlist": {
-        "NSHealthShareUsageDescription": "Workout reads your Apple Health workouts so you can import a run, ride, swim, walk, or other activity into your training log.",
-        "NSHealthUpdateUsageDescription": "Workout can save workouts you finish in this app to Apple Health. Saving is off until you turn on export.",
-        "UIBackgroundModes": ["healthkit"]
+        "NSHealthShareUsageDescription": "Grayed Lift reads your Apple Health workouts so you can import a run, ride, swim, walk, or other activity into your training log.",
+        "NSHealthUpdateUsageDescription": "Grayed Lift can save workouts you finish in this app to Apple Health. Saving is off until you turn on export.",
+        "ITSAppUsesNonExemptEncryption": false
       },
       "entitlements": {
-        "com.apple.developer.healthkit": true
-      }
+        "com.apple.developer.healthkit": true,
+        "com.apple.developer.private-cloud-compute": true
+      },
+      "buildNumber": "8"
+    },
+    "owner": "plutotom",
+    "runtimeVersion": {
+      "policy": "appVersion"
     },
     "plugins": [
       "expo-router",
       "expo-dev-client",
+      "expo-updates",
       "expo-secure-store",
       "expo-font",
       "expo-sqlite",
@@ -37,14 +44,35 @@
       [
         "@kingstinct/react-native-healthkit",
         {
-          "NSHealthShareUsageDescription": "Workout reads your Apple Health workouts so you can import a run, ride, swim, walk, or other activity into your training log.",
-          "NSHealthUpdateUsageDescription": "Workout can save workouts you finish in this app to Apple Health. Saving is off until you turn on export.",
+          "NSHealthShareUsageDescription": "Grayed Lift reads your Apple Health workouts so you can import a run, ride, swim, walk, or other activity into your training log.",
+          "NSHealthUpdateUsageDescription": "Grayed Lift can save workouts you finish in this app to Apple Health. Saving is off until you turn on export.",
           "background": true
         }
       ],
       "@bacons/apple-targets",
       "./plugins/strip-signing-capabilities.js",
       "./plugins/stable-react-native-path.js"
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "build": {
+          "experimental": {
+            "ios": {
+              "appExtensions": [
+                {
+                  "bundleIdentifier": "com.isaiahproctor.workout.local.watchkitapp",
+                  "targetName": "Watch",
+                  "entitlements": {
+                    "com.apple.developer.healthkit": true
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "projectId": "3fb28c80-26a9-4ff5-a609-8cbe2750466b"
+      }
+    }
   }
 }
