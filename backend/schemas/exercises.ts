@@ -42,5 +42,7 @@ export const exerciseTables = {
     userId: v.id("users"),
     exerciseSlug: exerciseSlugValidator,
     notes: v.string(),
-  }).index("by_user_slug", ["userId", "exerciseSlug"]),
+  })
+    .index("by_user", ["userId"])
+    .index("by_user_slug", ["userId", "exerciseSlug"]),
 };

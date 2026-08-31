@@ -12,7 +12,10 @@ import type {
   LocalSessionStatus,
   LocalTemplateSet,
 } from "@/data/local/types";
-import { localTemplateRemoteId } from "@/data/local/types";
+import {
+  isUnsyncedTemplateRemoteId,
+  localTemplateRemoteId,
+} from "@/data/local/types";
 import {
   BACKUP_FORMAT,
   BACKUP_VERSION,
@@ -50,7 +53,12 @@ const MUSCLE_GROUPS: readonly LocalMuscleGroup[] = [
   "core",
 ];
 
-type TemplateRow = { id: string; name: string; updated_at: number };
+type TemplateRow = {
+  id: string;
+  remote_id: string;
+  name: string;
+  updated_at: number;
+};
 type TemplateExerciseRow = {
   id: string;
   template_id: string;
@@ -61,6 +69,7 @@ type TemplateExerciseRow = {
 type CustomExerciseRow = {
   id: string;
   slug: string;
+  remote_id: string | null;
   name: string;
   short: string | null;
   category: string;
@@ -71,7 +80,9 @@ type CustomExerciseRow = {
 type NoteRow = { slug: string; notes: string; updated_at: number };
 type SessionRow = {
   id: string;
+  remote_id: string | null;
   template_id: string | null;
+  remote_template_id: string | null;
   template_name: string;
   status: LocalSessionStatus;
   session_kind: LocalSessionKind | null;
@@ -153,7 +164,8 @@ export async function createLocalBackup(
   const preferences = await getLocalPreferences(db);
 
   const customRows = await db.getAllAsync<CustomExerciseRow>(
-    `SELECT id, slug, name, short, category, uses_bar, archived, updated_at
+    `SELECT id, slug, remote_id, name, short, category, uses_bar, archived,
+            updated_at
        FROM local_custom_exercises
       ORDER BY name`,
   );
@@ -161,7 +173,9 @@ export async function createLocalBackup(
     "SELECT slug, notes, updated_at FROM local_exercise_notes ORDER BY slug",
   );
   const templateRows = await db.getAllAsync<TemplateRow>(
-    "SELECT id, name, updated_at FROM local_templates ORDER BY name",
+    `SELECT id, remote_id, name, updated_at
+       FROM local_templates
+      ORDER BY name`,
   );
   const templateExerciseRows = await db.getAllAsync<TemplateExerciseRow>(
     `SELECT id, template_id, slug, order_index, sets_json
@@ -169,10 +183,11 @@ export async function createLocalBackup(
       ORDER BY template_id, order_index`,
   );
   const sessionRows = await db.getAllAsync<SessionRow>(
-    `SELECT id, template_id, template_name, status, session_kind, started_at,
-            completed_at, updated_at, counts_toward_goals, external_provider,
-            external_id, activity_type, source_name, source_bundle_id,
-            duration_seconds, energy_kcal, distance_meters, imported_at
+    `SELECT id, remote_id, template_id, remote_template_id, template_name,
+            status, session_kind, started_at, completed_at, updated_at,
+            counts_toward_goals, external_provider, external_id, activity_type,
+            source_name, source_bundle_id, duration_seconds, energy_kcal,
+            distance_meters, imported_at
        FROM local_sessions
       ORDER BY started_at`,
   );
@@ -205,6 +220,7 @@ export async function createLocalBackup(
     preferences,
     customExercises: customRows.map((row) => ({
       id: row.id,
+      remoteId: row.remote_id,
       slug: row.slug,
       name: row.name,
       short: row.short,
@@ -217,6 +233,7 @@ export async function createLocalBackup(
     })),
     templates: templateRows.map((row) => ({
       id: row.id,
+      remoteId: row.remote_id,
       name: row.name,
       updatedAt: row.updated_at,
       exercises: (exercisesByTemplate.get(row.id) ?? []).map((exercise) => ({
@@ -233,7 +250,9 @@ export async function createLocalBackup(
     })),
     sessions: sessionRows.map((row) => ({
       id: row.id,
+      remoteId: row.remote_id,
       templateId: row.template_id,
+      remoteTemplateId: row.remote_template_id,
       templateName: row.template_name,
       status: row.status,
       sessionKind:
@@ -339,6 +358,9 @@ export async function restoreLocalBackup(
   const addedTemplateIds: string[] = [];
   const addedSessionIds: string[] = [];
   const addedCustomIds: string[] = [];
+  const customIdsToSync: string[] = [];
+  const templateIdsToSync: string[] = [];
+  const sessionIdsToSync: string[] = [];
   let notesAdded = 0;
   let skipped = 0;
 
@@ -373,11 +395,12 @@ export async function restoreLocalBackup(
     for (const exercise of snapshot.customExercises) {
       const result = await txn.runAsync(
         `INSERT OR IGNORE INTO local_custom_exercises (
-           id, slug, remote_id, name, short, category, uses_bar, archived,
+         id, slug, remote_id, name, short, category, uses_bar, archived,
            updated_at
-         ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?)`,
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         exercise.id,
         exercise.slug,
+        exercise.remoteId ?? null,
         exercise.name,
         exercise.short,
         exercise.category,
@@ -385,7 +408,12 @@ export async function restoreLocalBackup(
         exercise.archived ? 1 : 0,
         exercise.updatedAt,
       );
-      if (result.changes > 0) addedCustomIds.push(exercise.id);
+      if (result.changes > 0) {
+        addedCustomIds.push(exercise.id);
+        if (!exercise.remoteId) customIdsToSync.push(exercise.id);
+      } else {
+        skipped++;
+      }
     }
 
     for (const template of snapshot.templates) {
@@ -393,9 +421,9 @@ export async function restoreLocalBackup(
         `INSERT OR IGNORE INTO local_templates (id, remote_id, name, updated_at)
          VALUES (?, ?, ?, ?)`,
         template.id,
-        // Deterministic from the row id, so it reproduces exactly the
-        // remote id an offline-created template already had.
-        localTemplateRemoteId(template.id),
+        // Older backups didn't carry this field. Rebuild the phone-only id
+        // they used so their existing sync/idempotency behavior is unchanged.
+        template.remoteId ?? localTemplateRemoteId(template.id),
         template.name,
         template.updatedAt,
       );
@@ -404,6 +432,9 @@ export async function restoreLocalBackup(
         continue;
       }
       addedTemplateIds.push(template.id);
+      if (!template.remoteId || isUnsyncedTemplateRemoteId(template.remoteId)) {
+        templateIdsToSync.push(template.id);
+      }
       for (const exercise of template.exercises) {
         await txn.runAsync(
           `INSERT OR IGNORE INTO local_template_exercises (
@@ -427,6 +458,7 @@ export async function restoreLocalBackup(
         note.updatedAt,
       );
       if (result.changes > 0) notesAdded++;
+      else skipped++;
     }
 
     // The app assumes at most one workout is in progress, so a backed-up
@@ -461,12 +493,18 @@ export async function restoreLocalBackup(
            source_name, source_bundle_id, duration_seconds, energy_kcal,
            distance_meters, imported_at
          ) VALUES (
-           ?, NULL,
-           (SELECT id FROM local_templates WHERE id = ?),
-           NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+           ?, ?,
+           COALESCE(
+             (SELECT id FROM local_templates WHERE id = ?),
+             (SELECT id FROM local_templates WHERE remote_id = ?)
+           ),
+           ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
          )`,
         session.id,
+        session.remoteId ?? null,
         session.templateId,
+        session.remoteTemplateId ?? null,
+        session.remoteTemplateId ?? null,
         session.templateName,
         session.status,
         session.sessionKind === "health_summary" ? "health_summary" : "tracked",
@@ -490,6 +528,7 @@ export async function restoreLocalBackup(
       }
       if (session.status === "in_progress") activeTaken = true;
       addedSessionIds.push(session.id);
+      if (!session.remoteId) sessionIdsToSync.push(session.id);
 
       for (const exercise of session.exercises) {
         await txn.runAsync(
@@ -525,14 +564,13 @@ export async function restoreLocalBackup(
   });
 
   // Queued outside the transaction, like `applyIosBootstrap` does: the queue
-  // helpers read back through `db`. Restored rows keep their ids, which double
-  // as sync client ids, so signing in later uploads them without duplicating
-  // anything the account already holds.
+  // helpers read back through `db`. Local-only rows still need uploading;
+  // account-backed rows keep their real remote ids and must not be recreated.
   const now = Date.now();
-  for (const id of addedCustomIds)
+  for (const id of customIdsToSync)
     await queueCustomExerciseSnapshot(db, id, now);
-  for (const id of addedTemplateIds) await queueTemplateSnapshot(db, id, now);
-  for (const id of addedSessionIds) await queueSessionSnapshot(db, id, now);
+  for (const id of templateIdsToSync) await queueTemplateSnapshot(db, id, now);
+  for (const id of sessionIdsToSync) await queueSessionSnapshot(db, id, now);
 
   return {
     sessionsAdded: addedSessionIds.length,
