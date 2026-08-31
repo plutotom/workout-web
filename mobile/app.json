@@ -73,6 +73,16 @@
         },
         "projectId": "3fb28c80-26a9-4ff5-a609-8cbe2750466b"
       }
+    },
+    "updates": {
+      "url": "https://u.expo.dev/3fb28c80-26a9-4ff5-a609-8cbe2750466b"
+    },
+    "android": {
+      "permissions": [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.INTERNET"
+      ]
     }
   }
 }
