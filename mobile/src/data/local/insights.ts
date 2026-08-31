@@ -187,6 +187,7 @@ export type InsightsSessionSummary = {
   activityType?: string | null;
   distanceMeters?: number | null;
   energyKcal?: number | null;
+  healthSegments?: import("@shared/health-summary").HealthWorkoutSegment[];
   exercises: { slug: string; completedCount: number }[];
 };
 
@@ -225,6 +226,7 @@ function formatSessionSummary(session: LoadedSession): InsightsSessionSummary {
     activityType: session.health?.activityType ?? null,
     distanceMeters: session.health?.distanceMeters ?? null,
     energyKcal: session.health?.energyKcal ?? null,
+    healthSegments: session.health?.segments ?? [],
     exercises: session.exercises
       .filter((e) => e.slug !== "__volume__")
       .map((e) => ({
@@ -604,6 +606,7 @@ export type WorkoutRecap = {
     activityType?: string | null;
     distanceMeters?: number | null;
     energyKcal?: number | null;
+    healthSegments?: import("@shared/health-summary").HealthWorkoutSegment[];
   };
   totals: {
     volume: number;
@@ -718,6 +721,7 @@ export function getLocalWorkoutRecap(
       activityType: session.health?.activityType ?? null,
       distanceMeters: session.health?.distanceMeters ?? null,
       energyKcal: session.health?.energyKcal ?? null,
+      healthSegments: session.health?.segments ?? [],
     },
     totals: {
       volume,

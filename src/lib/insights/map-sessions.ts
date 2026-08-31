@@ -1,3 +1,4 @@
+import type { HealthWorkoutSegment } from "../health-summary";
 import { formatHealthHistoryLine } from "../health-summary";
 import type { RecentSession } from "./types";
 
@@ -11,6 +12,7 @@ type QuerySession = {
   sourceName?: string | null;
   distanceMeters?: number | null;
   energyKcal?: number | null;
+  healthSegments?: HealthWorkoutSegment[] | null;
   exercises: { slug: string; completedCount: number }[];
 };
 
@@ -19,7 +21,11 @@ export function summarizeSessionExercises(
   short: (slug: string) => string,
   session?: Pick<
     QuerySession,
-    "sessionKind" | "sourceName" | "distanceMeters" | "energyKcal"
+    | "sessionKind"
+    | "sourceName"
+    | "distanceMeters"
+    | "energyKcal"
+    | "healthSegments"
   >,
 ): string {
   const healthLine = formatHealthHistoryLine(session ?? {});

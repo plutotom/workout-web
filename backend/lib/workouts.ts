@@ -2,7 +2,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { computeWeekStreak, estimate1RM, startOfWeekMonday } from "./insights";
 import { getNotesBySlugs } from "./exercise_notes";
-import { normalizeSessionKind } from "./health_sessions";
+import { normalizeSessionKind, sessionHealthSegments } from "./health_sessions";
 
 const clampWhole = (n: number) => Math.max(0, Math.round(n));
 const DEFAULT_REST_SECONDS = 75;
@@ -973,6 +973,7 @@ export async function getWorkout(
     durationSeconds: session.durationSeconds ?? null,
     energyKcal: session.energyKcal ?? null,
     distanceMeters: session.distanceMeters ?? null,
+    healthSegments: sessionHealthSegments(session),
     exercises: withSets,
   };
 }

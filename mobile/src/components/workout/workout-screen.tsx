@@ -47,6 +47,7 @@ import { useSessionAi } from "@/components/workout/use-session-ai";
 import { appleGenerateSheetCopy } from "@/lib/ai-copy";
 import { formatDate, formatDuration, formatWeight } from "@/lib/format";
 import { formatHealthDistance, formatHealthEnergy } from "@/health/mapping";
+import { HealthSegmentList } from "@/health/segment-list";
 import {
   useLocalData,
   useLocalLastSet,
@@ -80,6 +81,7 @@ type PastWorkout = {
   energyKcal?: number | null;
   distanceMeters?: number | null;
   health?: LocalWorkoutSession["health"];
+  healthSegments?: NonNullable<LocalWorkoutSession["health"]>["segments"];
   exercises: Array<{
     _id: string;
     slug: string;
@@ -1253,6 +1255,7 @@ function CompletedWorkout({
   const energyKcal = session.health?.energyKcal ?? session.energyKcal ?? null;
   const distanceMeters =
     session.health?.distanceMeters ?? session.distanceMeters ?? null;
+  const segments = session.health?.segments ?? session.healthSegments ?? [];
   const durationMs =
     durationSeconds != null
       ? durationSeconds * 1000
@@ -1397,6 +1400,9 @@ function CompletedWorkout({
           <Text style={{ color: colors.dim, fontSize: 13, lineHeight: 19 }}>
             {healthFacts || "Summary imported from Apple Health."}
           </Text>
+          {segments.length > 0 ? (
+            <HealthSegmentList segments={segments} unit={unit} />
+          ) : null}
         </Card>
       ) : session.exercises.length ? (
         session.exercises.map((exercise) => {

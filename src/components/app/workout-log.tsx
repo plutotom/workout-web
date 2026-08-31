@@ -58,6 +58,7 @@ import {
 import { useExerciseCatalog } from "@/components/app/exercise-catalog-provider";
 import { formatLb } from "@/components/app/workout-design";
 import { formatHealthDistance, formatHealthEnergy } from "@/lib/health-summary";
+import { HealthSegmentList } from "@/components/app/health-segment-list";
 
 type DragState = {
   from: number;
@@ -387,9 +388,12 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
           <CardHeader>
             <CardTitle>Apple Health</CardTitle>
           </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
-            Imported summary. The original workout stays in Apple Health, and
-            this copy does not include lifts, sets, or volume.
+          <CardContent className="space-y-3 text-sm text-muted-foreground">
+            <p>
+              Imported summary. The original workout stays in Apple Health, and
+              this copy does not include lifts, sets, or volume.
+            </p>
+            <HealthSegmentList segments={session.healthSegments} />
           </CardContent>
         </Card>
       ) : editable && session.exercises.length === 0 ? (

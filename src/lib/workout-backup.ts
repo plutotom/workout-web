@@ -6,6 +6,10 @@ import {
   type ParseResult,
   type WorkoutExportBundle,
 } from "./workout-export";
+import {
+  parseHealthSegments,
+  type HealthWorkoutSegment,
+} from "./health-summary";
 
 /**
  * Phone-database snapshot. Deliberately separate from the portable template
@@ -121,6 +125,7 @@ export type BackupSession = {
   energyKcal?: number | null;
   distanceMeters?: number | null;
   importedAt?: number | null;
+  healthSegments?: HealthWorkoutSegment[];
   exercises: BackupSessionExercise[];
 };
 
@@ -416,6 +421,7 @@ export function validateBackup(value: unknown): BackupParseResult {
         ? raw.distanceMeters
         : null,
       importedAt: isFiniteNumber(raw.importedAt) ? raw.importedAt : null,
+      healthSegments: parseHealthSegments(raw.healthSegments),
       exercises,
     });
   }

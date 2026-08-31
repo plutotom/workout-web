@@ -11,6 +11,7 @@ export const DEFAULT_AUTO_IMPORT_TYPES = [
   "walking",
   "cycling",
   "swimming",
+  "swimBikeRun",
 ] as const;
 
 export const AUTO_IMPORT_TYPE_OPTIONS = [
@@ -18,12 +19,15 @@ export const AUTO_IMPORT_TYPE_OPTIONS = [
   { type: "walking", name: "Walk" },
   { type: "cycling", name: "Ride" },
   { type: "swimming", name: "Swim" },
+  { type: "swimBikeRun", name: "Triathlon" },
   { type: "hiking", name: "Hike" },
   { type: "traditionalStrengthTraining", name: "Strength" },
   { type: "highIntensityIntervalTraining", name: "HIIT" },
   { type: "rowing", name: "Row" },
   { type: "yoga", name: "Yoga" },
 ] as const;
+
+const TRIATHLON_COMPONENT_TYPES = ["running", "cycling", "swimming"] as const;
 
 export const DEFAULT_HEALTH_AUTO_IMPORT_PREFS: HealthAutoImportPrefs = {
   enabled: false,
@@ -90,9 +94,22 @@ export function workoutPassesAutoImportFilter(
 ) {
   if (!prefs.enabled) return false;
   if (prefs.importAllTypes) return true;
-  return prefs.types.some((type) =>
-    activityMatchesSelectedType(workout.activityType, type),
-  );
+  if (
+    prefs.types.some((type) =>
+      activityMatchesSelectedType(workout.activityType, type),
+    )
+  ) {
+    return true;
+  }
+  // Existing prefs store run/ride/swim without a Triathlon chip. A
+  // swim-bike-run workout is those sports together, so import it when
+  // all three are selected.
+  if (workout.activityType === "swimBikeRun") {
+    return TRIATHLON_COMPONENT_TYPES.every((type) =>
+      prefs.types.includes(type),
+    );
+  }
+  return false;
 }
 
 export function shouldNotifyAutoImport(
@@ -180,5 +197,6 @@ export function toHealthSummaryImport(workout: HealthWorkoutSummary) {
     distanceMeters: workout.distanceMeters,
     sourceName: workout.sourceName,
     sourceBundleId: workout.sourceBundleId,
+    segments: workout.segments ?? [],
   };
 }

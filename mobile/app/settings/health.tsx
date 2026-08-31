@@ -45,6 +45,7 @@ import {
 import {
   formatHealthDistance,
   formatHealthEnergy,
+  formatHealthSportLine,
   isStrengthActivityType,
 } from "@/health/mapping";
 import { findLikelyHealthOverlap } from "@/health/overlap";
@@ -62,6 +63,7 @@ function toImport(workout: HealthWorkoutSummary) {
     distanceMeters: workout.distanceMeters,
     sourceName: workout.sourceName,
     sourceBundleId: workout.sourceBundleId,
+    segments: workout.segments ?? [],
   };
 }
 
@@ -781,10 +783,12 @@ function HealthWorkoutRow({
 }) {
   const distance = formatHealthDistance(item.distanceMeters, unit);
   const energy = formatHealthEnergy(item.energyKcal);
+  const sports = formatHealthSportLine(item.segments);
   const details = [
     formatWhen(item.startedAt),
     formatDuration(item.durationSeconds * 1000),
     item.sourceName,
+    sports,
     distance,
     energy,
   ]

@@ -46,6 +46,15 @@ const emptyOverview = {
     activityType: string | null;
     distanceMeters: number | null;
     energyKcal: number | null;
+    healthSegments: {
+      activityType: string;
+      activityName: string;
+      startedAt: number;
+      endedAt: number;
+      durationSeconds: number;
+      distanceMeters: number | null;
+      energyKcal: number | null;
+    }[];
     exercises: { slug: string; completedCount: number }[];
   }[],
 };

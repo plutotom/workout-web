@@ -65,3 +65,92 @@ diff --git a/ios/ExceptionCatcher.mm b/ios/ExceptionCatcher.mm
 +        return NO;
 +    }
 +}
+diff --git a/ios/WorkoutProxy.swift b/ios/WorkoutProxy.swift
+--- a/ios/WorkoutProxy.swift
++++ b/ios/WorkoutProxy.swift
+@@ -176,6 +176,70 @@
+   }
+ }
+ 
++@available(iOS 16.0, *)
++private func firstSumQuantity(
++  _ activity: HKWorkoutActivity,
++  identifiers: [HKQuantityTypeIdentifier],
++  unit: HKUnit
++) -> Double? {
++  for identifier in identifiers {
++    guard let type = HKQuantityType.quantityType(forIdentifier: identifier),
++      let quantity = activity.statistics(for: type)?.sumQuantity()
++    else { continue }
++    let value = quantity.doubleValue(for: unit)
++    if value > 0 { return value }
++  }
++  return nil
++}
++
++/// HealthKit's WorkoutActivity Nitro type only has uuid/dates/duration.
++/// Typed triathlon legs are JSON in metadata so JS can map swim/bike/run.
++@available(iOS 16.0, *)
++func serializeWorkoutActivityLegs(_ workout: HKWorkout) -> String? {
++  let activities = workout.workoutActivities
++  if activities.isEmpty { return nil }
++
++  let formatter = ISO8601DateFormatter()
++  formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
++
++  let payload: [[String: Any]] = activities.map { activity in
++    var dict: [String: Any] = [
++      "uuid": activity.uuid.uuidString,
++      "startDate": formatter.string(from: activity.startDate),
++      "endDate": formatter.string(from: activity.endDate ?? activity.startDate),
++      "duration": activity.duration,
++      "workoutActivityType": Int(activity.workoutConfiguration.activityType.rawValue),
++    ]
++    if let meters = firstSumQuantity(
++      activity,
++      identifiers: [
++        .distanceSwimming,
++        .distanceCycling,
++        .distanceWalkingRunning,
++        .distanceWheelchair,
++        .distanceDownhillSnowSports,
++      ],
++      unit: .meter()
++    ) {
++      dict["totalDistance"] = ["quantity": meters, "unit": "m"]
++    }
++    if let kcal = firstSumQuantity(
++      activity,
++      identifiers: [.activeEnergyBurned],
++      unit: .kilocalorie()
++    ) {
++      dict["totalEnergyBurned"] = ["quantity": kcal, "unit": "kcal"]
++    }
++    return dict
++  }
++
++  guard JSONSerialization.isValidJSONObject(payload),
++    let data = try? JSONSerialization.data(withJSONObject: payload),
++    let json = String(data: data, encoding: .utf8)
++  else { return nil }
++  return json
++}
++
+ class WorkoutProxy: HybridWorkoutProxySpec {
+   // Return a Promise instead of directly returning the value; wrap async logic.
+   func getStatistic(quantityType: QuantityTypeIdentifier, unitOverride: String?) throws -> Promise<
+@@ -327,7 +391,13 @@
+   }
+ 
+   var metadata: AnyMap {
+-    return serializeMetadata(workout.metadata)
++    let serialized = serializeMetadata(workout.metadata)
++    if #available(iOS 16.0, *),
++      let json = serializeWorkoutActivityLegs(workout)
++    {
++      serialized.setString(key: "WorkoutActivityLegs", value: json)
++    }
++    return serialized
+   }
+ 
+   var sourceRevision: SourceRevision {

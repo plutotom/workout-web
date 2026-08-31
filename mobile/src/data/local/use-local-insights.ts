@@ -40,6 +40,9 @@ type RemoteSessionSummary = {
   activityType?: string | null;
   distanceMeters?: number | null;
   energyKcal?: number | null;
+  healthSegments?:
+    | import("@shared/health-summary").HealthWorkoutSegment[]
+    | null;
   exercises?: Array<{ slug: string; completedCount: number }>;
 };
 
@@ -162,6 +165,7 @@ export function remoteSessionSummariesToLocal(
               energyKcal: session.energyKcal ?? null,
               distanceMeters: session.distanceMeters ?? null,
               importedAt: session.completedAt,
+              segments: session.healthSegments ?? [],
             }
           : null,
       // Synthetic set preserves volume for overview graphs; filtered from UI rows.

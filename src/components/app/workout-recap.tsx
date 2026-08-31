@@ -18,6 +18,7 @@ import {
   MuscleBand,
 } from "@/components/app/workout-design";
 import { formatHealthDistance, formatHealthEnergy } from "@/lib/health-summary";
+import { HealthSegmentList } from "@/components/app/health-segment-list";
 import { cn } from "@/lib/utils";
 
 type ProgressionStoryPoint = {
@@ -549,17 +550,20 @@ export function WorkoutRecap({
             [healthDistance, healthEnergy].filter(Boolean).join(" · ") ||
             "Summary only — no lifts, sets, or volume.",
           extra: (
-            <div className="mt-8 grid grid-cols-3 gap-2">
-              <Stat
-                label="Minutes"
-                value={formatDuration(data.totals.durationMs)}
-              />
-              {healthDistance ? (
-                <Stat label="Distance" value={healthDistance} />
-              ) : null}
-              {healthEnergy ? (
-                <Stat label="Energy" value={healthEnergy} />
-              ) : null}
+            <div className="mt-8 space-y-3">
+              <div className="grid grid-cols-3 gap-2">
+                <Stat
+                  label="Minutes"
+                  value={formatDuration(data.totals.durationMs)}
+                />
+                {healthDistance ? (
+                  <Stat label="Distance" value={healthDistance} />
+                ) : null}
+                {healthEnergy ? (
+                  <Stat label="Energy" value={healthEnergy} />
+                ) : null}
+              </div>
+              <HealthSegmentList segments={data.session.healthSegments} />
             </div>
           ),
         },
