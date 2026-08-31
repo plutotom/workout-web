@@ -49,6 +49,8 @@ export type BackupPreferences = {
 
 export type BackupCustomExercise = {
   id: string;
+  /** Opaque Convex document id when this row already exists in the account. */
+  remoteId?: string | null;
   slug: string;
   name: string;
   short: string | null;
@@ -62,6 +64,8 @@ export type BackupTemplateSet = { weight: number; reps: number };
 
 export type BackupTemplate = {
   id: string;
+  /** Opaque Convex document id when this row already exists in the account. */
+  remoteId?: string | null;
   name: string;
   updatedAt: number;
   exercises: Array<{
@@ -100,7 +104,11 @@ export type BackupSessionExercise = {
 
 export type BackupSession = {
   id: string;
+  /** Opaque Convex document id when this row already exists in the account. */
+  remoteId?: string | null;
   templateId: string | null;
+  /** Convex template id, kept separately from the phone-local template id. */
+  remoteTemplateId?: string | null;
   templateName: string;
   status: BackupSessionStatus;
   sessionKind?: BackupSessionKind;
@@ -180,6 +188,15 @@ function optionalString(value: unknown): string | null {
   return typeof value === "string" ? value : null;
 }
 
+function optionalNonEmptyString(value: unknown): string | null {
+  return typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= 256 &&
+    value.trim() === value
+    ? value
+    : null;
+}
+
 function stripBom(text: string): string {
   return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
 }
@@ -245,6 +262,7 @@ export function validateBackup(value: unknown): BackupParseResult {
     if (typeof raw.name !== "string") continue;
     customExercises.push({
       id: raw.id,
+      remoteId: optionalNonEmptyString(raw.remoteId),
       slug: raw.slug,
       name: raw.name,
       short: optionalString(raw.short),
@@ -296,6 +314,7 @@ export function validateBackup(value: unknown): BackupParseResult {
     }
     templates.push({
       id: raw.id,
+      remoteId: optionalNonEmptyString(raw.remoteId),
       name: raw.name,
       updatedAt: isFiniteNumber(raw.updatedAt) ? raw.updatedAt : 0,
       exercises,
@@ -376,7 +395,9 @@ export function validateBackup(value: unknown): BackupParseResult {
 
     sessions.push({
       id: raw.id,
+      remoteId: optionalNonEmptyString(raw.remoteId),
       templateId: optionalString(raw.templateId),
+      remoteTemplateId: optionalNonEmptyString(raw.remoteTemplateId),
       templateName:
         typeof raw.templateName === "string" ? raw.templateName : "Workout",
       status: raw.status as BackupSessionStatus,

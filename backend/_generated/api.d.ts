@@ -25,6 +25,7 @@ import type * as lib_shares from "../lib/shares.js";
 import type * as lib_templates from "../lib/templates.js";
 import type * as lib_workos from "../lib/workos.js";
 import type * as lib_workouts from "../lib/workouts.js";
+import type * as routes_accountExport_queries from "../routes/accountExport/queries.js";
 import type * as routes_admin_users from "../routes/admin/users.js";
 import type * as routes_ai_usage from "../routes/ai/usage.js";
 import type * as routes_auth_bootstrap from "../routes/auth/bootstrap.js";
@@ -81,6 +82,7 @@ declare const fullApi: ApiFromModules<{
   "lib/templates": typeof lib_templates;
   "lib/workos": typeof lib_workos;
   "lib/workouts": typeof lib_workouts;
+  "routes/accountExport/queries": typeof routes_accountExport_queries;
   "routes/admin/users": typeof routes_admin_users;
   "routes/ai/usage": typeof routes_ai_usage;
   "routes/auth/bootstrap": typeof routes_auth_bootstrap;

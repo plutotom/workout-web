@@ -491,7 +491,7 @@ function BackupCard({ signedIn }: { signedIn: boolean }) {
       const confirmed = await new Promise<boolean>((resolve) => {
         Alert.alert(
           `Restore backup from ${saved}?`,
-          `${snapshot.sessions.length} workouts and ${snapshot.templates.length} templates. Anything already on this phone is kept as-is — nothing gets overwritten.`,
+          `${snapshot.sessions.length} workouts, ${snapshot.templates.length} templates, ${snapshot.customExercises.length} custom exercises, and ${snapshot.exerciseNotes.length} notes. Anything already on this phone is kept as-is — nothing gets overwritten.`,
           [
             { text: "Cancel", style: "cancel", onPress: () => resolve(false) },
             { text: "Restore", onPress: () => resolve(true) },
@@ -508,6 +508,10 @@ function BackupCard({ signedIn }: { signedIn: boolean }) {
         result.templatesAdded === 1
           ? "1 template"
           : `${result.templatesAdded} templates`,
+        result.customExercisesAdded === 1
+          ? "1 custom exercise"
+          : `${result.customExercisesAdded} custom exercises`,
+        result.notesAdded === 1 ? "1 note" : `${result.notesAdded} notes`,
       ].join(", ");
       Alert.alert(
         "Restored",
@@ -532,8 +536,9 @@ function BackupCard({ signedIn }: { signedIn: boolean }) {
 
       {signedIn ? (
         <Text style={{ color: colors.dim, fontSize: 13, lineHeight: 19 }}>
-          Everything syncs to your account, so signing in on a new phone brings
-          it all back. Keeping your own copy is optional.
+          New workouts sync to your account. A backup is how you restore this
+          phone&apos;s full history on another iPhone or bring your web history
+          into the app.
         </Text>
       ) : (
         <>
@@ -579,6 +584,10 @@ function BackupCard({ signedIn }: { signedIn: boolean }) {
         disabled={busy !== null}
         onPress={() => void restoreFromFile()}
       />
+      <Text style={{ color: colors.faint, fontSize: 12, lineHeight: 17 }}>
+        Moving from the web app? Download an account backup there, then restore
+        that file here.
+      </Text>
 
       <Pressable
         accessibilityRole="button"

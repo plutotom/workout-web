@@ -126,6 +126,10 @@ describe("older iOS backups", () => {
     expect(
       result.snapshot.preferences.appleHealthImportNotificationsEnabled,
     ).toBe(false);
+    expect(result.snapshot.customExercises[0]!.remoteId).toBeNull();
+    expect(result.snapshot.templates[0]!.remoteId).toBeNull();
+    expect(result.snapshot.sessions[0]!.remoteId).toBeNull();
+    expect(result.snapshot.sessions[0]!.remoteTemplateId).toBeNull();
   });
 
   it("survives a UTF-8 BOM", () => {
@@ -190,5 +194,52 @@ describe("web Export all ↔ iOS backup", () => {
     const result = parseBackup(serializeBackup(snapshot));
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.snapshot).toEqual(snapshot);
+  });
+
+  it("preserves server identities used by a web-to-iOS migration", () => {
+    const original = originalIosBackup();
+    const source = {
+      ...original,
+      customExercises: original.customExercises.map((exercise) => ({
+        ...exercise,
+        remoteId: "custom-convex-id",
+      })),
+      templates: original.templates.map((template) => ({
+        ...template,
+        remoteId: "template-convex-id",
+      })),
+      sessions: original.sessions.map((session) => ({
+        ...session,
+        remoteId: "session-convex-id",
+        remoteTemplateId: "template-convex-id",
+      })),
+    };
+
+    const result = parseBackup(JSON.stringify(source));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.snapshot.customExercises[0]!.remoteId).toBe(
+      "custom-convex-id",
+    );
+    expect(result.snapshot.templates[0]!.remoteId).toBe("template-convex-id");
+    expect(result.snapshot.sessions[0]!.remoteId).toBe("session-convex-id");
+    expect(result.snapshot.sessions[0]!.remoteTemplateId).toBe(
+      "template-convex-id",
+    );
+  });
+
+  it("treats malformed server identities as absent", () => {
+    const original = originalIosBackup();
+    const source = {
+      ...original,
+      templates: original.templates.map((template) => ({
+        ...template,
+        remoteId: "   ",
+      })),
+    };
+
+    const result = parseBackup(JSON.stringify(source));
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.snapshot.templates[0]!.remoteId).toBeNull();
   });
 });
