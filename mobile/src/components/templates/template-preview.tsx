@@ -3,6 +3,7 @@ import type { Id } from "@backend/dataModel";
 import { useQuery } from "convex/react";
 import { router } from "expo-router";
 import { History, Pencil, Play, Share2 } from "lucide-react-native";
+import { useState } from "react";
 import { Text, View } from "react-native";
 
 import { useMobileAuth } from "@/auth/auth-provider";
@@ -20,6 +21,11 @@ import {
 } from "@/data/local/provider";
 import { isUnsyncedTemplateRemoteId } from "@/data/local/types";
 import { useStartWorkout } from "@/lib/start-workout";
+import {
+  PlaceChip,
+  PlacePickerModal,
+  useStartPlace,
+} from "@/components/workout/place-machine";
 import { useCatalog } from "@/providers/catalog-provider";
 import { colors, radius } from "@/theme";
 
@@ -42,14 +48,21 @@ function TemplatePreviewView({
 }) {
   const catalog = useCatalog();
   const { begin } = useStartWorkout();
+  const startPlace = useStartPlace(templateId);
+  const [placeOpen, setPlaceOpen] = useState(false);
 
   return (
     <Screen>
       <PageHeader back title={name} />
+      <PlaceChip
+        name={startPlace.selected?.name ?? null}
+        lastPlaceName={startPlace.lastPlace?.name}
+        onPress={() => setPlaceOpen(true)}
+      />
       <Button
         label="Start workout"
         icon={Play}
-        onPress={() => begin(templateId)}
+        onPress={() => begin(templateId, startPlace.selected?._id)}
       />
 
       <View
@@ -224,6 +237,14 @@ function TemplatePreviewView({
           }
         />
       </View>
+      <PlacePickerModal
+        visible={placeOpen}
+        onClose={() => setPlaceOpen(false)}
+        places={startPlace.places}
+        selectedPlaceId={startPlace.selected?._id ?? null}
+        lastPlaceId={startPlace.lastPlace?._id}
+        onSelect={(place) => startPlace.pick(place._id)}
+      />
     </Screen>
   );
 }

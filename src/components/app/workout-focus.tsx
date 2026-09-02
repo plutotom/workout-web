@@ -27,6 +27,11 @@ import { useWorkoutFinishFlow } from "@/components/app/workout-finish-flow";
 import { RestRing } from "@/components/app/workout-focus-rest-ring";
 import { WorkoutFocusSessionSheet } from "@/components/app/workout-focus-session-sheet";
 import { WorkoutLog } from "@/components/app/workout-log";
+import { SessionPlaceBar } from "@/components/app/session-place-bar";
+import {
+  MachineChip,
+  MachinePickerSheet,
+} from "@/components/app/machine-picker";
 import { formatLb, formatDuration } from "@/components/app/workout-design";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -67,6 +72,7 @@ export function WorkoutFocus({ sessionId }: { sessionId: string }) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerKey, setPickerKey] = useState(0);
+  const [machinePickerOpen, setMachinePickerOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   // When the ring drains naturally, snap back to the next incomplete set.
   const { rest, startRest, clearRest, addSeconds } = useWorkoutRest(() =>
@@ -104,7 +110,13 @@ export function WorkoutFocus({ sessionId }: { sessionId: string }) {
   const editable = session?.status === "in_progress";
   const lastTime = useQuery(
     api.routes.workouts.queries.lastLoggedSet,
-    editable && current ? { exerciseSlug: current.exercise.slug } : "skip",
+    editable && current
+      ? {
+          exerciseSlug: current.exercise.slug,
+          placeId: session?.placeId ?? undefined,
+          machineId: current.exercise.machineId ?? undefined,
+        }
+      : "skip",
   );
   const user = useQuery(api.routes.auth.users.current);
   // Missing/loading profile keeps the timer on — the original behavior.
@@ -276,6 +288,16 @@ export function WorkoutFocus({ sessionId }: { sessionId: string }) {
         </div>
       </div>
 
+      <SessionPlaceBar
+        sessionId={session._id}
+        placeId={session.placeId}
+        placeName={session.placeName}
+        editable
+        hasCompletedSets={exercises.some((exercise) =>
+          exercise.sets.some((set) => set.completed),
+        )}
+      />
+
       {exercises.length === 0 ? (
         <EmptyState
           title="Add your first exercise"
@@ -392,6 +414,13 @@ export function WorkoutFocus({ sessionId }: { sessionId: string }) {
                 <p className="truncate text-lg font-semibold">
                   {catalog.name(current.exercise.slug)}
                 </p>
+                {session.placeId ? (
+                  <MachineChip
+                    placeName={session.placeName}
+                    machineName={current.exercise.machineName}
+                    onClick={() => setMachinePickerOpen(true)}
+                  />
+                ) : null}
               </div>
               <Button
                 type="button"
@@ -528,6 +557,7 @@ export function WorkoutFocus({ sessionId }: { sessionId: string }) {
             {lastTime ? (
               <p className="text-muted-foreground text-center text-sm">
                 Last time {lastTime.weight} × {lastTime.reps}
+                {lastTime.placeName ? ` · ${lastTime.placeName}` : ""}
                 {deltaLb !== 0 ? (
                   <span
                     className={cn(
@@ -600,6 +630,17 @@ export function WorkoutFocus({ sessionId }: { sessionId: string }) {
           setPickerOpen(true);
         }}
       />
+
+      {session.placeId && current ? (
+        <MachinePickerSheet
+          open={machinePickerOpen}
+          onOpenChange={setMachinePickerOpen}
+          placeId={session.placeId}
+          exerciseSlug={current.exercise.slug}
+          sessionExerciseId={current.exercise._id}
+          selectedMachineId={current.exercise.machineId}
+        />
+      ) : null}
 
       {finishDialogs}
 

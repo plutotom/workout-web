@@ -75,6 +75,8 @@ import {
   setHealthAutoImportPrefs as writeHealthAutoImportPrefs,
   setHealthExportEnabled as writeHealthExportEnabled,
   setLocalNotificationPreferences as writeLocalNotificationPreferences,
+  setLocalSessionMachine,
+  setLocalSessionPlace,
   startLocalBlankWorkout,
   startLocalTemplateWorkout,
   syncLocalTemplateFromSession,
@@ -84,11 +86,22 @@ import {
 } from "@/data/local/repository";
 import { discardWatchWorkout, endWatchWorkout } from "@/health/watch-bridge";
 import { shouldSkipPhoneHealthExport } from "@/health/watch-session";
+import {
+  archiveLocalPlace,
+  getLastLocalSessionPlaceId,
+  listLocalMachinesForLift,
+  listLocalPlaces,
+  starLocalPlace,
+  upsertLocalMachine,
+  upsertLocalPlace,
+} from "@/data/local/places";
 import type {
   IosBootstrapPayload,
   LocalActiveWorkout,
   LocalCustomExercise,
+  LocalMachine,
   LocalNotificationPreferences,
+  LocalPlace,
   LocalPreferences,
   LocalTemplate,
   LocalWorkoutSession,
@@ -116,11 +129,40 @@ type LocalCustomExerciseInput = {
 type LocalDataContextValue = {
   revision: number;
   refresh: () => void;
-  startBlank: (abandonExisting?: boolean) => Promise<string>;
+  startBlank: (
+    abandonExisting?: boolean,
+    placeId?: string | null,
+  ) => Promise<string>;
   startFromTemplate: (
     templateId: string,
     abandonExisting?: boolean,
+    placeId?: string | null,
   ) => Promise<string>;
+  setSessionPlace: (
+    sessionId: string,
+    placeId: string,
+  ) => Promise<{ hadCompletedSets: boolean; reseeded: number }>;
+  setSessionMachine: (
+    sessionExerciseId: string,
+    machineId: string,
+  ) => Promise<void>;
+  adoptPlace: (place: {
+    id: string;
+    remoteId: string | null;
+    name: string;
+    starred: boolean;
+    archived?: boolean;
+  }) => Promise<void>;
+  starPlace: (placeId: string) => Promise<void>;
+  archivePlace: (placeId: string) => Promise<void>;
+  adoptMachine: (machine: {
+    id: string;
+    remoteId: string | null;
+    placeId: string;
+    exerciseSlug: string;
+    name: string;
+    isDefault: boolean;
+  }) => Promise<void>;
   updateSet: (
     setId: string,
     values: { weight?: number; reps?: number; completed?: boolean },
@@ -210,10 +252,20 @@ function LocalDataState({ children }: { children: ReactNode }) {
     () => ({
       revision,
       refresh,
-      startBlank: (abandonExisting) =>
-        run(() => startLocalBlankWorkout(db, abandonExisting)),
-      startFromTemplate: (templateId, abandonExisting) =>
-        run(() => startLocalTemplateWorkout(db, templateId, abandonExisting)),
+      startBlank: (abandonExisting, placeId) =>
+        run(() => startLocalBlankWorkout(db, abandonExisting, placeId)),
+      startFromTemplate: (templateId, abandonExisting, placeId) =>
+        run(() =>
+          startLocalTemplateWorkout(db, templateId, abandonExisting, placeId),
+        ),
+      setSessionPlace: (sessionId, placeId) =>
+        run(() => setLocalSessionPlace(db, sessionId, placeId)),
+      setSessionMachine: (sessionExerciseId, machineId) =>
+        run(() => setLocalSessionMachine(db, sessionExerciseId, machineId)),
+      adoptPlace: (place) => run(() => upsertLocalPlace(db, place)),
+      starPlace: (placeId) => run(() => starLocalPlace(db, placeId)),
+      archivePlace: (placeId) => run(() => archiveLocalPlace(db, placeId)),
+      adoptMachine: (machine) => run(() => upsertLocalMachine(db, machine)),
       updateSet: (setId, values) =>
         run(() => updateLocalSet(db, setId, values)),
       addSet: (sessionExerciseId) =>
@@ -412,12 +464,49 @@ export function useLocalExerciseNotes(slugs: string[]) {
   );
 }
 
-export function useLocalLastSet(slug?: string) {
+export function useLocalPlaces() {
   const db = useSQLiteContext();
   const { revision } = useLocalData();
-  return useLocalValue<{ weight: number; reps: number } | null>(
-    () => (slug ? getLastLocalSet(db, slug) : Promise.resolve(null)),
-    [db, revision, slug],
+  return useLocalValue<LocalPlace[]>(() => listLocalPlaces(db), [db, revision]);
+}
+
+export function useLastLocalSessionPlaceId() {
+  const db = useSQLiteContext();
+  const { revision } = useLocalData();
+  return useLocalValue<string | null>(
+    () => getLastLocalSessionPlaceId(db),
+    [db, revision],
+  );
+}
+
+export function useLocalMachinesForLift(
+  placeId?: string | null,
+  slug?: string,
+) {
+  const db = useSQLiteContext();
+  const { revision } = useLocalData();
+  return useLocalValue<LocalMachine[]>(
+    () =>
+      placeId && slug
+        ? listLocalMachinesForLift(db, placeId, slug)
+        : Promise.resolve([]),
+    [db, revision, placeId, slug],
+  );
+}
+
+export function useLocalLastSet(
+  slug?: string,
+  scope?: { placeId?: string | null; machineId?: string | null },
+) {
+  const db = useSQLiteContext();
+  const { revision } = useLocalData();
+  return useLocalValue<{
+    weight: number;
+    reps: number;
+    placeName: string | null;
+  } | null>(
+    () => (slug ? getLastLocalSet(db, slug, scope) : Promise.resolve(null)),
+    [db, revision, slug, scope?.placeId, scope?.machineId],
   );
 }
 

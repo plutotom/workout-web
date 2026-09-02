@@ -9,6 +9,7 @@ import { toast } from "sonner";
 
 import { api } from "@backend/api";
 import type { Id } from "@backend/dataModel";
+import { PlaceChip, PlacePickerSheet } from "@/components/app/place-picker";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -47,20 +48,33 @@ export function StartWorkoutButton(props: StartWorkoutButtonProps) {
 
   const router = useRouter();
   const active = useQuery(api.routes.workouts.queries.active);
+  const startContext = useQuery(api.routes.places.queries.startContext, {
+    templateId,
+  });
   const start = useMutation(api.routes.workouts.mutations.start);
   const startBlank = useMutation(api.routes.workouts.mutations.startBlank);
 
   const [conflictOpen, setConflictOpen] = useState(false);
+  const [placeOpen, setPlaceOpen] = useState(false);
+  const [placeId, setPlaceId] = useState<Id<"places"> | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const selectedPlaceId = placeId ?? startContext?.selectedPlaceId ?? null;
+  const selectedPlace =
+    startContext?.places.find((place) => place._id === selectedPlaceId) ?? null;
 
   async function begin(abandonExisting?: boolean) {
     setBusy(true);
     try {
       const sessionId = isBlank
-        ? await startBlank({ abandonExisting })
+        ? await startBlank({
+            abandonExisting,
+            placeId: selectedPlaceId ?? undefined,
+          })
         : await start({
             templateId: templateId!,
             abandonExisting,
+            placeId: selectedPlaceId ?? undefined,
           });
       router.push(`/workout/${sessionId}`);
     } catch {
@@ -83,15 +97,34 @@ export function StartWorkoutButton(props: StartWorkoutButtonProps) {
 
   return (
     <>
-      <Button
-        className={className}
-        variant={variant}
-        disabled={active === undefined || busy}
-        onClick={handleClick}
-      >
-        <Icon className="size-4" />
-        {buttonLabel}
-      </Button>
+      <div className="flex w-full flex-col gap-2">
+        <PlaceChip
+          name={selectedPlace?.name ?? null}
+          lastPlaceName={startContext?.lastPlaceName}
+          disabled={startContext === undefined}
+          onClick={() => setPlaceOpen(true)}
+        />
+        <Button
+          className={className}
+          variant={variant}
+          disabled={active === undefined || busy}
+          onClick={handleClick}
+        >
+          <Icon className="size-4" />
+          {buttonLabel}
+        </Button>
+      </div>
+
+      <PlacePickerSheet
+        open={placeOpen}
+        onOpenChange={setPlaceOpen}
+        places={startContext?.places ?? []}
+        selectedPlaceId={selectedPlaceId}
+        lastPlaceId={startContext?.lastPlaceId}
+        onSelect={(id) => {
+          setPlaceId(id);
+        }}
+      />
 
       <Dialog open={conflictOpen} onOpenChange={setConflictOpen}>
         <DialogContent>

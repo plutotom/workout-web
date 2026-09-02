@@ -381,13 +381,14 @@ export function WorkoutRecap({
     : "Progress";
   const standoutCallout = (() => {
     if (!data.standout) return null;
+    const placeLabel = data.session.placeName ? data.session.placeName : "here";
     const { isPr, priorBest, weight, reps } = data.standout;
     if (isPr) {
       return {
-        title: priorBest ? "New personal best" : "First logged best",
+        title: priorBest ? "PR here" : "First logged best here",
         detail: priorBest
-          ? `Beat your previous ${standoutShort} best of ${formatSet(priorBest.weight, priorBest.reps)}`
-          : `First time logging ${standoutShort} — this sets the bar`,
+          ? `Beat your previous ${placeLabel} ${standoutShort} best of ${formatSet(priorBest.weight, priorBest.reps)}`
+          : `First time logging ${standoutShort} ${placeLabel === "here" ? "here" : `at ${placeLabel}`} — this sets the bar`,
       };
     }
     if (!priorBest) return null;
@@ -395,11 +396,11 @@ export function WorkoutRecap({
     const underByWeight = priorBest.weight - weight;
     return {
       title: matched
-        ? "Matched your best"
+        ? `Matched your ${placeLabel} best`
         : underByWeight > 0
-          ? `${underByWeight} lb under your best`
-          : `${priorBest.reps - reps} reps under your best`,
-      detail: `Your all-time ${standoutShort} best is ${formatSet(priorBest.weight, priorBest.reps)}`,
+          ? `${underByWeight} lb under your ${placeLabel} best`
+          : `${priorBest.reps - reps} reps under your ${placeLabel} best`,
+      detail: `Your ${placeLabel} ${standoutShort} best is ${formatSet(priorBest.weight, priorBest.reps)}`,
     };
   })();
   const story: ProgressionStory | null = data.progressionStory ?? null;

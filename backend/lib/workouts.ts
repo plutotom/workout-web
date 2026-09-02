@@ -3,6 +3,17 @@ import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { computeWeekStreak, estimate1RM, startOfWeekMonday } from "./insights";
 import { getNotesBySlugs } from "./exercise_notes";
 import { normalizeSessionKind } from "./health_sessions";
+import {
+  exerciseMatchesMachine,
+  findStarredPlace,
+  getWorkingSets,
+  lastMachineForLift,
+  listMachinesForLift,
+  recordSessionPlaceMemory,
+  resolvePlaceForStart,
+  seedExerciseSets,
+  sessionMatchesPlace,
+} from "./places";
 
 const clampWhole = (n: number) => Math.max(0, Math.round(n));
 const DEFAULT_REST_SECONDS = 75;
@@ -30,15 +41,34 @@ function normalizeExerciseSlug(slug: string) {
 }
 
 /**
- * The most recent completed set (weight > 0) for an exercise across the
- * user's completed sessions. In-progress sessions never match, so the
- * current workout is excluded by construction.
+ * The most recent completed set (weight > 0) for an exercise. When placeId is
+ * set, only sessions at that place (legacy untagged sessions count as Home).
+ * machineId further scopes to a named station; the default machine also
+ * matches older rows with no machine.
  */
 export async function lastSetForExercise(
   ctx: QueryCtx,
   userId: Id<"users">,
   slug: Doc<"sessionExercises">["exerciseSlug"],
-): Promise<{ weight: number; reps: number } | null> {
+  scope?: {
+    placeId?: Id<"places"> | null;
+    machineId?: Id<"machines"> | null;
+  },
+): Promise<{
+  weight: number;
+  reps: number;
+  placeName: string | null;
+  machineName: string | null;
+} | null> {
+  const home = await findStarredPlace(ctx, userId);
+  const placeId = scope?.placeId ?? home?._id ?? null;
+  let defaultMachineId: Id<"machines"> | null = null;
+  if (placeId) {
+    const machines = await listMachinesForLift(ctx, userId, placeId, slug);
+    defaultMachineId =
+      machines.find((machine) => machine.isDefault)?._id ?? null;
+  }
+
   const completed = await ctx.db
     .query("workoutSessions")
     .withIndex("by_user_status", (q) =>
@@ -50,12 +80,18 @@ export async function lastSetForExercise(
   );
 
   for (const session of completed) {
+    if (placeId && !sessionMatchesPlace(session, placeId, home?._id ?? null)) {
+      continue;
+    }
     const exercises = await ctx.db
       .query("sessionExercises")
       .withIndex("by_session", (q) => q.eq("sessionId", session._id))
       .collect();
     const match = exercises.find((e) => e.exerciseSlug === slug);
     if (!match) continue;
+    if (!exerciseMatchesMachine(match, scope?.machineId, defaultMachineId)) {
+      continue;
+    }
 
     const sets = await ctx.db
       .query("sets")
@@ -66,7 +102,14 @@ export async function lastSetForExercise(
     const done = sets
       .filter((s) => s.completed && s.weight > 0)
       .sort((a, b) => b.orderIndex - a.orderIndex);
-    if (done.length) return { weight: done[0].weight, reps: done[0].reps };
+    if (done.length) {
+      return {
+        weight: done[0].weight,
+        reps: done[0].reps,
+        placeName: session.placeName ?? home?.name ?? null,
+        machineName: match.machineName ?? null,
+      };
+    }
   }
   return null;
 }
@@ -117,9 +160,11 @@ export async function startWorkout(
   userId: Id<"users">,
   {
     templateId,
+    placeId,
     abandonExisting,
   }: {
     templateId: Id<"workoutTemplates">;
+    placeId?: Id<"places">;
     abandonExisting?: boolean;
   },
 ) {
@@ -128,6 +173,11 @@ export async function startWorkout(
     throw new Error("Template not found");
 
   await abandonActiveIfNeeded(ctx, userId, abandonExisting);
+
+  const place = await resolvePlaceForStart(ctx, userId, {
+    placeId,
+    templateId,
+  });
 
   const templateExercises = await ctx.db
     .query("templateExercises")
@@ -141,17 +191,33 @@ export async function startWorkout(
     templateName: template.name,
     status: "in_progress",
     startedAt: Date.now(),
+    placeId: place._id,
+    placeName: place.name,
   });
 
   for (const te of templateExercises) {
+    const machine = await lastMachineForLift(
+      ctx,
+      userId,
+      place._id,
+      te.exerciseSlug,
+    );
+    const memory = await getWorkingSets(ctx, {
+      placeId: place._id,
+      exerciseSlug: te.exerciseSlug,
+      machineId: machine?._id,
+    });
+    const seeded = seedExerciseSets(te.sets, memory);
     const sessionExerciseId = await ctx.db.insert("sessionExercises", {
       sessionId,
       exerciseSlug: te.exerciseSlug,
       orderIndex: te.orderIndex,
       restSeconds: DEFAULT_REST_SECONDS,
+      machineId: machine?._id,
+      machineName: machine?.name,
     });
-    for (let i = 0; i < te.sets.length; i++) {
-      const preset = te.sets[i];
+    for (let i = 0; i < seeded.length; i++) {
+      const preset = seeded[i]!;
       await ctx.db.insert("sets", {
         sessionExerciseId,
         orderIndex: i,
@@ -171,14 +237,20 @@ export async function startWorkout(
 export async function startBlankWorkout(
   ctx: MutationCtx,
   userId: Id<"users">,
-  { abandonExisting }: { abandonExisting?: boolean } = {},
+  {
+    abandonExisting,
+    placeId,
+  }: { abandonExisting?: boolean; placeId?: Id<"places"> } = {},
 ) {
   await abandonActiveIfNeeded(ctx, userId, abandonExisting);
+  const place = await resolvePlaceForStart(ctx, userId, { placeId });
 
   return await ctx.db.insert("workoutSessions", {
     userId,
     status: "in_progress",
     startedAt: Date.now(),
+    placeId: place._id,
+    placeName: place.name,
   });
 }
 
@@ -298,9 +370,13 @@ export async function addSet(
   }
 
   const last = sets[sets.length - 1];
+  const session = await ctx.db.get(sessionExercise.sessionId);
   const fallback = last
     ? null
-    : await lastSetForExercise(ctx, userId, sessionExercise.exerciseSlug);
+    : await lastSetForExercise(ctx, userId, sessionExercise.exerciseSlug, {
+        placeId: session?.placeId,
+        machineId: sessionExercise.machineId,
+      });
 
   return await ctx.db.insert("sets", {
     sessionExerciseId,
@@ -394,14 +470,35 @@ export async function addSessionExercise(
 
   const orderIndex =
     exercises.length > 0 ? exercises[exercises.length - 1].orderIndex + 1 : 0;
+  const session = await ctx.db.get(sessionId);
+  const machine =
+    session?.placeId != null
+      ? await lastMachineForLift(ctx, userId, session.placeId, normalizedSlug)
+      : null;
+  const memory =
+    session?.placeId != null
+      ? await getWorkingSets(ctx, {
+          placeId: session.placeId,
+          exerciseSlug: normalizedSlug,
+          machineId: machine?._id,
+        })
+      : null;
+  const fallback =
+    memory?.[0] ??
+    (await lastSetForExercise(ctx, userId, normalizedSlug, {
+      placeId: session?.placeId,
+      machineId: machine?._id,
+    }));
+
   const sessionExerciseId = await ctx.db.insert("sessionExercises", {
     sessionId,
     exerciseSlug: normalizedSlug,
     orderIndex,
     restSeconds: DEFAULT_REST_SECONDS,
+    machineId: machine?._id,
+    machineName: machine?.name,
   });
 
-  const fallback = await lastSetForExercise(ctx, userId, normalizedSlug);
   const seed = fallback ?? { weight: 0, reps: 0 };
   await Promise.all(
     Array.from({ length: DEFAULT_SET_ROWS }, (_, i) =>
@@ -757,6 +854,7 @@ export async function finishWorkout(
     status: "completed",
     completedAt: Date.now(),
   });
+  await recordSessionPlaceMemory(ctx, userId, sessionId);
 }
 
 export async function abandonWorkout(
@@ -949,6 +1047,8 @@ export async function getWorkout(
         slug: e.exerciseSlug,
         restSeconds: e.restSeconds ?? DEFAULT_REST_SECONDS,
         notes: notesBySlug[e.exerciseSlug],
+        machineId: e.machineId ?? null,
+        machineName: e.machineName ?? null,
         sets: sets.map((set) => ({
           ...set,
           targetWeight: set.targetWeight ?? set.weight,
@@ -959,6 +1059,10 @@ export async function getWorkout(
     }),
   );
 
+  const place =
+    session.placeId != null ? await ctx.db.get(session.placeId) : null;
+  const starred = await findStarredPlace(ctx, userId);
+
   return {
     _id: session._id,
     status: session.status,
@@ -966,6 +1070,9 @@ export async function getWorkout(
     templateName: sessionDisplayName(template, session.templateName),
     startedAt: session.startedAt,
     completedAt: session.completedAt,
+    placeId: session.placeId ?? starred?._id ?? null,
+    placeName: session.placeName ?? place?.name ?? starred?.name ?? null,
+    placeStarred: place?.starred ?? starred?.starred ?? true,
     sessionKind: normalizeSessionKind(session.sessionKind),
     countsTowardGoals: session.countsTowardGoals !== false,
     sourceName: session.sourceName ?? null,
@@ -1033,6 +1140,7 @@ type ProgressionPoint = {
   reps: number;
   est1RM: number;
   sameTemplate: boolean;
+  samePlace: boolean;
 };
 
 async function bestSetForSlugInSession(
@@ -1114,13 +1222,17 @@ export async function getWorkoutRecap(
 
   const allPoints: ProgressionPoint[] = [];
   let priorBest: BestSet | null = null;
+  const home = await findStarredPlace(ctx, userId);
+  const placeId = session.placeId;
   if (standout) {
     for (const s of completedSessions) {
       const ts = s.completedAt ?? s.startedAt;
       if (ts > completedAt) continue;
       const best = await bestSetForSlugInSession(ctx, s, standout.slug);
       if (!best) continue;
-      if (s._id !== sessionId && ts < completedAt) {
+      const samePlace =
+        !placeId || sessionMatchesPlace(s, placeId, home?._id ?? null);
+      if (samePlace && s._id !== sessionId && ts < completedAt) {
         priorBest = betterBestSet(priorBest, best);
       }
       allPoints.push({
@@ -1132,14 +1244,20 @@ export async function getWorkoutRecap(
           session.templateId !== null &&
           s.templateId !== undefined &&
           s.templateId === session.templateId,
+        samePlace,
       });
     }
   }
 
-  // Prefer same-template lineage when there are at least 2 points (today + prior).
-  const sameTemplatePoints = allPoints.filter((p) => p.sameTemplate);
+  // Prefer same-place lineage so Elgin 300 doesn't look like a Home deload.
+  const samePlacePoints = allPoints.filter((p) => p.samePlace);
+  const sameTemplatePoints = samePlacePoints.filter((p) => p.sameTemplate);
   const useTemplateLineage = sameTemplatePoints.length >= 2;
-  const lineagePoints = useTemplateLineage ? sameTemplatePoints : allPoints;
+  const lineagePoints = useTemplateLineage
+    ? sameTemplatePoints
+    : samePlacePoints.length >= 2
+      ? samePlacePoints
+      : allPoints;
   const chartPoints = lineagePoints.slice(-7);
 
   const todayPoint = chartPoints[chartPoints.length - 1] ?? null;

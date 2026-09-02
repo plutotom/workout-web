@@ -57,6 +57,9 @@ export const workoutTables = {
     completedAt: v.optional(v.number()),
     // Last AI reshape batch — used to restore removed exercises on Undo.
     aiUndoBatch: v.optional(aiUndoBatchValidator),
+    // Gym/room for this session. Missing on legacy rows = treat as Home.
+    placeId: v.optional(v.id("places")),
+    placeName: v.optional(v.string()),
     sessionKind: v.optional(sessionKindValidator),
     externalProvider: v.optional(externalProviderValidator),
     externalId: v.optional(v.string()),
@@ -72,7 +75,8 @@ export const workoutTables = {
     .index("by_user", ["userId"])
     .index("by_user_status", ["userId", "status"])
     .index("by_user_client_id", ["userId", "clientId"])
-    .index("by_user_external", ["userId", "externalProvider", "externalId"]),
+    .index("by_user_external", ["userId", "externalProvider", "externalId"])
+    .index("by_user_place", ["userId", "placeId"]),
 
   sessionExercises: defineTable({
     sessionId: v.id("workoutSessions"),
@@ -80,6 +84,8 @@ export const workoutTables = {
     exerciseSlug: exerciseSlugValidator,
     orderIndex: v.number(),
     restSeconds: v.optional(v.number()),
+    machineId: v.optional(v.id("machines")),
+    machineName: v.optional(v.string()),
     // Schema-ready; per-exercise notes UI is deferred past V1.
     notes: v.optional(v.string()),
     // Set when appended via AI (or similar). Used to undo a generation batch.

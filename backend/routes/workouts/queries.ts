@@ -58,11 +58,27 @@ export const get = query({
  * exercise has no history.
  */
 export const lastLoggedSet = query({
-  args: { exerciseSlug: exerciseSlugValidator },
-  handler: async (ctx, { exerciseSlug }) => {
+  args: {
+    exerciseSlug: exerciseSlugValidator,
+    placeId: v.optional(v.id("places")),
+    machineId: v.optional(v.id("machines")),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      weight: v.number(),
+      reps: v.number(),
+      placeName: v.union(v.string(), v.null()),
+      machineName: v.union(v.string(), v.null()),
+    }),
+  ),
+  handler: async (ctx, args) => {
     const user = await getUser(ctx);
     if (!user) return null;
-    return lastSetForExercise(ctx, user._id, exerciseSlug);
+    return lastSetForExercise(ctx, user._id, args.exerciseSlug, {
+      placeId: args.placeId,
+      machineId: args.machineId,
+    });
   },
 });
 

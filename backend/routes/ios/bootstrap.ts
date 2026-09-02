@@ -32,6 +32,38 @@ const bootstrapResultValidator = v.union(
             sets: v.array(templateSetValidator),
           }),
         ),
+        lastPlaceId: v.union(v.id("places"), v.null()),
+      }),
+    ),
+    places: v.array(
+      v.object({
+        remoteId: v.id("places"),
+        clientId: v.union(v.string(), v.null()),
+        name: v.string(),
+        starred: v.boolean(),
+        archived: v.boolean(),
+        lastUsedAt: v.union(v.number(), v.null()),
+      }),
+    ),
+    machines: v.array(
+      v.object({
+        remoteId: v.id("machines"),
+        clientId: v.union(v.string(), v.null()),
+        placeId: v.id("places"),
+        exerciseSlug: v.string(),
+        name: v.string(),
+        isDefault: v.boolean(),
+        archived: v.boolean(),
+        lastUsedAt: v.union(v.number(), v.null()),
+      }),
+    ),
+    placeWeights: v.array(
+      v.object({
+        placeId: v.id("places"),
+        exerciseSlug: v.string(),
+        machineKey: v.string(),
+        sets: v.array(templateSetValidator),
+        updatedAt: v.number(),
       }),
     ),
     customExercises: v.array(
@@ -87,9 +119,31 @@ export const get = query({
             orderIndex: exercise.orderIndex,
             sets: exercise.sets,
           })),
+          lastPlaceId: template.lastPlaceId ?? null,
         };
       }),
     );
+
+    const places = await ctx.db
+      .query("places")
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .take(50);
+    const machineList = await ctx.db
+      .query("machines")
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .take(200);
+    const placeWeights = (
+      await Promise.all(
+        places.map((place) =>
+          ctx.db
+            .query("exercisePlaceWeights")
+            .withIndex("by_place_slug_machine", (q) =>
+              q.eq("placeId", place._id),
+            )
+            .take(200),
+        ),
+      )
+    ).flat();
 
     const customExercises = await ctx.db
       .query("customExercises")
@@ -110,6 +164,31 @@ export const get = query({
         restTimerEnabled: user.restTimerEnabled ?? true,
       },
       templates: templatesWithExercises,
+      places: places.map((place) => ({
+        remoteId: place._id,
+        clientId: place.clientId ?? null,
+        name: place.name,
+        starred: place.starred,
+        archived: place.archived,
+        lastUsedAt: place.lastUsedAt ?? null,
+      })),
+      machines: machineList.map((machine) => ({
+        remoteId: machine._id,
+        clientId: machine.clientId ?? null,
+        placeId: machine.placeId,
+        exerciseSlug: machine.exerciseSlug,
+        name: machine.name,
+        isDefault: machine.isDefault,
+        archived: machine.archived,
+        lastUsedAt: machine.lastUsedAt ?? null,
+      })),
+      placeWeights: placeWeights.map((row) => ({
+        placeId: row.placeId,
+        exerciseSlug: row.exerciseSlug,
+        machineKey: row.machineKey,
+        sets: row.sets,
+        updatedAt: row.updatedAt,
+      })),
       customExercises: customExercises.map((exercise) => ({
         remoteId: exercise._id,
         clientId: exercise.clientId ?? null,

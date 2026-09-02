@@ -577,6 +577,7 @@ export type RecapProgressionPoint = {
   reps: number;
   est1RM: number;
   sameTemplate: boolean;
+  samePlace: boolean;
 };
 
 export type RecapProgressionStory = {
@@ -600,6 +601,7 @@ export type WorkoutRecap = {
     startedAt: number;
     completedAt: number;
     sessionKind?: "tracked" | "health_summary";
+    placeName?: string | null;
     sourceName?: string | null;
     activityType?: string | null;
     distanceMeters?: number | null;
@@ -677,11 +679,18 @@ export function getLocalWorkoutRecap(
 
   const allPoints: RecapProgressionPoint[] = [];
   let priorBest: BestSet | null = null;
+  const homePlaceId: string | null = null;
+  const placeId = session.placeId;
   if (standout) {
     for (const candidate of history) {
       const best = bestSetForSlug(candidate, standout.slug);
       if (!best) continue;
+      const samePlace =
+        !placeId ||
+        (candidate.placeId ?? homePlaceId) === placeId ||
+        (!candidate.placeId && !placeId);
       if (
+        samePlace &&
         candidate.sessionId !== sessionId &&
         candidate.completedAt < completedAt
       ) {
@@ -695,16 +704,22 @@ export function getLocalWorkoutRecap(
         sameTemplate:
           session.templateId !== null &&
           candidate.templateId === session.templateId,
+        samePlace,
       });
     }
   }
 
-  // Prefer same-template lineage when there are at least 2 points (today + prior).
-  const sameTemplatePoints = allPoints.filter((point) => point.sameTemplate);
-  const scopedToTemplate = sameTemplatePoints.length >= 2;
-  const points = (scopedToTemplate ? sameTemplatePoints : allPoints).slice(
-    -PROGRESSION_POINTS,
+  const samePlacePoints = allPoints.filter((point) => point.samePlace);
+  const sameTemplatePoints = samePlacePoints.filter(
+    (point) => point.sameTemplate,
   );
+  const scopedToTemplate = sameTemplatePoints.length >= 2;
+  const lineagePoints = scopedToTemplate
+    ? sameTemplatePoints
+    : samePlacePoints.length >= 2
+      ? samePlacePoints
+      : allPoints;
+  const points = lineagePoints.slice(-PROGRESSION_POINTS);
   const today = points[points.length - 1] ?? null;
   const previous = points.length >= 2 ? points[points.length - 2] : null;
 
@@ -714,6 +729,7 @@ export function getLocalWorkoutRecap(
       startedAt: session.startedAt,
       completedAt,
       sessionKind: session.sessionKind,
+      placeName: session.placeName,
       sourceName: session.health?.sourceName ?? null,
       activityType: session.health?.activityType ?? null,
       distanceMeters: session.health?.distanceMeters ?? null,

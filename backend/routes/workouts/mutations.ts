@@ -22,6 +22,7 @@ import {
 export const start = mutation({
   args: {
     templateId: v.id("workoutTemplates"),
+    placeId: v.optional(v.id("places")),
     abandonExisting: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
@@ -34,6 +35,7 @@ export const start = mutation({
 export const startBlank = mutation({
   args: {
     abandonExisting: v.optional(v.boolean()),
+    placeId: v.optional(v.id("places")),
   },
   handler: async (ctx, args) => {
     const user = await requireUser(ctx);

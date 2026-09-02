@@ -103,6 +103,19 @@ export function SyncCoordinator() {
                 ...pendingSession.snapshot,
                 remoteTemplateId: pendingSession.snapshot
                   .remoteTemplateId as Id<"workoutTemplates"> | null,
+                placeId: pendingSession.snapshot.placeId as
+                  | Id<"places">
+                  | null
+                  | undefined,
+                exercises: pendingSession.snapshot.exercises.map(
+                  (exercise) => ({
+                    ...exercise,
+                    machineId: exercise.machineId as
+                      | Id<"machines">
+                      | null
+                      | undefined,
+                  }),
+                ),
               },
             });
             if (cancelled) return;

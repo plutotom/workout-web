@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 
 import { internalMutation, internalQuery } from "../../_generated/server";
+import { ensureHomePlace } from "../../lib/places";
 
 /**
  * Avoid repeated WorkOS API calls when bootstrap remounts within a short
@@ -59,15 +60,18 @@ export const upsertVerifiedUser = internalMutation({
         patch.onboardingCompletedAt = undefined;
       }
       await ctx.db.patch(existing._id, patch);
+      await ensureHomePlace(ctx, existing._id);
       return existing._id;
     }
 
-    return await ctx.db.insert("users", {
+    const userId = await ctx.db.insert("users", {
       workosId,
       email,
       emailVerifiedAt: verifiedAt,
       unit: "lb",
       createdAt: verifiedAt,
     });
+    await ensureHomePlace(ctx, userId);
+    return userId;
   },
 });

@@ -22,6 +22,8 @@ export type LocalWorkoutExercise = {
   orderIndex: number;
   restSeconds: number;
   notes?: string;
+  machineId: string | null;
+  machineName: string | null;
   sets: LocalWorkoutSet[];
 };
 
@@ -50,6 +52,9 @@ export type LocalWorkoutSession = {
   updatedAt: number;
   countsTowardGoals: boolean;
   health: LocalHealthSummary | null;
+  placeId: string | null;
+  placeName: string | null;
+  placeStarred: boolean;
   exercises: LocalWorkoutExercise[];
 };
 
@@ -76,6 +81,7 @@ export type LocalTemplate = {
   remoteId: string;
   name: string;
   updatedAt: number;
+  lastPlaceId: string | null;
   exercises: LocalTemplateExercise[];
 };
 
@@ -157,6 +163,28 @@ export type LocalNotificationPreferences = Pick<
   "restTimerNotificationsEnabled" | "appleHealthImportNotificationsEnabled"
 >;
 
+export type LocalPlace = {
+  _id: LocalId;
+  remoteId: string | null;
+  name: string;
+  starred: boolean;
+  archived: boolean;
+  lastUsedAt: number | null;
+  updatedAt: number;
+};
+
+export type LocalMachine = {
+  _id: LocalId;
+  remoteId: string | null;
+  placeId: LocalId;
+  exerciseSlug: string;
+  name: string;
+  isDefault: boolean;
+  archived: boolean;
+  lastUsedAt: number | null;
+  updatedAt: number;
+};
+
 export type IosBootstrapPayload = {
   serverTime: number;
   preferences: {
@@ -171,6 +199,32 @@ export type IosBootstrapPayload = {
     name: string;
     updatedAt: number;
     exercises: LocalTemplateExercise[];
+    lastPlaceId: string | null;
+  }>;
+  places: Array<{
+    remoteId: string;
+    clientId: string | null;
+    name: string;
+    starred: boolean;
+    archived: boolean;
+    lastUsedAt: number | null;
+  }>;
+  machines: Array<{
+    remoteId: string;
+    clientId: string | null;
+    placeId: string;
+    exerciseSlug: string;
+    name: string;
+    isDefault: boolean;
+    archived: boolean;
+    lastUsedAt: number | null;
+  }>;
+  placeWeights: Array<{
+    placeId: string;
+    exerciseSlug: string;
+    machineKey: string;
+    sets: LocalTemplateSet[];
+    updatedAt: number;
   }>;
   customExercises: Array<{
     remoteId: string;
@@ -197,6 +251,8 @@ export type SessionSyncSnapshot = {
   completedAt: number | null;
   updatedAt: number;
   countsTowardGoals: boolean;
+  placeId?: string | null;
+  placeName?: string | null;
   externalProvider: LocalExternalProvider | null;
   externalId: string | null;
   activityType: string | null;
@@ -212,6 +268,8 @@ export type SessionSyncSnapshot = {
     orderIndex: number;
     restSeconds: number;
     notes: string | null;
+    machineId?: string | null;
+    machineName?: string | null;
     sets: Array<{
       clientId: string;
       orderIndex: number;

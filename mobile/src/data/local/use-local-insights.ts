@@ -150,6 +150,8 @@ export function remoteSessionSummariesToLocal(
       completedAt: session.completedAt,
       sessionKind: session.sessionKind ?? "tracked",
       countsTowardGoals: true,
+      placeId: null,
+      placeName: null,
       health:
         session.sessionKind === "health_summary"
           ? {
@@ -198,6 +200,8 @@ function remoteTemplateHistoryToLocal(
     sessionKind: "tracked" as const,
     countsTowardGoals: true,
     health: null,
+    placeId: null,
+    placeName: null,
     exercises: session.exercises.map((exercise) => ({
       slug: exercise.slug,
       sets: Array.from(
@@ -228,6 +232,8 @@ function remoteExerciseHistoryToLocal(
     sessionKind: "tracked" as const,
     countsTowardGoals: true,
     health: null,
+    placeId: null,
+    placeName: null,
     exercises: [
       {
         slug,

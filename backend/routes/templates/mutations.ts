@@ -124,6 +124,13 @@ export const syncFromSession = mutation({
       throw new Error("Session not found");
     if (!session.templateId) throw new Error("Session has no template");
 
+    if (session.placeId) {
+      const place = await ctx.db.get(session.placeId);
+      if (place && !place.starred) {
+        return;
+      }
+    }
+
     const template = await ctx.db.get(session.templateId);
     if (!template || template.userId !== user._id)
       throw new Error("Template not found");

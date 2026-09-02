@@ -9,6 +9,7 @@ import {
   resolveReceiptRemoteSessionId,
 } from "../../lib/ios_session_sync";
 import { deleteWorkout } from "../../lib/workouts";
+import { recordSessionPlaceMemory } from "../../lib/places";
 import { muscleGroupValidator } from "../../schemas/exercises";
 import {
   sessionKindValidator,
@@ -32,6 +33,8 @@ const exerciseSnapshotValidator = v.object({
   orderIndex: v.number(),
   restSeconds: v.number(),
   notes: v.union(v.string(), v.null()),
+  machineId: v.optional(v.union(v.id("machines"), v.null())),
+  machineName: v.optional(v.union(v.string(), v.null())),
   sets: v.array(setSnapshotValidator),
 });
 
@@ -43,6 +46,8 @@ const sessionSnapshotValidator = v.object({
   startedAt: v.number(),
   completedAt: v.union(v.number(), v.null()),
   updatedAt: v.number(),
+  placeId: v.optional(v.union(v.id("places"), v.null())),
+  placeName: v.optional(v.union(v.string(), v.null())),
   sessionKind: v.optional(sessionKindValidator),
   countsTowardGoals: v.optional(v.boolean()),
   externalProvider: v.optional(v.union(v.literal("apple_health"), v.null())),
@@ -285,6 +290,8 @@ export const pushSession = mutation({
       energyKcal: args.session.energyKcal ?? undefined,
       distanceMeters: args.session.distanceMeters ?? undefined,
       importedAt: args.session.importedAt ?? undefined,
+      placeId: args.session.placeId ?? undefined,
+      placeName: args.session.placeName ?? undefined,
     };
     const sessionId =
       existing?._id ??
@@ -312,6 +319,8 @@ export const pushSession = mutation({
         orderIndex: exercise.orderIndex,
         restSeconds: exercise.restSeconds,
         notes: exercise.notes ?? undefined,
+        machineId: exercise.machineId ?? undefined,
+        machineName: exercise.machineName ?? undefined,
       };
       const exerciseId = existingExercise
         ? existingExercise._id
@@ -369,6 +378,10 @@ export const pushSession = mutation({
         for (const set of sets) await ctx.db.delete(set._id);
         await ctx.db.delete(exercise._id);
       }
+    }
+
+    if (args.session.status === "completed") {
+      await recordSessionPlaceMemory(ctx, user._id, sessionId);
     }
 
     await ctx.db.insert("iosSyncReceipts", {

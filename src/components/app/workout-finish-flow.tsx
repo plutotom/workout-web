@@ -32,6 +32,7 @@ type FinishFlowSet = { weight: number; reps: number; completed: boolean };
 type FinishFlowSession = {
   templateId: Id<"workoutTemplates"> | null;
   templateName: string;
+  placeStarred?: boolean | null;
   exercises: { slug: string; sets: FinishFlowSet[] }[];
 };
 
@@ -119,8 +120,10 @@ export function useWorkoutFinishFlow({
     ) ?? false;
   // undefined = template still loading; null = blank / missing; object = ready
   const templateReady = isBlankSession || template !== undefined;
+  const isHomePlace = session?.placeStarred !== false;
   const templateDiffers =
     !isBlankSession &&
+    isHomePlace &&
     !!session &&
     template !== undefined &&
     templateDiffersFromSession(session.exercises, template);

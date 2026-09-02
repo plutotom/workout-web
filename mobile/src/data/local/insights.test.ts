@@ -16,6 +16,8 @@ function session(
     countsTowardGoals: true,
     health: null,
     exercises: [],
+    placeId: null,
+    placeName: null,
     ...overrides,
   };
 }
