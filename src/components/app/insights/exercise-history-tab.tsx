@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { InsightsSection } from "@/components/app/insights/insights-section";
 import {
@@ -119,34 +121,37 @@ export function ExerciseHistoryTab({
                 const best = sessionBest(session);
 
                 return (
-                  <Card
+                  <Link
                     key={session.id}
-                    className="gap-0 bg-[var(--surface)] py-0"
+                    href={`/workout/${session.id}/recap`}
+                    className="block rounded-xl transition-transform active:scale-[0.99]"
                   >
-                    <CardHeader className="border-border/50 min-w-0 border-b px-4 py-3">
-                      <CardTitle className="truncate text-sm font-medium">
-                        {session.workoutName}
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="px-4 py-3">
-                      <p className="text-muted-foreground text-xs">
-                        {formatDateTime(session.completedAt)}
-                      </p>
-                      {hasMultipleSets ? (
-                        <SetTable sets={session.sets} />
-                      ) : (
-                        <p className="mt-2 text-sm">
-                          Best:{" "}
-                          <span className="font-semibold tabular-nums">
-                            {formatWeightReps(best.set.weight, best.set.reps)}
-                          </span>{" "}
-                          <span className="text-muted-foreground text-xs">
-                            (est. 1RM {best.est1RM})
-                          </span>
+                    <Card className="gap-0 bg-[var(--surface)] py-0">
+                      <CardHeader className="border-border/50 min-w-0 border-b px-4 py-3">
+                        <CardTitle className="truncate text-sm font-medium">
+                          {session.workoutName}
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="px-4 py-3">
+                        <p className="text-muted-foreground text-xs">
+                          {formatDateTime(session.completedAt)}
                         </p>
-                      )}
-                    </CardContent>
-                  </Card>
+                        {hasMultipleSets ? (
+                          <SetTable sets={session.sets} />
+                        ) : (
+                          <p className="mt-2 text-sm">
+                            Best:{" "}
+                            <span className="font-semibold tabular-nums">
+                              {formatWeightReps(best.set.weight, best.set.reps)}
+                            </span>{" "}
+                            <span className="text-muted-foreground text-xs">
+                              (est. 1RM {best.est1RM})
+                            </span>
+                          </p>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </Link>
                 );
               })}
             </div>

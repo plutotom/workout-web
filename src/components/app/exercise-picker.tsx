@@ -1,24 +1,16 @@
 "use client";
 
-import { useLayoutEffect, useState } from "react";
+import { useState } from "react";
 import { useMutation } from "convex/react";
 import { useQuery } from "convex-helpers/react/cache/hooks";
 import { Check, Layers, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { api } from "@backend/api";
-import type { Id } from "@backend/dataModel";
+import { CustomExerciseDialog } from "@/components/app/custom-exercise-dialog";
 import { useExerciseCatalog } from "@/components/app/exercise-catalog-provider";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Sheet,
   SheetContent,
@@ -33,6 +25,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useVisualViewportFrame } from "@/hooks/use-visual-viewport-frame";
+import { customExerciseId } from "@/lib/exercise-browser";
 import { MUSCLE_GROUPS, type MuscleGroup } from "@/lib/exercises";
 import { cn } from "@/lib/utils";
 
@@ -42,13 +35,6 @@ type ExercisePickerProps = {
   usedSlugs: string[];
   onAdd: (slugs: string[]) => void;
 };
-
-/** A custom-exercise slug looks like `custom:<id>`; null for curated lifts. */
-function customExerciseId(slug: string): Id<"customExercises"> | null {
-  return slug.startsWith("custom:")
-    ? (slug.slice("custom:".length) as Id<"customExercises">)
-    : null;
-}
 
 /** Map exercise slug → template names that include it. */
 function templateNamesBySlug(
@@ -291,7 +277,7 @@ export function ExercisePicker({
         </SheetContent>
       </Sheet>
 
-      <CreateExerciseDialog
+      <CustomExerciseDialog
         open={createOpen}
         onOpenChange={setCreateOpen}
         defaultGroup={group === "all" ? "chest" : group}
@@ -347,147 +333,5 @@ function TemplateUsageHint({
         </ul>
       </TooltipContent>
     </Tooltip>
-  );
-}
-
-function CreateExerciseDialog({
-  open,
-  onOpenChange,
-  defaultGroup,
-  onCreated,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  defaultGroup: MuscleGroup;
-  onCreated: (slug: string) => void;
-}) {
-  const create = useMutation(api.routes.exercises.mutations.create);
-
-  const [name, setName] = useState("");
-  const [category, setCategory] = useState<MuscleGroup>(defaultGroup);
-  const [usesBar, setUsesBar] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [compact, setCompact] = useState(false);
-  const { style: viewportStyle, keyboardOpen } = useVisualViewportFrame(
-    open && compact,
-    { mode: "dock" },
-  );
-
-  useLayoutEffect(() => {
-    const mq = window.matchMedia("(max-width: 639px)");
-    const sync = () => setCompact(mq.matches);
-    sync();
-    mq.addEventListener("change", sync);
-    return () => mq.removeEventListener("change", sync);
-  }, []);
-
-  function reset() {
-    setName("");
-    setCategory(defaultGroup);
-    setUsesBar(false);
-  }
-
-  async function handleCreate() {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    setSaving(true);
-    try {
-      const { slug } = await create({ name: trimmed, category, usesBar });
-      toast.success("Exercise created");
-      reset();
-      onCreated(slug);
-    } catch {
-      toast.error("Couldn't create exercise");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <Dialog
-      open={open}
-      onOpenChange={(o) => {
-        if (!o) reset();
-        onOpenChange(o);
-      }}
-    >
-      <DialogContent
-        style={viewportStyle}
-        className={cn(keyboardOpen && "pb-3")}
-      >
-        <DialogHeader>
-          <DialogTitle>New custom exercise</DialogTitle>
-        </DialogHeader>
-
-        <div className="flex flex-col gap-4">
-          <div className="grid gap-2">
-            <Label htmlFor="custom-exercise-name">Name</Label>
-            <Input
-              id="custom-exercise-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Cable Pull-Through"
-              autoComplete="off"
-              autoFocus
-            />
-          </div>
-
-          <div className="grid gap-2">
-            <Label>Muscle group</Label>
-            <div className="flex flex-wrap gap-2">
-              {MUSCLE_GROUPS.map((g) => (
-                <Button
-                  key={g.id}
-                  type="button"
-                  size="sm"
-                  variant={category === g.id ? "default" : "outline"}
-                  onClick={() => setCategory(g.id)}
-                >
-                  {g.label}
-                </Button>
-              ))}
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => setUsesBar((v) => !v)}
-            className="flex items-center justify-between rounded-md border px-3 py-2.5 text-left text-sm"
-          >
-            <span>
-              <span className="font-medium">Uses a barbell</span>
-              <span className="text-muted-foreground block text-xs">
-                Includes the bar in plate-calculator math
-              </span>
-            </span>
-            <span
-              className={cn(
-                "flex size-5 items-center justify-center rounded border",
-                usesBar ? "border-success bg-success/15" : "border-input",
-              )}
-            >
-              {usesBar ? <Check className="text-success size-3.5" /> : null}
-            </span>
-          </button>
-        </div>
-
-        <DialogFooter>
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => onOpenChange(false)}
-          >
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            disabled={name.trim().length === 0 || saving}
-            onClick={handleCreate}
-          >
-            {saving ? "Creating…" : "Create"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }
