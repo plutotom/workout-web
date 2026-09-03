@@ -987,15 +987,47 @@ type RecapSet = {
 
 type BestSet = { weight: number; reps: number };
 
-/** Prefer heavier weight; at equal weight, prefer more reps. */
-function compareBestSets(a: BestSet, b: BestSet): number {
-  if (a.weight !== b.weight) return a.weight - b.weight;
+function isInverseWeightSlug(slug: string): boolean {
+  const s = slug.toLowerCase();
+  // Assisted pull-ups/dips typically use "assisted" in the slug (including
+  // custom user-authored lifts). Counterweighted variants follow the same
+  // convention.
+  return (
+    s.includes("assisted") ||
+    s.includes("counterweighted") ||
+    s.includes("counterweight")
+  );
+}
+
+function effectiveWeightForSlug(slug: string, weight: number): number {
+  return isInverseWeightSlug(slug) ? -weight : weight;
+}
+
+function compareBestSetsForSlug(
+  a: BestSet,
+  b: BestSet,
+  inverseWeight: boolean,
+): number {
+  const aw = inverseWeight ? -a.weight : a.weight;
+  const bw = inverseWeight ? -b.weight : b.weight;
+  if (aw !== bw) return aw - bw;
   return a.reps - b.reps;
 }
 
-function betterBestSet(a: BestSet | null, b: BestSet): BestSet {
-  if (!a || compareBestSets(b, a) > 0) return b;
+function betterBestSetForSlug(
+  a: BestSet | null,
+  b: BestSet,
+  inverseWeight: boolean,
+): BestSet {
+  if (!a || compareBestSetsForSlug(b, a, inverseWeight) > 0) return b;
   return a;
+}
+
+function compareRecapSets(a: RecapSet, b: RecapSet): number {
+  const aw = effectiveWeightForSlug(a.slug, a.weight);
+  const bw = effectiveWeightForSlug(b.slug, b.weight);
+  if (aw !== bw) return aw - bw;
+  return a.reps - b.reps;
 }
 
 /** Checked-off sets that count toward recap totals (weight may be 0). */
@@ -1055,10 +1087,15 @@ async function bestSetForSlugInSession(
     )
     .collect();
 
+  const inverseWeight = isInverseWeightSlug(slug);
   let best: BestSet | null = null;
   for (const set of sets) {
     if (!isLoggedSet(set)) continue;
-    best = betterBestSet(best, { weight: set.weight, reps: set.reps });
+    best = betterBestSetForSlug(
+      best,
+      { weight: set.weight, reps: set.reps },
+      inverseWeight,
+    );
   }
   if (!best) return null;
   return { ...best, est1RM: estimate1RM(best.weight, best.reps) };
@@ -1079,8 +1116,9 @@ export async function getWorkoutRecap(
     0,
   );
   // Heavier weight wins; among weight-0 (bodyweight / unset) sets, more reps.
+  // Assisted/counterweighted lifts invert that: less assistance is better.
   const standout =
-    [...doneSets].sort((a, b) => compareBestSets(b, a))[0] ?? null;
+    [...doneSets].sort((a, b) => compareRecapSets(b, a))[0] ?? null;
 
   const completedSessions = await completedSessionsForUser(ctx, userId);
   const meaningfulAts: number[] = [];
@@ -1116,13 +1154,18 @@ export async function getWorkoutRecap(
   const allPoints: ProgressionPoint[] = [];
   let priorBest: BestSet | null = null;
   if (standout) {
+    const standoutInverseWeight = isInverseWeightSlug(standout.slug);
     for (const s of completedSessions) {
       const ts = s.completedAt ?? s.startedAt;
       if (ts > completedAt) continue;
       const best = await bestSetForSlugInSession(ctx, s, standout.slug);
       if (!best) continue;
       if (s._id !== sessionId && ts < completedAt) {
-        priorBest = betterBestSet(priorBest, best);
+        priorBest = betterBestSetForSlug(
+          priorBest,
+          best,
+          standoutInverseWeight,
+        );
       }
       allPoints.push({
         completedAt: ts,
@@ -1153,6 +1196,8 @@ export async function getWorkoutRecap(
       ? todayPoint.weight - previousPoint.weight
       : null;
 
+  const isInverseWeight = standout ? isInverseWeightSlug(standout.slug) : false;
+
   return {
     session,
     totals: {
@@ -1172,7 +1217,13 @@ export async function getWorkoutRecap(
           weight: standout.weight,
           reps: standout.reps,
           est1RM: estimate1RM(standout.weight, standout.reps),
-          isPr: priorBest ? compareBestSets(standout, priorBest) > 0 : true,
+          isPr: priorBest
+            ? compareBestSetsForSlug(
+                { weight: standout.weight, reps: standout.reps },
+                priorBest,
+                isInverseWeight,
+              ) > 0
+            : true,
           priorBest,
         }
       : null,
@@ -1191,6 +1242,7 @@ export async function getWorkoutRecap(
             slug: standout.slug,
             scopedToTemplate: useTemplateLineage,
             isBaseline,
+            isInverseWeight,
             points: chartPoints,
             today: todayPoint
               ? {

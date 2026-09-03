@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { hapticSuccess } from "@/lib/haptics";
+import { useVisualViewportFrame } from "@/hooks/use-visual-viewport-frame";
 
 type TemplateData =
   | {
@@ -110,6 +111,10 @@ export function useWorkoutFinishFlow({
   const [saveTemplateName, setSaveTemplateName] = useState("");
   const [savingTemplate, setSavingTemplate] = useState(false);
   const savePromptResolved = useRef(false);
+  const { style: saveTemplateViewportStyle } = useVisualViewportFrame(
+    saveTemplateOpen,
+    { mode: "dock" },
+  );
 
   const isBlankSession = session ? session.templateId === null : true;
   const exerciseCountAtFinish = session?.exercises.length ?? 0;
@@ -344,7 +349,7 @@ export function useWorkoutFinishFlow({
           }
         }}
       >
-        <DialogContent>
+        <DialogContent style={saveTemplateViewportStyle}>
           <DialogHeader>
             <DialogTitle>Save as template?</DialogTitle>
             <DialogDescription>
@@ -361,9 +366,6 @@ export function useWorkoutFinishFlow({
               onChange={(e) => setSaveTemplateName(e.target.value)}
               placeholder="e.g. Push day"
               autoFocus
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void handleSaveTemplate(true);
-              }}
             />
           </div>
           <DialogFooter className="sm:flex-col sm:gap-2">

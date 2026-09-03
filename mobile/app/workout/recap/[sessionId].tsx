@@ -102,7 +102,8 @@ function progressionCopy(story: RecapProgressionStory, shortName: string) {
     };
   }
 
-  const delta = story.vsPreviousWeight ?? 0;
+  const actualDelta = story.vsPreviousWeight ?? 0;
+  const effectiveDelta = story.isInverseWeight ? -actualDelta : actualDelta;
   const todayLabel = formatSet(story.today.weight, story.today.reps);
   const previousLabel = story.previous
     ? formatSet(story.previous.weight, story.previous.reps)
@@ -111,14 +112,20 @@ function progressionCopy(story: RecapProgressionStory, shortName: string) {
   const trailer = (fallback: string) =>
     previousLabel ? `${todayLabel} · was ${previousLabel} last time` : fallback;
 
-  if (delta > 0)
+  if (effectiveDelta > 0)
     return {
-      title: `${shortName} +${delta} lb`,
+      title:
+        actualDelta > 0
+          ? `${shortName} +${actualDelta} lb`
+          : `${shortName} ${actualDelta} lb`,
       body: trailer(`${todayLabel} · stronger than last time`),
     };
-  if (delta < 0)
+  if (effectiveDelta < 0)
     return {
-      title: `${shortName} ${delta} lb`,
+      title:
+        actualDelta > 0
+          ? `${shortName} +${actualDelta} lb`
+          : `${shortName} ${actualDelta} lb`,
       body: trailer(`${todayLabel} · down from last time`),
     };
   if (repDelta > 0)
@@ -198,18 +205,24 @@ function ProgressionStoryCard({
   story: RecapProgressionStory;
   templateName: string;
 }) {
-  const delta = story.vsPreviousWeight;
+  const actualDelta = story.vsPreviousWeight;
+  const effectiveDelta =
+    actualDelta === null
+      ? null
+      : story.isInverseWeight
+        ? -actualDelta
+        : actualDelta;
   const repDelta =
     story.today && story.previous
       ? story.today.reps - story.previous.reps
       : null;
   const deltaLabel =
-    delta === null
+    effectiveDelta === null
       ? null
-      : delta > 0
-        ? `↑ ${delta} lb`
-        : delta < 0
-          ? `↓ ${Math.abs(delta)} lb`
+      : effectiveDelta > 0
+        ? `↑ ${effectiveDelta} lb`
+        : effectiveDelta < 0
+          ? `↓ ${Math.abs(effectiveDelta)} lb`
           : (repDelta ?? 0) > 0
             ? `↑ ${repDelta} reps`
             : (repDelta ?? 0) < 0
@@ -300,7 +313,8 @@ function ProgressionStoryCard({
                 <Text
                   style={{
                     color:
-                      (delta ?? 0) < 0 || ((delta ?? 0) === 0 && !repDelta)
+                      (effectiveDelta ?? 0) < 0 ||
+                      ((effectiveDelta ?? 0) === 0 && !repDelta)
                         ? colors.dim
                         : colors.text,
                     fontSize: 13,

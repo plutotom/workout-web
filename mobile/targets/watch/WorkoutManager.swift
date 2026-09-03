@@ -9,6 +9,8 @@ final class WorkoutManager: NSObject, ObservableObject {
   @Published private(set) var heartRate: Double?
   @Published private(set) var activeEnergyKcal: Double?
   @Published private(set) var startedAt: Date?
+  /// Drives smooth UI updates for the duration label.
+  @Published private(set) var now: Date = Date()
 
   var isRecording: Bool {
     status == "recording" || status == "starting"
@@ -37,7 +39,7 @@ final class WorkoutManager: NSObject, ObservableObject {
   var durationLabel: String {
     let start = startedAt ?? session?.startDate
     guard let start else { return "0:00" }
-    let seconds = max(0, Int(Date().timeIntervalSince(start)))
+    let seconds = max(0, Int(now.timeIntervalSince(start)))
     return String(format: "%d:%02d", seconds / 60, seconds % 60)
   }
 
@@ -46,6 +48,22 @@ final class WorkoutManager: NSObject, ObservableObject {
   private var builder: HKLiveWorkoutBuilder?
   private var syncIdentifier = ""
   private let defaults = UserDefaults.standard
+  private var tickTimer: Timer?
+
+  private func startTickingIfNeeded() {
+    guard tickTimer == nil else { return }
+    tickTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+      guard let self else { return }
+      DispatchQueue.main.async {
+        self.now = Date()
+      }
+    }
+  }
+
+  private func stopTicking() {
+    tickTimer?.invalidate()
+    tickTimer = nil
+  }
 
   func handle(configuration: HKWorkoutConfiguration) {
     let context = PhoneBridge.shared.latestStartContext()
@@ -193,6 +211,7 @@ final class WorkoutManager: NSObject, ObservableObject {
     status = "idle"
     heartRate = nil
     activeEnergyKcal = nil
+    stopTicking()
     defaults.removeObject(forKey: "watch.sessionId")
     defaults.removeObject(forKey: "watch.syncIdentifier")
     mirrorState()
@@ -208,6 +227,11 @@ final class WorkoutManager: NSObject, ObservableObject {
   }
 
   func mirrorState() {
+    if isRecording {
+      startTickingIfNeeded()
+    } else {
+      stopTicking()
+    }
     PhoneBridge.shared.send([
       "type": "state",
       "sessionId": sessionId,
@@ -225,7 +249,7 @@ final class WorkoutManager: NSObject, ObservableObject {
   private func durationSeconds() -> Int {
     let start = startedAt ?? session?.startDate
     guard let start else { return 0 }
-    return max(0, Int(Date().timeIntervalSince(start)))
+    return max(0, Int(now.timeIntervalSince(start)))
   }
 }
 
