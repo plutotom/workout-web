@@ -70,7 +70,7 @@ function LiftRow({
     <Pressable
       onPress={() =>
         router.push({
-          pathname: "/insights/exercise/[slug]",
+          pathname: "/exercises/[slug]",
           params: { slug: lift.slug },
         })
       }
@@ -219,6 +219,62 @@ export default function InsightsScreen() {
         </Text>
       </View>
       <Segmented value={range} options={rangeOptions} onChange={setRange} />
+
+      <View style={{ flexDirection: "row", gap: 10 }}>
+        <Pressable
+          onPress={() => router.push("/exercises")}
+          style={({ pressed }) => ({
+            flex: 1,
+            minHeight: 88,
+            borderRadius: 14,
+            borderWidth: 1,
+            borderColor: colors.line,
+            backgroundColor: colors.surface,
+            padding: 14,
+            justifyContent: "space-between",
+            opacity: pressed ? 0.85 : 1,
+          })}
+        >
+          <Dumbbell color={colors.text} size={20} />
+          <View>
+            <Text
+              style={{ color: colors.text, fontWeight: "700", fontSize: 15 }}
+            >
+              Exercises
+            </Text>
+            <Text style={{ color: colors.dim, fontSize: 12, marginTop: 2 }}>
+              Catalog & customs
+            </Text>
+          </View>
+        </Pressable>
+        <Pressable
+          onPress={() => setSection("sessions")}
+          style={({ pressed }) => ({
+            flex: 1,
+            minHeight: 88,
+            borderRadius: 14,
+            borderWidth: 1,
+            borderColor: colors.line,
+            backgroundColor: colors.surface,
+            padding: 14,
+            justifyContent: "space-between",
+            opacity: pressed ? 0.85 : 1,
+          })}
+        >
+          <History color={colors.text} size={20} />
+          <View>
+            <Text
+              style={{ color: colors.text, fontWeight: "700", fontSize: 15 }}
+            >
+              History
+            </Text>
+            <Text style={{ color: colors.dim, fontSize: 12, marginTop: 2 }}>
+              Logged sessions
+            </Text>
+          </View>
+        </Pressable>
+      </View>
+
       <Segmented
         value={section}
         options={sectionOptions}

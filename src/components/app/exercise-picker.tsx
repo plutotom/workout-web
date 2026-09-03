@@ -7,6 +7,7 @@ import { Check, Layers, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { api } from "@backend/api";
+import type { Id } from "@backend/dataModel";
 import { CustomExerciseDialog } from "@/components/app/custom-exercise-dialog";
 import { useExerciseCatalog } from "@/components/app/exercise-catalog-provider";
 import { Button } from "@/components/ui/button";
@@ -94,7 +95,7 @@ export function ExercisePicker({
     if (!id) return;
     setSelected((prev) => prev.filter((s) => s !== slug));
     try {
-      await archive({ exerciseId: id });
+      await archive({ exerciseId: id as Id<"customExercises"> });
       toast.success("Exercise removed");
     } catch {
       toast.error("Couldn't remove exercise");

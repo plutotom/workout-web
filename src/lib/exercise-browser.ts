@@ -1,10 +1,4 @@
-import type { Id } from "@backend/dataModel";
-
-import {
-  MUSCLE_GROUPS,
-  type Exercise,
-  type MuscleGroup,
-} from "@/lib/exercises";
+import { MUSCLE_GROUPS, type Exercise, type MuscleGroup } from "./exercises";
 
 export type ExerciseSort = "az" | "recent" | "custom";
 
@@ -18,11 +12,15 @@ export function muscleGroupLabel(id: MuscleGroup): string {
   return MUSCLE_GROUPS.find((g) => g.id === id)?.label ?? id;
 }
 
-/** A custom-exercise slug looks like `custom:<id>`; null for curated lifts. */
-export function customExerciseId(slug: string): Id<"customExercises"> | null {
+/**
+ * Suffix after `custom:` for a custom-exercise slug; null for curated lifts.
+ * Web casts this to a Convex `Id<"customExercises">`; iOS looks the row up by
+ * slug instead (local ids are `custom:local-<uuid>`).
+ */
+export function customExerciseId(slug: string): string | null {
   if (!slug.startsWith("custom:")) return null;
   const id = slug.slice("custom:".length);
-  return id.length > 0 ? (id as Id<"customExercises">) : null;
+  return id.length > 0 ? id : null;
 }
 
 export function exerciseDetailPath(

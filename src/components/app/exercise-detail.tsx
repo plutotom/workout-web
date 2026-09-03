@@ -8,6 +8,7 @@ import Link from "next/link";
 import { toast } from "sonner";
 
 import { api } from "@backend/api";
+import type { Id } from "@backend/dataModel";
 import {
   CustomExerciseDialog,
   type EditableCustomExercise,
@@ -93,7 +94,7 @@ export function ExerciseDetail({
   const templates = useQuery(api.routes.templates.queries.list);
 
   const exercise = catalog.get(slug);
-  const customId = customExerciseId(slug);
+  const customId = customExerciseId(slug) as Id<"customExercises"> | null;
   const isCustom = customId !== null;
   const archived = exercise?.archived === true;
 
