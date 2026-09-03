@@ -1,6 +1,10 @@
 import type { SQLiteDatabase } from "expo-sqlite";
 
-const DATABASE_VERSION = 5;
+// Version 6 shipped through the staging build before the exercise-library
+// release was built from main. Keep mobile database versions monotonic across
+// release branches: installing a newer app preserves this database, so a
+// later bundle must never lower the maximum supported version.
+const DATABASE_VERSION = 6;
 
 export async function migrateLocalDatabase(db: SQLiteDatabase) {
   await db.execAsync("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
@@ -186,6 +190,13 @@ export async function migrateLocalDatabase(db: SQLiteDatabase) {
         ALTER TABLE local_preferences
           ADD COLUMN apple_health_import_notifications_enabled INTEGER NOT NULL DEFAULT 0;
         PRAGMA user_version = 5;
+      `);
+    }
+
+    if (currentVersion < 6) {
+      await db.execAsync(`
+        ALTER TABLE local_sessions ADD COLUMN health_segments_json TEXT;
+        PRAGMA user_version = 6;
       `);
     }
   });
