@@ -70,7 +70,7 @@ export function LiftRows({
             key={lift.slug}
             onPress={() =>
               router.push({
-                pathname: "/insights/exercise/[slug]",
+                pathname: "/exercises/[slug]",
                 params: { slug: lift.slug, days: daysParam(days) },
               })
             }

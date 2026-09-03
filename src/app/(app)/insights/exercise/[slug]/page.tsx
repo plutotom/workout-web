@@ -1,6 +1,8 @@
-import { ExerciseInsights } from "@/components/app/insights/exercise-insights";
+import { redirect } from "next/navigation";
 
-export default async function ExerciseInsightsPage({
+import { exerciseDetailPath } from "@/lib/exercise-browser";
+
+export default async function LegacyExerciseInsightsPage({
   params,
   searchParams,
 }: {
@@ -9,5 +11,10 @@ export default async function ExerciseInsightsPage({
 }) {
   const { slug } = await params;
   const { days, from } = await searchParams;
-  return <ExerciseInsights slug={slug} daysParam={days} fromParam={from} />;
+  redirect(
+    exerciseDetailPath(decodeURIComponent(slug), {
+      days,
+      from,
+    }),
+  );
 }

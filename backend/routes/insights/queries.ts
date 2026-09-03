@@ -34,6 +34,7 @@ const emptyOverview = {
     bestReps: number;
     est1RM: number;
     trend: "up" | "flat" | "down";
+    lastCompletedAt: number;
   }[],
   recentSessions: [] as {
     sessionId: string;

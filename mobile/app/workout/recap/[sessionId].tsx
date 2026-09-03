@@ -336,7 +336,7 @@ function ProgressionStoryCard({
         icon={ArrowRight}
         onPress={() =>
           router.push({
-            pathname: "/insights/exercise/[slug]",
+            pathname: "/exercises/[slug]",
             params: { slug: story.slug, days: "all" },
           })
         }
