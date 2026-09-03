@@ -18,6 +18,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -931,13 +932,28 @@ export function WorkoutFinishController() {
   // Navigating while the sheet is still on screen tears it down mid-dismissal,
   // so the recap waits for `onDismiss` (iOS fires it once the sheet is gone).
   const [recapAfterSave, setRecapAfterSave] = useState<string | null>(null);
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
 
   function closeSavePrompt() {
     if (!savePrompt) return;
+    Keyboard.dismiss();
     if (Platform.OS === "ios") setRecapAfterSave(savePrompt.sessionId);
     setSavePrompt(null);
     if (Platform.OS !== "ios") showRecap(savePrompt.sessionId);
   }
+
+  useEffect(() => {
+    const showEvent =
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent =
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const show = Keyboard.addListener(showEvent, () => setKeyboardOpen(true));
+    const hide = Keyboard.addListener(hideEvent, () => setKeyboardOpen(false));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
 
   useEffect(() => {
     finishController = (session) => {
@@ -1111,7 +1127,7 @@ export function WorkoutFinishController() {
               autoCapitalize="words"
               returnKeyType="done"
               maxLength={80}
-              onSubmitEditing={() => void confirmSaveTemplate()}
+              onSubmitEditing={() => Keyboard.dismiss()}
             />
             {saveError ? (
               <Text
@@ -1138,12 +1154,14 @@ export function WorkoutFinishController() {
               disabled={savingTemplate || !templateName.trim()}
               onPress={confirmSaveTemplate}
             />
-            <Button
-              label="No thanks"
-              variant="outline"
-              disabled={savingTemplate}
-              onPress={closeSavePrompt}
-            />
+            {keyboardOpen ? null : (
+              <Button
+                label="No thanks"
+                variant="outline"
+                disabled={savingTemplate}
+                onPress={closeSavePrompt}
+              />
+            )}
           </View>
         </KeyboardAvoidingView>
       </SafeAreaView>

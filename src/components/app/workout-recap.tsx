@@ -41,6 +41,8 @@ type ProgressionStory = {
     est1RM: number;
     completedAt: number;
   } | null;
+  /** When true, lower recorded weight means "better" (assisted/counterweighted lifts). */
+  isInverseWeight?: boolean;
   vsPreviousWeight: number | null;
 };
 
@@ -121,7 +123,8 @@ function progressionCopy(story: ProgressionStory, shortName: string) {
     };
   }
 
-  const delta = story.vsPreviousWeight ?? 0;
+  const actualDelta = story.vsPreviousWeight ?? 0;
+  const effectiveDelta = story.isInverseWeight ? -actualDelta : actualDelta;
   const todayLabel = formatSet(story.today.weight, story.today.reps);
   const previousLabel = story.previous
     ? formatSet(story.previous.weight, story.previous.reps)
@@ -129,17 +132,23 @@ function progressionCopy(story: ProgressionStory, shortName: string) {
   const repDelta =
     story.previous != null ? story.today.reps - story.previous.reps : 0;
 
-  if (delta > 0) {
+  if (effectiveDelta > 0) {
     return {
-      title: `${shortName} +${delta} lb`,
+      title:
+        actualDelta > 0
+          ? `${shortName} +${actualDelta} lb`
+          : `${shortName} ${actualDelta} lb`,
       body: previousLabel
         ? `${todayLabel} · was ${previousLabel} last time`
         : `${todayLabel} · stronger than last time`,
     };
   }
-  if (delta < 0) {
+  if (effectiveDelta < 0) {
     return {
-      title: `${shortName} ${delta} lb`,
+      title:
+        actualDelta > 0
+          ? `${shortName} +${actualDelta} lb`
+          : `${shortName} ${actualDelta} lb`,
       body: previousLabel
         ? `${todayLabel} · was ${previousLabel} last time`
         : `${todayLabel} · down from last time`,
@@ -184,7 +193,13 @@ function ProgressionStoryCard({
   const min = values.length ? Math.min(...values) : 0;
   const max = values.length ? Math.max(...values) : 1;
   const range = Math.max(1, max - min);
-  const delta = story.vsPreviousWeight;
+  const actualDelta = story.vsPreviousWeight;
+  const effectiveDelta =
+    actualDelta === null
+      ? null
+      : story.isInverseWeight
+        ? -actualDelta
+        : actualDelta;
   const repDelta =
     story.today && story.previous
       ? story.today.reps - story.previous.reps
@@ -245,21 +260,23 @@ function ProgressionStoryCard({
                   ? `${templateName} · last ${points.length}`
                   : `Last ${points.length} sessions`}
               </p>
-              {delta !== null ? (
+              {effectiveDelta !== null ? (
                 <p
                   className={cn(
                     "text-sm font-semibold",
-                    delta > 0 || (delta === 0 && (repDelta ?? 0) > 0)
+                    effectiveDelta > 0 ||
+                      (effectiveDelta === 0 && (repDelta ?? 0) > 0)
                       ? "text-[var(--action)]"
-                      : delta < 0 || (delta === 0 && (repDelta ?? 0) < 0)
+                      : effectiveDelta < 0 ||
+                          (effectiveDelta === 0 && (repDelta ?? 0) < 0)
                         ? "text-muted-foreground"
                         : "text-foreground",
                   )}
                 >
-                  {delta > 0
-                    ? `↑ ${delta} lb`
-                    : delta < 0
-                      ? `↓ ${Math.abs(delta)} lb`
+                  {effectiveDelta > 0
+                    ? `↑ ${Math.abs(effectiveDelta)} lb`
+                    : effectiveDelta < 0
+                      ? `↓ ${Math.abs(effectiveDelta)} lb`
                       : (repDelta ?? 0) > 0
                         ? `↑ ${repDelta} reps`
                         : (repDelta ?? 0) < 0
