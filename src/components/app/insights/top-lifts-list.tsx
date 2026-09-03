@@ -5,6 +5,7 @@ import { ArrowDown, ArrowRight, ArrowUp, ChevronRight } from "lucide-react";
 
 import { useExerciseCatalog } from "@/components/app/exercise-catalog-provider";
 import { cn } from "@/lib/utils";
+import { exerciseDetailPath } from "@/lib/exercise-browser";
 import type { TopLift } from "@/lib/insights/types";
 import type { InsightsDays } from "@/lib/insights/format";
 
@@ -46,7 +47,7 @@ export function TopLiftsList({
       {lifts.map((lift, index) => (
         <Link
           key={lift.slug}
-          href={`/insights/exercise/${lift.slug}?days=${days}`}
+          href={exerciseDetailPath(lift.slug, { days })}
           className="group min-w-0 overflow-hidden rounded-lg border bg-[var(--surface)] p-3 transition-all active:scale-[0.98]"
         >
           <div className="flex min-w-0 items-center gap-3">

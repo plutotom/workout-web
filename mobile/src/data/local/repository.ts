@@ -1865,6 +1865,20 @@ export async function archiveLocalCustomExercise(
   await queueCustomExerciseSnapshot(db, exerciseId, now);
 }
 
+/** Undo archive — lift shows up in pickers and the catalog again. */
+export async function restoreLocalCustomExercise(
+  db: SQLiteDatabase,
+  exerciseId: string,
+) {
+  const now = Date.now();
+  await db.runAsync(
+    "UPDATE local_custom_exercises SET archived = 0, updated_at = ? WHERE id = ?",
+    now,
+    exerciseId,
+  );
+  await queueCustomExerciseSnapshot(db, exerciseId, now);
+}
+
 export async function getLocalCustomExerciseBySlug(
   db: SQLiteDatabase,
   slug: string,

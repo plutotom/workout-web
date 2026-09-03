@@ -6,6 +6,7 @@ import { upsertExerciseNote } from "../../lib/exercise_notes";
 import {
   archiveCustomExercise,
   createCustomExercise,
+  restoreCustomExercise,
   updateCustomExercise,
 } from "../../lib/exercises";
 import {
@@ -46,6 +47,14 @@ export const archive = mutation({
   handler: async (ctx, { exerciseId }) => {
     const user = await requireUser(ctx);
     await archiveCustomExercise(ctx, user._id, exerciseId);
+  },
+});
+
+export const restore = mutation({
+  args: { exerciseId: v.id("customExercises") },
+  handler: async (ctx, { exerciseId }) => {
+    const user = await requireUser(ctx);
+    await restoreCustomExercise(ctx, user._id, exerciseId);
   },
 });
 

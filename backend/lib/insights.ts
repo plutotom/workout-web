@@ -219,6 +219,7 @@ type SlugStats = {
   bestWeight: number;
   bestReps: number;
   bestEst1RM: number;
+  lastCompletedAt: number;
 };
 
 function slugStatsInSessions(
@@ -255,6 +256,7 @@ function slugStatsInSessions(
           bestWeight: best.bestWeight,
           bestReps: best.bestReps,
           bestEst1RM: best.bestEst1RM,
+          lastCompletedAt: session.completedAt,
         });
       } else {
         const improved = best.bestEst1RM > prev.bestEst1RM;
@@ -263,6 +265,7 @@ function slugStatsInSessions(
           bestWeight: improved ? best.bestWeight : prev.bestWeight,
           bestReps: improved ? best.bestReps : prev.bestReps,
           bestEst1RM: Math.max(prev.bestEst1RM, best.bestEst1RM),
+          lastCompletedAt: Math.max(prev.lastCompletedAt, session.completedAt),
         });
       }
     }
@@ -287,6 +290,7 @@ export type InsightsLift = {
   bestReps: number;
   est1RM: number;
   trend: "up" | "flat" | "down";
+  lastCompletedAt: number;
 };
 
 export type InsightsSessionSummary = {
@@ -403,6 +407,7 @@ function liftsInPeriod(
         bestWeight: stats.bestWeight,
         bestReps: stats.bestReps,
         est1RM: stats.bestEst1RM,
+        lastCompletedAt: stats.lastCompletedAt,
         trend:
           days === null
             ? ("flat" as const)

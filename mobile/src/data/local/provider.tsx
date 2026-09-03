@@ -48,6 +48,7 @@ import {
   getLocalTemplates,
   getLocalWorkout,
   getOrCreateDeviceId,
+  restoreLocalCustomExercise,
   getPendingCustomExerciseSync,
   getPendingSessionDelete,
   getPendingSessionSync,
@@ -189,6 +190,7 @@ type LocalDataContextValue = {
     input: LocalCustomExerciseInput,
   ) => Promise<LocalCustomExercise>;
   archiveCustomExercise: (exerciseId: string) => Promise<void>;
+  restoreCustomExercise: (exerciseId: string) => Promise<void>;
   /** Additive local import — works offline; sync uploads later if signed in. */
   importBundle: (
     bundle: WorkoutExportBundle,
@@ -293,6 +295,8 @@ function LocalDataState({ children }: { children: ReactNode }) {
         run(() => saveLocalCustomExercise(db, input)),
       archiveCustomExercise: (exerciseId) =>
         run(() => archiveLocalCustomExercise(db, exerciseId)),
+      restoreCustomExercise: (exerciseId) =>
+        run(() => restoreLocalCustomExercise(db, exerciseId)),
       importBundle: (bundle) => run(() => importLocalBundle(db, bundle)),
       // A read, so it deliberately skips `run` and its refresh.
       createBackup: () => createLocalBackup(db),
