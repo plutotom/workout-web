@@ -1,6 +1,10 @@
 import type { SQLiteDatabase } from "expo-sqlite";
 
-const DATABASE_VERSION = 6;
+// Version 6 shipped through the staging build before the exercise-library
+// release was built from main. Keep mobile database versions monotonic across
+// release branches: installing a newer app preserves this database, so a
+// later bundle must never lower the maximum supported version.
+const DATABASE_VERSION = 7;
 
 export async function migrateLocalDatabase(db: SQLiteDatabase) {
   await db.execAsync("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
@@ -191,6 +195,13 @@ export async function migrateLocalDatabase(db: SQLiteDatabase) {
 
     if (currentVersion < 6) {
       await db.execAsync(`
+        ALTER TABLE local_sessions ADD COLUMN health_segments_json TEXT;
+        PRAGMA user_version = 6;
+      `);
+    }
+
+    if (currentVersion < 7) {
+      await db.execAsync(`
         ALTER TABLE local_templates ADD COLUMN last_place_id TEXT;
         ALTER TABLE local_sessions ADD COLUMN place_id TEXT;
         ALTER TABLE local_sessions ADD COLUMN place_name TEXT;
@@ -232,7 +243,7 @@ export async function migrateLocalDatabase(db: SQLiteDatabase) {
           PRIMARY KEY (place_id, exercise_slug, machine_key)
         );
 
-        PRAGMA user_version = 6;
+        PRAGMA user_version = 7;
       `);
     }
   });
