@@ -17,6 +17,7 @@ import {
   formatLb,
   MuscleBand,
 } from "@/components/app/workout-design";
+import { exerciseDetailPath } from "@/lib/exercise-browser";
 import { formatHealthDistance, formatHealthEnergy } from "@/lib/health-summary";
 import { cn } from "@/lib/utils";
 
@@ -485,7 +486,9 @@ export function WorkoutRecap({
               <ProgressionStoryCard
                 story={story}
                 templateName={data.session.templateName}
-                historyHref={`/insights/exercise/${story.slug}?from=${encodeURIComponent(`/workout/${sessionId}/recap?step=${step}`)}`}
+                historyHref={exerciseDetailPath(story.slug, {
+                  from: `/workout/${sessionId}/recap?step=${step}`,
+                })}
               />
             ),
           },

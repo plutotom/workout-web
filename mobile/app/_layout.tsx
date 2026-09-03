@@ -31,6 +31,8 @@ export default function RootLayout() {
             <Stack.Screen name="template/history/[id]" />
             <Stack.Screen name="workout/[sessionId]" />
             <Stack.Screen name="workout/recap/[sessionId]" />
+            <Stack.Screen name="exercises/index" />
+            <Stack.Screen name="exercises/[slug]" />
             <Stack.Screen name="insights/lifts" />
             <Stack.Screen name="insights/sessions" />
             <Stack.Screen name="insights/exercise/[slug]" />

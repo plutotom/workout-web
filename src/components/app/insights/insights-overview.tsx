@@ -23,6 +23,7 @@ import { mapQueryLifts } from "@/lib/insights/map-lifts";
 import { mapQuerySessions } from "@/lib/insights/map-sessions";
 import type { MuscleVolume, OverviewStats } from "@/lib/insights/types";
 
+import { InsightsHubTiles } from "./insights-hub-tiles";
 import { InsightsSection, InsightsSectionLink } from "./insights-section";
 import { InsightsStatGrid } from "./insights-stat-grid";
 import { MuscleVolumeBars } from "./muscle-volume-bars";
@@ -138,6 +139,8 @@ export function InsightsOverview() {
           ))}
         </TabsList>
       </Tabs>
+
+      <InsightsHubTiles days={days} />
 
       {process.env.NODE_ENV === "development" ? (
         <Button

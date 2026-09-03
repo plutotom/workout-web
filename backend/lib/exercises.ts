@@ -177,3 +177,13 @@ export async function archiveCustomExercise(
   await requireOwned(ctx, userId, exerciseId);
   await ctx.db.patch(exerciseId, { archived: true });
 }
+
+/** Undo archiveCustomExercise — lift shows up in pickers and the catalog again. */
+export async function restoreCustomExercise(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  exerciseId: Id<"customExercises">,
+) {
+  await requireOwned(ctx, userId, exerciseId);
+  await ctx.db.patch(exerciseId, { archived: false });
+}

@@ -1766,10 +1766,13 @@ function resolveUsesBar(e: Exercise | undefined): boolean {
 export type ExerciseCatalog = {
   /** Curated lifts plus the user's non-archived custom lifts. */
   all: Exercise[];
+  /** Soft-deleted customs — hidden from pickers, still name-resolvable. */
+  archived: Exercise[];
   name: (slug: string) => string;
   short: (slug: string) => string;
   category: (slug: string) => MuscleGroup | undefined;
   usesBar: (slug: string) => boolean;
+  get: (slug: string) => Exercise | undefined;
   search: (query: string, group: MuscleGroup | "all") => Exercise[];
 };
 
@@ -1794,14 +1797,18 @@ export function buildCatalog(
   const bySlug = new Map<string, Exercise>(
     [...EXERCISES, ...customExercises].map((e) => [e.slug, e]),
   );
-  const all = [...EXERCISES, ...customExercises.filter((e) => !e.archived)];
+  const liveCustoms = customExercises.filter((e) => !e.archived);
+  const archived = customExercises.filter((e) => e.archived);
+  const all = [...EXERCISES, ...liveCustoms];
 
   return {
     all,
+    archived,
     name: (slug) => bySlug.get(slug)?.name ?? slug,
     short: (slug) => bySlug.get(slug)?.short ?? slug,
     category: (slug) => bySlug.get(slug)?.category,
     usesBar: (slug) => resolveUsesBar(bySlug.get(slug)),
+    get: (slug) => bySlug.get(slug),
     search: (query, group) => {
       const q = query.trim().toLowerCase();
       return all.filter((e) => {

@@ -16,19 +16,21 @@ export function ExerciseRecordsTab({ records }: { records: ExerciseRecords }) {
             <div className="flex items-center justify-between gap-2 text-sm">
               <span className="text-muted-foreground">1RM</span>
               <span className="font-semibold tabular-nums">
-                {records.est1RM} lb
+                {records.est1RM > 0 ? `${records.est1RM} lb` : "—"}
               </span>
             </div>
             <div className="flex items-center justify-between gap-2 text-sm">
               <span className="text-muted-foreground">Best weight</span>
               <span className="font-semibold tabular-nums">
-                {formatWeightReps(records.bestWeight, records.bestReps)}
+                {records.bestWeight > 0
+                  ? formatWeightReps(records.bestWeight, records.bestReps)
+                  : "—"}
               </span>
             </div>
             <div className="flex items-center justify-between gap-2 text-sm">
               <span className="text-muted-foreground">Max volume</span>
               <span className="font-semibold tabular-nums">
-                {formatVolume(records.maxVolume)}
+                {records.maxVolume > 0 ? formatVolume(records.maxVolume) : "—"}
               </span>
             </div>
           </CardContent>
