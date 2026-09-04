@@ -5,11 +5,19 @@ import type {
   IosBootstrapPayload,
   LocalMachine,
   LocalPlace,
+  MachineSyncSnapshot,
+  PendingMachineSync,
+  PendingPlaceSync,
+  PlaceSyncSnapshot,
 } from "@/data/local/types";
 import {
   DEFAULT_MACHINE_KEY,
   HOME_PLACE_NAME,
   MAX_MACHINES_PER_LIFT,
+  MAX_PLACES,
+  USUAL_MACHINE_NAME,
+  normalizePlaceName,
+  placeNameKey,
   reseedIncompleteSets,
   seedSetRows,
   type MemorySet,
@@ -61,6 +69,73 @@ function mapMachine(row: MachineRow): LocalMachine {
     lastUsedAt: row.last_used_at,
     updatedAt: row.updated_at,
   };
+}
+
+async function queueOutbox(
+  db: SQLiteDatabase,
+  entityType: "place" | "machine",
+  entityId: string,
+  payload: PlaceSyncSnapshot | MachineSyncSnapshot,
+  now: number,
+) {
+  await db.runAsync(
+    `INSERT INTO local_sync_outbox (
+       entity_type, entity_id, operation_id, payload_json, created_at, attempt_count
+     ) VALUES (?, ?, ?, ?, ?, 0)
+     ON CONFLICT(entity_type, entity_id) DO UPDATE SET
+       operation_id = excluded.operation_id,
+       payload_json = excluded.payload_json,
+       created_at = excluded.created_at,
+       attempt_count = 0`,
+    entityType,
+    entityId,
+    randomUUID(),
+    JSON.stringify(payload),
+    now,
+  );
+}
+
+export async function queuePlaceSnapshot(
+  db: SQLiteDatabase,
+  placeId: string,
+  now = Date.now(),
+) {
+  const row = await db.getFirstAsync<PlaceRow>(
+    `SELECT id, remote_id, name, starred, archived, last_used_at, updated_at
+       FROM local_places WHERE id = ?`,
+    placeId,
+  );
+  if (!row) return;
+  const snapshot: PlaceSyncSnapshot = {
+    clientId: row.id,
+    name: row.name,
+    starred: row.starred === 1,
+    archived: row.archived === 1,
+  };
+  await queueOutbox(db, "place", placeId, snapshot, now);
+}
+
+export async function queueMachineSnapshot(
+  db: SQLiteDatabase,
+  machineId: string,
+  now = Date.now(),
+) {
+  const row = await db.getFirstAsync<MachineRow>(
+    `SELECT id, remote_id, name, place_id, exercise_slug, is_default,
+            archived, last_used_at, updated_at
+       FROM local_machines WHERE id = ?`,
+    machineId,
+  );
+  if (!row) return;
+  const snapshot: MachineSyncSnapshot = {
+    clientId: row.id,
+    placeClientId: row.place_id,
+    exerciseSlug: row.exercise_slug,
+    name: row.name,
+    isDefault: row.is_default === 1,
+    archived: row.archived === 1,
+  };
+  await queueOutbox(db, "machine", machineId, snapshot, now);
 }
 
 export async function listLocalPlaces(
@@ -118,6 +193,7 @@ export async function ensureLocalHomePlace(
       "UPDATE local_places SET starred = CASE WHEN id = ? THEN 1 ELSE 0 END",
       namedHome.id,
     );
+    await queuePlaceSnapshot(db, namedHome.id);
     return { ...mapPlace(namedHome), starred: true };
   }
 
@@ -131,6 +207,7 @@ export async function ensureLocalHomePlace(
     HOME_PLACE_NAME,
     now,
   );
+  await queuePlaceSnapshot(db, id, now);
   return {
     _id: id,
     remoteId: null,
@@ -249,10 +326,30 @@ export async function getLocalWorkingSets(
     }
   }
   if (!machineId) return null;
-  const machine = await db.getFirstAsync<{ is_default: number }>(
-    "SELECT is_default FROM local_machines WHERE id = ?",
+  const machine = await db.getFirstAsync<{
+    is_default: number;
+    remote_id: string | null;
+  }>(
+    "SELECT is_default, remote_id FROM local_machines WHERE id = ?",
     machineId,
   );
+  if (machine?.remote_id && machine.remote_id !== machineId) {
+    const byRemote = await db.getFirstAsync<{ sets_json: string }>(
+      `SELECT sets_json FROM local_exercise_place_weights
+        WHERE place_id = ? AND exercise_slug = ? AND machine_key = ?`,
+      placeId,
+      exerciseSlug,
+      machine.remote_id,
+    );
+    if (byRemote) {
+      try {
+        const parsed = JSON.parse(byRemote.sets_json) as MemorySet[];
+        if (Array.isArray(parsed) && parsed.length) return parsed;
+      } catch {
+        return null;
+      }
+    }
+  }
   if (machine?.is_default !== 1) return null;
   const implicit = await db.getFirstAsync<{ sets_json: string }>(
     `SELECT sets_json FROM local_exercise_place_weights
@@ -322,17 +419,240 @@ export async function starLocalPlace(db: SQLiteDatabase, id: string) {
     id,
     id,
   );
-}
-
-export async function archiveLocalPlace(db: SQLiteDatabase, id: string) {
-  await db.runAsync(
-    `UPDATE local_places
-        SET archived = 1, starred = 0, updated_at = ?
-      WHERE id = ? OR remote_id = ?`,
-    Date.now(),
+  const row = await db.getFirstAsync<{ id: string }>(
+    "SELECT id FROM local_places WHERE id = ? OR remote_id = ?",
     id,
     id,
   );
+  if (row) await queuePlaceSnapshot(db, row.id, now);
+}
+
+export async function archiveLocalPlace(db: SQLiteDatabase, id: string) {
+  const row = await db.getFirstAsync<PlaceRow>(
+    `SELECT id, remote_id, name, starred, archived, last_used_at, updated_at
+       FROM local_places WHERE id = ? OR remote_id = ?`,
+    id,
+    id,
+  );
+  if (!row) throw new Error("Place not found");
+  if (row.starred === 1) {
+    throw new Error("Star another place before removing Home");
+  }
+  await db.runAsync(
+    `UPDATE local_places
+        SET archived = 1, starred = 0, updated_at = ?
+      WHERE id = ?`,
+    Date.now(),
+    row.id,
+  );
+  await queuePlaceSnapshot(db, row.id);
+}
+
+/** Create a place locally and queue it for later upload. Works offline. */
+export async function createLocalPlace(
+  db: SQLiteDatabase,
+  name: string,
+): Promise<LocalPlace> {
+  await ensureLocalHomePlace(db);
+  const normalized = normalizePlaceName(name);
+  const active = await listLocalPlaces(db);
+  if (active.length >= MAX_PLACES) {
+    throw new Error(`You can have at most ${MAX_PLACES} places`);
+  }
+  if (
+    active.some(
+      (place) => placeNameKey(place.name) === placeNameKey(normalized),
+    )
+  ) {
+    throw new Error("You already have a place with that name");
+  }
+  const now = Date.now();
+  const id = randomUUID();
+  await db.runAsync(
+    `INSERT INTO local_places (
+       id, remote_id, name, starred, archived, last_used_at, updated_at
+     ) VALUES (?, NULL, ?, 0, 0, NULL, ?)`,
+    id,
+    normalized,
+    now,
+  );
+  await queuePlaceSnapshot(db, id, now);
+  const created = await getLocalPlace(db, id);
+  if (!created) throw new Error("Place could not be saved");
+  return created;
+}
+
+export async function renameLocalPlace(
+  db: SQLiteDatabase,
+  id: string,
+  name: string,
+): Promise<LocalPlace> {
+  const place = await getLocalPlace(db, id);
+  if (!place) throw new Error("Place not found");
+  const normalized = normalizePlaceName(name);
+  const active = await listLocalPlaces(db);
+  const taken = active.some(
+    (row) =>
+      row._id !== place._id &&
+      placeNameKey(row.name) === placeNameKey(normalized),
+  );
+  if (taken) throw new Error("You already have a place with that name");
+  const now = Date.now();
+  await db.runAsync(
+    "UPDATE local_places SET name = ?, updated_at = ? WHERE id = ?",
+    normalized,
+    now,
+    place._id,
+  );
+  await queuePlaceSnapshot(db, place._id, now);
+  return { ...place, name: normalized, updatedAt: now };
+}
+
+/**
+ * Add a named machine for this lift. First fork promotes the implicit slot
+ * to "Usual". Queued for upload; works with no connection.
+ */
+export async function createLocalMachine(
+  db: SQLiteDatabase,
+  {
+    placeId,
+    exerciseSlug,
+    name,
+  }: {
+    placeId: string;
+    exerciseSlug: string;
+    name: string;
+  },
+): Promise<LocalMachine> {
+  const place = await getLocalPlace(db, placeId);
+  if (!place) throw new Error("Place not found");
+  const normalized = normalizePlaceName(name);
+  const existing = await listLocalMachinesForLift(db, place._id, exerciseSlug);
+  if (existing.length >= MAX_MACHINES_PER_LIFT) {
+    throw new Error(
+      `You can have at most ${MAX_MACHINES_PER_LIFT} machines for a lift`,
+    );
+  }
+  if (
+    existing.some(
+      (machine) => placeNameKey(machine.name) === placeNameKey(normalized),
+    )
+  ) {
+    throw new Error("That machine already exists here");
+  }
+
+  const now = Date.now();
+  if (existing.length === 0) {
+    const usualId = randomUUID();
+    await upsertLocalMachine(db, {
+      id: usualId,
+      remoteId: null,
+      placeId: place._id,
+      exerciseSlug,
+      name: USUAL_MACHINE_NAME,
+      isDefault: true,
+    });
+    await db.runAsync(
+      `UPDATE local_exercise_place_weights
+          SET machine_key = ?
+        WHERE place_id = ? AND exercise_slug = ? AND machine_key = ?`,
+      usualId,
+      place._id,
+      exerciseSlug,
+      DEFAULT_MACHINE_KEY,
+    );
+    await queueMachineSnapshot(db, usualId, now);
+  }
+
+  const id = randomUUID();
+  await upsertLocalMachine(db, {
+    id,
+    remoteId: null,
+    placeId: place._id,
+    exerciseSlug,
+    name: normalized,
+    isDefault: false,
+  });
+  await queueMachineSnapshot(db, id, now);
+  const created = await db.getFirstAsync<MachineRow>(
+    `SELECT id, remote_id, name, place_id, exercise_slug, is_default,
+            archived, last_used_at, updated_at
+       FROM local_machines WHERE id = ?`,
+    id,
+  );
+  if (!created) throw new Error("Machine could not be saved");
+  return mapMachine(created);
+}
+
+export async function getPendingPlaceSync(
+  db: SQLiteDatabase,
+): Promise<PendingPlaceSync | null> {
+  const row = await db.getFirstAsync<{
+    operation_id: string;
+    entity_id: string;
+    payload_json: string;
+    created_at: number;
+    attempt_count: number;
+  }>(
+    `SELECT operation_id, entity_id, payload_json, created_at, attempt_count
+       FROM local_sync_outbox
+      WHERE entity_type = 'place'
+      ORDER BY created_at
+      LIMIT 1`,
+  );
+  if (!row) return null;
+  return {
+    operationId: row.operation_id,
+    placeId: row.entity_id,
+    snapshot: JSON.parse(row.payload_json) as PlaceSyncSnapshot,
+    createdAt: row.created_at,
+    attemptCount: row.attempt_count,
+  };
+}
+
+export async function getPendingMachineSync(
+  db: SQLiteDatabase,
+): Promise<PendingMachineSync | null> {
+  const row = await db.getFirstAsync<{
+    operation_id: string;
+    entity_id: string;
+    payload_json: string;
+    created_at: number;
+    attempt_count: number;
+  }>(
+    `SELECT operation_id, entity_id, payload_json, created_at, attempt_count
+       FROM local_sync_outbox
+      WHERE entity_type = 'machine'
+      ORDER BY created_at
+      LIMIT 1`,
+  );
+  if (!row) return null;
+  return {
+    operationId: row.operation_id,
+    machineId: row.entity_id,
+    snapshot: JSON.parse(row.payload_json) as MachineSyncSnapshot,
+    createdAt: row.created_at,
+    attemptCount: row.attempt_count,
+  };
+}
+
+export async function notePlaceSyncAttempt(
+  db: SQLiteDatabase,
+  operationId: string,
+) {
+  await db.runAsync(
+    `UPDATE local_sync_outbox
+        SET attempt_count = attempt_count + 1
+      WHERE operation_id = ?`,
+    operationId,
+  );
+}
+
+export async function noteMachineSyncAttempt(
+  db: SQLiteDatabase,
+  operationId: string,
+) {
+  await notePlaceSyncAttempt(db, operationId);
 }
 
 export async function upsertLocalMachine(
@@ -646,6 +966,7 @@ export async function applyPlacesBootstrap(
   const machines = payload.machines ?? [];
   const placeWeights = payload.placeWeights ?? [];
   const remoteToLocal = new Map<string, string>();
+  const machineRemoteToLocal = new Map<string, string>();
 
   for (const place of places) {
     const existing =
@@ -708,6 +1029,7 @@ export async function applyPlacesBootstrap(
         machine.remoteId,
       ));
     const localId = existing?.id ?? machine.remoteId;
+    machineRemoteToLocal.set(machine.remoteId, localId);
     await txn.runAsync(
       `INSERT INTO local_machines (
          id, remote_id, place_id, exercise_slug, name, is_default, archived,
@@ -740,6 +1062,10 @@ export async function applyPlacesBootstrap(
       localPlaceId,
     );
     if (!placeExists) continue;
+    const machineKey =
+      weight.machineKey === DEFAULT_MACHINE_KEY
+        ? weight.machineKey
+        : (machineRemoteToLocal.get(weight.machineKey) ?? weight.machineKey);
     await txn.runAsync(
       `INSERT INTO local_exercise_place_weights (
          place_id, exercise_slug, machine_key, sets_json, updated_at
@@ -750,7 +1076,7 @@ export async function applyPlacesBootstrap(
        WHERE local_exercise_place_weights.updated_at <= excluded.updated_at`,
       localPlaceId,
       weight.exerciseSlug,
-      weight.machineKey,
+      machineKey,
       JSON.stringify(weight.sets),
       weight.updatedAt,
     );

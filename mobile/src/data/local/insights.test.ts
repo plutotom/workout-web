@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { getLocalOverview } from "./insights";
+import { getLocalOverview, getLocalWorkoutRecap } from "./insights";
 import type { LocalInsightsSession } from "./repository";
 
 function session(
@@ -107,5 +107,71 @@ describe("getLocalOverview health summaries", () => {
     expect(overview.stats.workoutCount).toBe(2);
     expect(overview.stats.totalVolume).toBe(925);
     expect(overview.topLifts.map((lift) => lift.slug)).toEqual(["bench-press"]);
+  });
+});
+
+describe("getLocalWorkoutRecap place scoping", () => {
+  const now = Date.parse("2026-09-04T18:00:00.000Z");
+  const homeId = "place-home";
+
+  function lift(
+    id: string,
+    completedAt: number,
+    extras: { placeId?: string | null; weight: number },
+  ) {
+    return session({
+      sessionId: id,
+      sessionKind: "tracked",
+      templateName: "Push",
+      completedAt,
+      placeId: extras.placeId ?? null,
+      exercises: [
+        {
+          slug: "bench-press",
+          sets: [
+            {
+              orderIndex: 0,
+              weight: extras.weight,
+              reps: 5,
+              completed: true,
+            },
+          ],
+        },
+      ],
+    });
+  }
+
+  it("counts untagged history as Home when recapping a Home session", () => {
+    const recap = getLocalWorkoutRecap(
+      [
+        lift("today-home", now, { placeId: homeId, weight: 275 }),
+        lift("legacy", now - 7 * 24 * 60 * 60 * 1000, {
+          placeId: null,
+          weight: 225,
+        }),
+      ],
+      "today-home",
+      homeId,
+    );
+
+    expect(recap?.standout?.priorBest).toMatchObject({ weight: 225, reps: 5 });
+    expect(recap?.standout?.isPr).toBe(true);
+  });
+
+  it("does not count Home history toward an Elgin recap", () => {
+    const recap = getLocalWorkoutRecap(
+      [
+        lift("today-elgin", now, { placeId: "place-elgin", weight: 300 }),
+        lift("legacy", now - 7 * 24 * 60 * 60 * 1000, {
+          placeId: null,
+          weight: 225,
+        }),
+      ],
+      "today-elgin",
+      homeId,
+    );
+
+    expect(recap?.standout?.priorBest).toBeNull();
+    expect(recap?.standout?.isPr).toBe(true);
   });
 });

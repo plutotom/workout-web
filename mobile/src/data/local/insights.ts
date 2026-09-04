@@ -1,4 +1,5 @@
 import type { LocalInsightsSession } from "@/data/local/repository";
+import { sessionMatchesPlace } from "@shared/place-memory";
 
 export type InsightsDays = 7 | 30 | 90 | null;
 
@@ -677,6 +678,7 @@ const PROGRESSION_POINTS = 7;
 export function getLocalWorkoutRecap(
   all: LoadedSession[],
   sessionId: string,
+  homePlaceId: string | null = null,
 ): WorkoutRecap | null {
   const session = all.find((candidate) => candidate.sessionId === sessionId);
   if (!session) return null;
@@ -718,7 +720,6 @@ export function getLocalWorkoutRecap(
 
   const allPoints: RecapProgressionPoint[] = [];
   let priorBest: BestSet | null = null;
-  const homePlaceId: string | null = null;
   const placeId = session.placeId;
   if (standout) {
     const standoutInverseWeight = isInverseWeightSlug(standout.slug);
@@ -727,8 +728,11 @@ export function getLocalWorkoutRecap(
       if (!best) continue;
       const samePlace =
         !placeId ||
-        (candidate.placeId ?? homePlaceId) === placeId ||
-        (!candidate.placeId && !placeId);
+        sessionMatchesPlace(
+          { placeId: candidate.placeId },
+          placeId,
+          homePlaceId,
+        );
       if (
         samePlace &&
         candidate.sessionId !== sessionId &&

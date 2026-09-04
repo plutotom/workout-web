@@ -6,6 +6,7 @@ import {
   queueSessionSnapshot,
   queueTemplateSnapshot,
 } from "@/data/local/repository";
+import { queueMachineSnapshot, queuePlaceSnapshot } from "@/data/local/places";
 import type {
   LocalMuscleGroup,
   LocalSessionKind,
@@ -440,6 +441,8 @@ export async function restoreLocalBackup(
   const addedSessionIds: string[] = [];
   const addedCustomIds: string[] = [];
   const customIdsToSync: string[] = [];
+  const placeIdsToSync: string[] = [];
+  const machineIdsToSync: string[] = [];
   const templateIdsToSync: string[] = [];
   const sessionIdsToSync: string[] = [];
   let notesAdded = 0;
@@ -511,6 +514,7 @@ export async function restoreLocalBackup(
         place.updatedAt,
       );
       if (result.changes === 0) skipped++;
+      else if (!place.remoteId) placeIdsToSync.push(place.id);
     }
 
     for (const machine of snapshot.machines ?? []) {
@@ -530,6 +534,7 @@ export async function restoreLocalBackup(
         machine.updatedAt,
       );
       if (result.changes === 0) skipped++;
+      else if (!machine.remoteId) machineIdsToSync.push(machine.id);
     }
 
     for (const weight of snapshot.placeWeights ?? []) {
@@ -704,6 +709,8 @@ export async function restoreLocalBackup(
   // helpers read back through `db`. Local-only rows still need uploading;
   // account-backed rows keep their real remote ids and must not be recreated.
   const now = Date.now();
+  for (const id of placeIdsToSync) await queuePlaceSnapshot(db, id, now);
+  for (const id of machineIdsToSync) await queueMachineSnapshot(db, id, now);
   for (const id of customIdsToSync)
     await queueCustomExerciseSnapshot(db, id, now);
   for (const id of templateIdsToSync) await queueTemplateSnapshot(db, id, now);

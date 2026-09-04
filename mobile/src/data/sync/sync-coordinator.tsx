@@ -25,6 +25,8 @@ export function SyncCoordinator() {
   const pushCustomExercise = useMutation(
     api.routes.ios.sync.pushCustomExercise,
   );
+  const pushPlace = useMutation(api.routes.ios.sync.pushPlace);
+  const pushMachine = useMutation(api.routes.ios.sync.pushMachine);
   const createTemplate = useMutation(api.routes.templates.mutations.create);
   const updateTemplate = useMutation(api.routes.templates.mutations.update);
   const { applyBootstrap } = useLocalData();
@@ -47,7 +49,51 @@ export function SyncCoordinator() {
       for (let index = 0; index < MAX_PUSHES_PER_PASS; index++) {
         if (cancelled) return;
 
-        // Custom lifts go first: templates and sessions reference them by slug,
+        // Places and machines go first: sessions stamp Convex ids, and a
+        // machine upload needs its place to already exist on the server.
+        const pendingPlace = await syncStore.getPendingPlace();
+        if (pendingPlace) {
+          await syncStore.notePlaceAttempt(pendingPlace.operationId);
+          try {
+            const result = await pushPlace({
+              operationId: pendingPlace.operationId,
+              deviceId,
+              place: pendingPlace.snapshot,
+            });
+            if (cancelled) return;
+            await syncStore.completePlace(
+              pendingPlace.operationId,
+              pendingPlace.placeId,
+              result.remotePlaceId,
+            );
+          } catch {
+            return;
+          }
+          continue;
+        }
+
+        const pendingMachine = await syncStore.getPendingMachine();
+        if (pendingMachine) {
+          await syncStore.noteMachineAttempt(pendingMachine.operationId);
+          try {
+            const result = await pushMachine({
+              operationId: pendingMachine.operationId,
+              deviceId,
+              machine: pendingMachine.snapshot,
+            });
+            if (cancelled) return;
+            await syncStore.completeMachine(
+              pendingMachine.operationId,
+              pendingMachine.machineId,
+              result.remoteMachineId,
+            );
+          } catch {
+            return;
+          }
+          continue;
+        }
+
+        // Custom lifts next: templates and sessions reference them by slug,
         // and until the upload lands that slug is the provisional
         // `custom:local-…` form. Draining them here means the aggregates are
         // rewritten to the durable slug before they are pushed.
@@ -168,6 +214,8 @@ export function SyncCoordinator() {
     deleteSession,
     isAuthenticated,
     pushCustomExercise,
+    pushMachine,
+    pushPlace,
     pushSession,
     syncStore,
     syncStore.revision,

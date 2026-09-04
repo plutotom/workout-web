@@ -2031,6 +2031,56 @@ export async function completeCustomExerciseSync(
   await requeueRemapped(db, targets, now);
 }
 
+export async function completePlaceSync(
+  db: SQLiteDatabase,
+  operationId: string,
+  placeId: string,
+  remoteId: string,
+) {
+  await db.runAsync(
+    "UPDATE local_places SET remote_id = ? WHERE id = ?",
+    remoteId,
+    placeId,
+  );
+  await db.runAsync(
+    "DELETE FROM local_sync_outbox WHERE operation_id = ?",
+    operationId,
+  );
+  const sessions = await db.getAllAsync<{ id: string }>(
+    "SELECT id FROM local_sessions WHERE place_id = ?",
+    placeId,
+  );
+  const now = Date.now();
+  for (const session of sessions) {
+    await queueSessionSnapshot(db, session.id, now);
+  }
+}
+
+export async function completeMachineSync(
+  db: SQLiteDatabase,
+  operationId: string,
+  machineId: string,
+  remoteId: string,
+) {
+  await db.runAsync(
+    "UPDATE local_machines SET remote_id = ? WHERE id = ?",
+    remoteId,
+    machineId,
+  );
+  await db.runAsync(
+    "DELETE FROM local_sync_outbox WHERE operation_id = ?",
+    operationId,
+  );
+  const sessions = await db.getAllAsync<{ session_id: string }>(
+    "SELECT DISTINCT session_id FROM local_session_exercises WHERE machine_id = ?",
+    machineId,
+  );
+  const now = Date.now();
+  for (const row of sessions) {
+    await queueSessionSnapshot(db, row.session_id, now);
+  }
+}
+
 export async function applyIosBootstrap(
   db: SQLiteDatabase,
   payload: IosBootstrapPayload,

@@ -1,25 +1,16 @@
-import { api } from "@backend/api";
-import type { Id } from "@backend/dataModel";
-import { useMutation } from "convex/react";
 import { Archive, MapPin, Pencil, Plus, Star } from "lucide-react-native";
 import { useState } from "react";
 import { Alert, Modal, Pressable, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { useMobileAuth } from "@/auth/auth-provider";
 import { Button, Card, SectionTitle } from "@/components/ui";
 import { useLocalData, useLocalPlaces } from "@/data/local/provider";
 import type { LocalPlace } from "@/data/local/types";
 import { colors, radius } from "@/theme";
 
 export function PlacesSettingsCard() {
-  const { isAuthenticated } = useMobileAuth();
   const places = useLocalPlaces();
-  const { adoptPlace, starPlace, archivePlace } = useLocalData();
-  const createRemote = useMutation(api.routes.places.mutations.create);
-  const renameRemote = useMutation(api.routes.places.mutations.rename);
-  const starRemote = useMutation(api.routes.places.mutations.star);
-  const archiveRemote = useMutation(api.routes.places.mutations.archive);
+  const { createPlace, renamePlace, starPlace, archivePlace } = useLocalData();
 
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState("");
@@ -27,50 +18,21 @@ export function PlacesSettingsCard() {
   const [renaming, setRenaming] = useState<LocalPlace | null>(null);
   const [renameValue, setRenameValue] = useState("");
 
-  function requireOnline(): boolean {
-    if (isAuthenticated) return true;
-    Alert.alert(
-      "Connect to manage places",
-      "New places and edits need an account so they sync to every device.",
-    );
-    return false;
-  }
-
-  function requireRemoteId(place: LocalPlace): place is LocalPlace & {
-    remoteId: string;
-  } {
-    if (place.remoteId) return true;
-    Alert.alert(
-      "This place hasn’t synced yet",
-      "Connect and try again when you’re online.",
-    );
-    return false;
-  }
-
   async function handleCreate() {
     const name = newName.trim();
     if (!name) {
       Alert.alert("Give this place a name");
       return;
     }
-    if (!requireOnline()) return;
     setSaving(true);
     try {
-      const id = await createRemote({ name });
-      await adoptPlace({
-        id,
-        remoteId: id,
-        name,
-        starred: false,
-      });
+      await createPlace(name);
       setNewName("");
       setAdding(false);
     } catch (error) {
       Alert.alert(
         "Couldn’t add place",
-        error instanceof Error
-          ? error.message
-          : "Try again when you’re online.",
+        error instanceof Error ? error.message : "Try again.",
       );
     } finally {
       setSaving(false);
@@ -84,27 +46,14 @@ export function PlacesSettingsCard() {
       Alert.alert("Give this place a name");
       return;
     }
-    if (!requireOnline()) return;
-    if (!requireRemoteId(renaming)) return;
     setSaving(true);
     try {
-      await renameRemote({
-        placeId: renaming.remoteId as Id<"places">,
-        name,
-      });
-      await adoptPlace({
-        id: renaming._id,
-        remoteId: renaming.remoteId,
-        name,
-        starred: renaming.starred,
-      });
+      await renamePlace(renaming._id, name);
       setRenaming(null);
     } catch (error) {
       Alert.alert(
         "Couldn’t rename",
-        error instanceof Error
-          ? error.message
-          : "Try again when you’re online.",
+        error instanceof Error ? error.message : "Try again.",
       );
     } finally {
       setSaving(false);
@@ -113,17 +62,12 @@ export function PlacesSettingsCard() {
 
   async function handleStar(place: LocalPlace) {
     if (place.starred) return;
-    if (!requireOnline()) return;
-    if (!requireRemoteId(place)) return;
     try {
-      await starRemote({ placeId: place.remoteId as Id<"places"> });
       await starPlace(place._id);
     } catch (error) {
       Alert.alert(
         "Couldn’t star place",
-        error instanceof Error
-          ? error.message
-          : "Try again when you’re online.",
+        error instanceof Error ? error.message : "Try again.",
       );
     }
   }
@@ -148,17 +92,12 @@ export function PlacesSettingsCard() {
   }
 
   async function handleArchive(place: LocalPlace) {
-    if (!requireOnline()) return;
-    if (!requireRemoteId(place)) return;
     try {
-      await archiveRemote({ placeId: place.remoteId as Id<"places"> });
       await archivePlace(place._id);
     } catch (error) {
       Alert.alert(
         "Couldn’t remove place",
-        error instanceof Error
-          ? error.message
-          : "Try again when you’re online.",
+        error instanceof Error ? error.message : "Try again.",
       );
     }
   }
@@ -288,10 +227,7 @@ export function PlacesSettingsCard() {
             label="New place"
             variant="outline"
             icon={Plus}
-            onPress={() => {
-              if (!requireOnline()) return;
-              setAdding(true);
-            }}
+            onPress={() => setAdding(true)}
           />
         )}
       </Card>

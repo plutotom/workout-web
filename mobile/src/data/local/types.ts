@@ -163,6 +163,38 @@ export type LocalNotificationPreferences = Pick<
   "restTimerNotificationsEnabled" | "appleHealthImportNotificationsEnabled"
 >;
 
+export type PlaceSyncSnapshot = {
+  clientId: string;
+  name: string;
+  starred: boolean;
+  archived: boolean;
+};
+
+export type PendingPlaceSync = {
+  operationId: string;
+  placeId: string;
+  snapshot: PlaceSyncSnapshot;
+  createdAt: number;
+  attemptCount: number;
+};
+
+export type MachineSyncSnapshot = {
+  clientId: string;
+  placeClientId: string;
+  exerciseSlug: string;
+  name: string;
+  isDefault: boolean;
+  archived: boolean;
+};
+
+export type PendingMachineSync = {
+  operationId: string;
+  machineId: string;
+  snapshot: MachineSyncSnapshot;
+  createdAt: number;
+  attemptCount: number;
+};
+
 export type LocalPlace = {
   _id: LocalId;
   remoteId: string | null;

@@ -18,6 +18,7 @@ export {
   DEFAULT_MACHINE_KEY,
   HOME_PLACE_NAME,
   USUAL_MACHINE_NAME,
+  sessionMatchesPlace,
 } from "./placeMemory";
 
 type DbCtx = QueryCtx | MutationCtx;
@@ -176,6 +177,153 @@ export async function createPlace(
     starred: false,
     archived: false,
     clientId: newClientId(),
+  });
+}
+
+/**
+ * Create-or-update a place authored offline, keyed by the phone's client id.
+ * Home also merges by name so a locally-created Home doesn't duplicate the
+ * starred Home Convex already provisioned.
+ */
+export async function upsertPlaceFromClient(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  args: {
+    clientId: string;
+    name: string;
+    starred: boolean;
+    archived: boolean;
+  },
+) {
+  await ensureHomePlace(ctx, userId);
+  const normalized = normalizePlaceName(args.name);
+  const places = await ctx.db
+    .query("places")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  const byClient = places.find((place) => place.clientId === args.clientId);
+  const byName = places.find(
+    (place) =>
+      !place.archived && placeNameKey(place.name) === placeNameKey(normalized),
+  );
+  const existing = byClient ?? byName ?? null;
+
+  if (existing) {
+    if (args.archived && existing.starred && !args.starred) {
+      throw new Error("Star another place before removing Home");
+    }
+    if (args.starred) {
+      for (const row of places) {
+        const starred = row._id === existing._id;
+        if (row.starred !== starred) {
+          await ctx.db.patch(row._id, { starred });
+        }
+      }
+    }
+    await ctx.db.patch(existing._id, {
+      name: normalized,
+      starred: args.starred,
+      archived: args.archived,
+      clientId: existing.clientId ?? args.clientId,
+    });
+    return existing._id;
+  }
+
+  const active = places.filter((place) => !place.archived);
+  if (!args.archived && active.length >= MAX_PLACES) {
+    throw new Error(`You can have at most ${MAX_PLACES} places`);
+  }
+
+  const id = await ctx.db.insert("places", {
+    userId,
+    name: normalized,
+    starred: args.starred,
+    archived: args.archived,
+    clientId: args.clientId,
+  });
+  if (args.starred) {
+    for (const row of places) {
+      if (row.starred) await ctx.db.patch(row._id, { starred: false });
+    }
+  }
+  return id;
+}
+
+/**
+ * Create-or-update a machine authored offline. The phone forks "Usual" itself
+ * and uploads that row first — this does not auto-fork.
+ */
+export async function upsertMachineFromClient(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  args: {
+    clientId: string;
+    placeClientId: string;
+    exerciseSlug: string;
+    name: string;
+    isDefault: boolean;
+    archived: boolean;
+  },
+) {
+  const byClientPlace = await ctx.db
+    .query("places")
+    .withIndex("by_user_client_id", (q) =>
+      q.eq("userId", userId).eq("clientId", args.placeClientId),
+    )
+    .first();
+  const placeId = ctx.db.normalizeId("places", args.placeClientId);
+  const byRemote = placeId && !byClientPlace ? await ctx.db.get(placeId) : null;
+  const place =
+    byClientPlace ?? (byRemote?.userId === userId ? byRemote : null);
+
+  if (!place) {
+    throw new Error("Place not found");
+  }
+
+  const normalized = normalizePlaceName(args.name);
+  const existingByClient = await ctx.db
+    .query("machines")
+    .withIndex("by_user_client_id", (q) =>
+      q.eq("userId", userId).eq("clientId", args.clientId),
+    )
+    .first();
+  const siblings = await listMachinesForLift(
+    ctx,
+    userId,
+    place._id,
+    args.exerciseSlug,
+  );
+  const existing =
+    existingByClient ??
+    siblings.find(
+      (machine) => placeNameKey(machine.name) === placeNameKey(normalized),
+    ) ??
+    null;
+
+  if (existing) {
+    await ctx.db.patch(existing._id, {
+      name: normalized,
+      isDefault: args.isDefault,
+      archived: args.archived,
+      clientId: existing.clientId ?? args.clientId,
+    });
+    return existing._id;
+  }
+
+  if (!args.archived && siblings.length >= MAX_MACHINES_PER_LIFT) {
+    throw new Error(
+      `You can have at most ${MAX_MACHINES_PER_LIFT} machines for a lift`,
+    );
+  }
+
+  return await ctx.db.insert("machines", {
+    userId,
+    placeId: place._id,
+    exerciseSlug: args.exerciseSlug,
+    name: normalized,
+    isDefault: args.isDefault,
+    archived: args.archived,
+    clientId: args.clientId,
   });
 }
 
@@ -742,16 +890,6 @@ export async function archiveMachine(
     throw new Error("Keep the usual machine");
   }
   await ctx.db.patch(machineId, { archived: true });
-}
-
-export function sessionMatchesPlace(
-  session: { placeId?: Id<"places"> },
-  placeId: Id<"places">,
-  homeId: Id<"places"> | null,
-) {
-  const resolved = session.placeId ?? homeId;
-  if (!resolved) return true;
-  return resolved === placeId;
 }
 
 export function exerciseMatchesMachine(

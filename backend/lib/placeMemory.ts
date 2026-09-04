@@ -47,3 +47,17 @@ export function normalizePlaceName(name: string) {
 export function placeNameKey(name: string) {
   return name.trim().replace(/\s+/g, " ").toLowerCase();
 }
+
+/**
+ * Untagged sessions (no placeId) count as Home. Used by recap so a Home PR
+ * still sees history from before places existed.
+ */
+export function sessionMatchesPlace(
+  session: { placeId?: string | null },
+  placeId: string,
+  homeId: string | null,
+): boolean {
+  const resolved = session.placeId ?? homeId;
+  if (!resolved) return true;
+  return resolved === placeId;
+}

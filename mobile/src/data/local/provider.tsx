@@ -27,6 +27,8 @@ import {
   archiveLocalCustomExercise,
   attachExportedHealthUuid,
   completeCustomExerciseSync,
+  completeMachineSync,
+  completePlaceSync,
   completeSessionDeleteSync,
   completeSessionSync,
   completeTemplateSync,
@@ -89,9 +91,16 @@ import { discardWatchWorkout, endWatchWorkout } from "@/health/watch-bridge";
 import { shouldSkipPhoneHealthExport } from "@/health/watch-session";
 import {
   archiveLocalPlace,
+  createLocalMachine,
+  createLocalPlace,
   getLastLocalSessionPlaceId,
+  getPendingMachineSync,
+  getPendingPlaceSync,
   listLocalMachinesForLift,
   listLocalPlaces,
+  noteMachineSyncAttempt,
+  notePlaceSyncAttempt,
+  renameLocalPlace,
   starLocalPlace,
   upsertLocalMachine,
   upsertLocalPlace,
@@ -164,6 +173,13 @@ type LocalDataContextValue = {
     name: string;
     isDefault: boolean;
   }) => Promise<void>;
+  createPlace: (name: string) => Promise<LocalPlace>;
+  renamePlace: (placeId: string, name: string) => Promise<LocalPlace>;
+  createMachine: (input: {
+    placeId: string;
+    exerciseSlug: string;
+    name: string;
+  }) => Promise<LocalMachine>;
   updateSet: (
     setId: string,
     values: { weight?: number; reps?: number; completed?: boolean },
@@ -268,6 +284,10 @@ function LocalDataState({ children }: { children: ReactNode }) {
       starPlace: (placeId) => run(() => starLocalPlace(db, placeId)),
       archivePlace: (placeId) => run(() => archiveLocalPlace(db, placeId)),
       adoptMachine: (machine) => run(() => upsertLocalMachine(db, machine)),
+      createPlace: (name) => run(() => createLocalPlace(db, name)),
+      renamePlace: (placeId, name) =>
+        run(() => renameLocalPlace(db, placeId, name)),
+      createMachine: (input) => run(() => createLocalMachine(db, input)),
       updateSet: (setId, values) =>
         run(() => updateLocalSet(db, setId, values)),
       addSet: (sessionExerciseId) =>
@@ -524,12 +544,34 @@ export function useLocalSyncStore() {
       getPendingSessionDelete: () => getPendingSessionDelete(db),
       getPendingTemplate: () => getPendingTemplateSync(db),
       getPendingCustomExercise: () => getPendingCustomExerciseSync(db),
+      getPendingPlace: () => getPendingPlaceSync(db),
+      getPendingMachine: () => getPendingMachineSync(db),
       noteSessionAttempt: (operationId: string) =>
         noteSessionSyncAttempt(db, operationId),
       noteTemplateAttempt: (operationId: string) =>
         noteTemplateSyncAttempt(db, operationId),
       noteCustomExerciseAttempt: (operationId: string) =>
         noteCustomExerciseSyncAttempt(db, operationId),
+      notePlaceAttempt: (operationId: string) =>
+        notePlaceSyncAttempt(db, operationId),
+      noteMachineAttempt: (operationId: string) =>
+        noteMachineSyncAttempt(db, operationId),
+      completePlace: async (
+        operationId: string,
+        placeId: string,
+        remotePlaceId: string,
+      ) => {
+        await completePlaceSync(db, operationId, placeId, remotePlaceId);
+        refresh();
+      },
+      completeMachine: async (
+        operationId: string,
+        machineId: string,
+        remoteMachineId: string,
+      ) => {
+        await completeMachineSync(db, operationId, machineId, remoteMachineId);
+        refresh();
+      },
       completeCustomExercise: async (
         operationId: string,
         exerciseId: string,

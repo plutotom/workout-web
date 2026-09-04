@@ -4,6 +4,7 @@ import {
   normalizePlaceName,
   reseedIncompleteSets,
   seedSetRows,
+  sessionMatchesPlace,
 } from "./place-memory";
 
 describe("seedSetRows", () => {
@@ -83,5 +84,19 @@ describe("normalizePlaceName", () => {
   it("trims and rejects empty names", () => {
     expect(normalizePlaceName("  Elgin  ")).toBe("Elgin");
     expect(() => normalizePlaceName("   ")).toThrow(/name/i);
+  });
+});
+
+describe("sessionMatchesPlace", () => {
+  it("treats untagged sessions as Home", () => {
+    expect(sessionMatchesPlace({ placeId: null }, "home", "home")).toBe(true);
+    expect(sessionMatchesPlace({}, "home", "home")).toBe(true);
+  });
+
+  it("does not count Home history toward a guest place", () => {
+    expect(sessionMatchesPlace({ placeId: null }, "elgin", "home")).toBe(false);
+    expect(sessionMatchesPlace({ placeId: "home" }, "elgin", "home")).toBe(
+      false,
+    );
   });
 });

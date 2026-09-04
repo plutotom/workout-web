@@ -1,6 +1,3 @@
-import { api } from "@backend/api";
-import type { Id } from "@backend/dataModel";
-import { useMutation } from "convex/react";
 import { Check, MapPin, Plus, Star } from "lucide-react-native";
 import { useMemo, useState } from "react";
 import {
@@ -14,7 +11,6 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { useMobileAuth } from "@/auth/auth-provider";
 import { Button } from "@/components/ui";
 import {
   useLocalData,
@@ -121,9 +117,7 @@ export function PlacePickerModal({
   lastPlaceId?: string | null;
   onSelect: (place: LocalPlace) => void | Promise<void>;
 }) {
-  const { isAuthenticated } = useMobileAuth();
-  const createPlace = useMutation(api.routes.places.mutations.create);
-  const { adoptPlace } = useLocalData();
+  const { createPlace } = useLocalData();
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState("");
   const [saving, setSaving] = useState(false);
@@ -134,41 +128,17 @@ export function PlacePickerModal({
       Alert.alert("Give this place a name");
       return;
     }
-    if (!isAuthenticated) {
-      Alert.alert(
-        "Connect to add a place",
-        "New places need an account so they sync to every device.",
-      );
-      return;
-    }
     setSaving(true);
     try {
-      const id = await createPlace({ name });
-      await adoptPlace({
-        id,
-        remoteId: id,
-        name,
-        starred: false,
-      });
+      const created = await createPlace(name);
       setNewName("");
       setAdding(false);
-      const created: LocalPlace = {
-        _id: id,
-        remoteId: id,
-        name,
-        starred: false,
-        archived: false,
-        lastUsedAt: null,
-        updatedAt: Date.now(),
-      };
       await onSelect(created);
       onClose();
     } catch (error) {
       Alert.alert(
         "Couldn’t add place",
-        error instanceof Error
-          ? error.message
-          : "Try again when you’re online.",
+        error instanceof Error ? error.message : "Try again.",
       );
     } finally {
       setSaving(false);
@@ -350,13 +320,8 @@ export function MachinePickerModal({
   onSelect: (machine: LocalMachine) => void | Promise<void>;
   onCreated: (machineId: string, name: string) => void | Promise<void>;
 }) {
-  const { isAuthenticated } = useMobileAuth();
-  const places = useLocalPlaces();
+  const { createMachine } = useLocalData();
   const machines = useLocalMachinesForLift(placeId, exerciseSlug);
-  const remoteMachines = useMutation(
-    api.routes.places.mutations.createMachineForLift,
-  );
-  const { adoptMachine } = useLocalData();
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState("");
   const [saving, setSaving] = useState(false);
@@ -367,41 +332,25 @@ export function MachinePickerModal({
       Alert.alert("Give this machine a name");
       return;
     }
-    const remotePlaceId = places?.find(
-      (place) => place._id === placeId,
-    )?.remoteId;
-    if (!isAuthenticated || !placeId || !remotePlaceId) {
-      Alert.alert(
-        "Connect to add a machine",
-        "New machines need an account so they sync to every device.",
-      );
+    if (!placeId) {
+      Alert.alert("Pick a place first");
       return;
     }
     setSaving(true);
     try {
-      const id = await remoteMachines({
-        placeId: remotePlaceId as Id<"places">,
-        exerciseSlug,
-        name,
-      });
-      await adoptMachine({
-        id,
-        remoteId: id,
+      const created = await createMachine({
         placeId,
         exerciseSlug,
         name,
-        isDefault: false,
       });
       setNewName("");
       setAdding(false);
-      await onCreated(id, name);
+      await onCreated(created._id, created.name);
       onClose();
     } catch (error) {
       Alert.alert(
         "Couldn’t add machine",
-        error instanceof Error
-          ? error.message
-          : "Try again when you’re online.",
+        error instanceof Error ? error.message : "Try again.",
       );
     } finally {
       setSaving(false);
