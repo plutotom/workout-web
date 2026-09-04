@@ -2,7 +2,6 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import {
   DEFAULT_MACHINE_KEY,
-  HOME_PLACE_NAME,
   MAX_MACHINES_PER_LIFT,
   MAX_PLACES,
   USUAL_MACHINE_NAME,
@@ -16,7 +15,6 @@ import { normalizeTemplateSets } from "./templates";
 
 export {
   DEFAULT_MACHINE_KEY,
-  HOME_PLACE_NAME,
   USUAL_MACHINE_NAME,
   sessionMatchesPlace,
 } from "./placeMemory";
@@ -57,43 +55,49 @@ export async function findStarredPlace(ctx: DbCtx, userId: Id<"users">) {
   return places.find((place) => place.starred && !place.archived) ?? null;
 }
 
-/** Idempotent: every account gets a starred Home. */
-export async function ensureHomePlace(
-  ctx: MutationCtx,
-  userId: Id<"users">,
-): Promise<Doc<"places">> {
-  const existing = await findStarredPlace(ctx, userId);
-  if (existing) return existing;
-
-  const places = await ctx.db
+async function userPlaces(ctx: DbCtx, userId: Id<"users">) {
+  return await ctx.db
     .query("places")
     .withIndex("by_user", (q) => q.eq("userId", userId))
     .collect();
-  const namedHome = places.find(
-    (place) => !place.archived && placeNameKey(place.name) === "home",
-  );
-  if (namedHome) {
-    if (!namedHome.starred) {
-      for (const place of places) {
-        if (place.starred && place._id !== namedHome._id) {
-          await ctx.db.patch(place._id, { starred: false });
-        }
-      }
-      await ctx.db.patch(namedHome._id, { starred: true });
-    }
-    return { ...namedHome, starred: true };
-  }
+}
 
-  const id = await ctx.db.insert("places", {
-    userId,
-    name: HOME_PLACE_NAME,
-    starred: true,
-    archived: false,
-    clientId: newClientId(),
-  });
-  const created = await ctx.db.get(id);
-  if (!created) throw new Error("Failed to create Home");
-  return created;
+function pickDefaultPlace(places: Doc<"places">[], excludingId?: Id<"places">) {
+  return (
+    places
+      .filter((place) => !place.archived && place._id !== excludingId)
+      .sort((a, b) => {
+        const aUsed = a.lastUsedAt ?? 0;
+        const bUsed = b.lastUsedAt ?? 0;
+        if (aUsed !== bUsed) return bUsed - aUsed;
+        return a.name.localeCompare(b.name);
+      })[0] ?? null
+  );
+}
+
+async function exclusiveStar(
+  ctx: MutationCtx,
+  places: Doc<"places">[],
+  placeId: Id<"places">,
+) {
+  for (const row of places) {
+    const starred = row._id === placeId;
+    if (row.starred !== starred) {
+      await ctx.db.patch(row._id, { starred });
+    }
+  }
+}
+
+/** Star the most recently used remaining gym, or leave none starred. */
+async function promoteDefaultPlace(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  excludingId?: Id<"places">,
+) {
+  const places = await userPlaces(ctx, userId);
+  const next = pickDefaultPlace(places, excludingId);
+  if (!next) return;
+  await exclusiveStar(ctx, places, next._id);
 }
 
 async function ownedPlace(
@@ -117,8 +121,7 @@ export async function resolvePlaceForStart(
     placeId?: Id<"places">;
     templateId?: Id<"workoutTemplates">;
   },
-) {
-  const home = await ensureHomePlace(ctx, userId);
+): Promise<Doc<"places"> | null> {
   if (placeId) return await ownedPlace(ctx, userId, placeId);
 
   if (templateId) {
@@ -135,7 +138,11 @@ export async function resolvePlaceForStart(
     if (last && last.userId === userId && !last.archived) return last;
   }
 
-  return home;
+  const starred = await findStarredPlace(ctx, userId);
+  if (starred) return starred;
+
+  const active = await listActivePlaces(ctx, userId);
+  return active[0] ?? null;
 }
 
 export async function latestCompletedSession(ctx: DbCtx, userId: Id<"users">) {
@@ -156,12 +163,8 @@ export async function createPlace(
   userId: Id<"users">,
   name: string,
 ) {
-  await ensureHomePlace(ctx, userId);
   const normalized = normalizePlaceName(name);
-  const places = await ctx.db
-    .query("places")
-    .withIndex("by_user", (q) => q.eq("userId", userId))
-    .collect();
+  const places = await userPlaces(ctx, userId);
   const active = places.filter((place) => !place.archived);
   if (active.length >= MAX_PLACES) {
     throw new Error(`You can have at most ${MAX_PLACES} places`);
@@ -171,10 +174,11 @@ export async function createPlace(
   );
   if (taken) throw new Error("You already have a place with that name");
 
+  const starred = !active.some((place) => place.starred);
   return await ctx.db.insert("places", {
     userId,
     name: normalized,
-    starred: false,
+    starred,
     archived: false,
     clientId: newClientId(),
   });
@@ -182,8 +186,7 @@ export async function createPlace(
 
 /**
  * Create-or-update a place authored offline, keyed by the phone's client id.
- * Home also merges by name so a locally-created Home doesn't duplicate the
- * starred Home Convex already provisioned.
+ * Same-name rows merge so a gym created on two devices doesn't duplicate.
  */
 export async function upsertPlaceFromClient(
   ctx: MutationCtx,
@@ -195,12 +198,8 @@ export async function upsertPlaceFromClient(
     archived: boolean;
   },
 ) {
-  await ensureHomePlace(ctx, userId);
   const normalized = normalizePlaceName(args.name);
-  const places = await ctx.db
-    .query("places")
-    .withIndex("by_user", (q) => q.eq("userId", userId))
-    .collect();
+  const places = await userPlaces(ctx, userId);
   const byClient = places.find((place) => place.clientId === args.clientId);
   const byName = places.find(
     (place) =>
@@ -209,19 +208,9 @@ export async function upsertPlaceFromClient(
   const existing = byClient ?? byName ?? null;
 
   if (existing) {
-    if (existing.starred && args.archived) {
-      throw new Error("Star another place before removing Home");
-    }
-    // Never leave the account with no Home. If this payload unstars the
-    // current Home, keep it starred until a later upsert stars another place.
-    const starred = args.starred || (existing.starred && !args.archived);
+    const starred = args.archived ? false : args.starred || existing.starred;
     if (starred) {
-      for (const row of places) {
-        const nextStarred = row._id === existing._id;
-        if (row.starred !== nextStarred) {
-          await ctx.db.patch(row._id, { starred: nextStarred });
-        }
-      }
+      await exclusiveStar(ctx, places, existing._id);
     }
     await ctx.db.patch(existing._id, {
       name: normalized,
@@ -229,6 +218,9 @@ export async function upsertPlaceFromClient(
       archived: args.archived,
       clientId: existing.clientId ?? args.clientId,
     });
+    if (args.archived && existing.starred) {
+      await promoteDefaultPlace(ctx, userId, existing._id);
+    }
     return existing._id;
   }
 
@@ -237,17 +229,17 @@ export async function upsertPlaceFromClient(
     throw new Error(`You can have at most ${MAX_PLACES} places`);
   }
 
+  const starred =
+    !args.archived && (args.starred || !active.some((place) => place.starred));
   const id = await ctx.db.insert("places", {
     userId,
     name: normalized,
-    starred: args.starred,
+    starred,
     archived: args.archived,
     clientId: args.clientId,
   });
-  if (args.starred) {
-    for (const row of places) {
-      if (row.starred) await ctx.db.patch(row._id, { starred: false });
-    }
+  if (starred) {
+    await exclusiveStar(ctx, places, id);
   }
   return id;
 }
@@ -354,16 +346,8 @@ export async function starPlace(
   placeId: Id<"places">,
 ) {
   const place = await ownedPlace(ctx, userId, placeId);
-  const places = await ctx.db
-    .query("places")
-    .withIndex("by_user", (q) => q.eq("userId", userId))
-    .collect();
-  for (const row of places) {
-    const starred = row._id === place._id;
-    if (row.starred !== starred) {
-      await ctx.db.patch(row._id, { starred });
-    }
-  }
+  const places = await userPlaces(ctx, userId);
+  await exclusiveStar(ctx, places, place._id);
 }
 
 export async function archivePlace(
@@ -372,14 +356,11 @@ export async function archivePlace(
   placeId: Id<"places">,
 ) {
   const place = await ownedPlace(ctx, userId, placeId);
-  if (place.starred) {
-    throw new Error("Star another place before removing Home");
-  }
-  const active = await listActivePlaces(ctx, userId);
-  if (active.length <= 1) {
-    throw new Error("Keep at least one place");
-  }
+  const wasStarred = place.starred;
   await ctx.db.patch(place._id, { archived: true, starred: false });
+  if (wasStarred) {
+    await promoteDefaultPlace(ctx, userId, place._id);
+  }
 }
 
 export async function listMachinesForLift(

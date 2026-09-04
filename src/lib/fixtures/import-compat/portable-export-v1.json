@@ -1,0 +1,35 @@
+{
+  "format": "workout.export",
+  "version": 1,
+  "exportedAt": 1741953600000,
+  "unit": "lb",
+  "templates": [
+    {
+      "name": "Push Day",
+      "exercises": [
+        {
+          "slug": "bench",
+          "name": "Bench Press (Barbell)",
+          "sets": [
+            { "weight": 185, "reps": 5 },
+            { "weight": 205, "reps": 3 }
+          ],
+          "notes": "Pause on the chest"
+        },
+        {
+          "slug": "custom:abc123",
+          "name": "Cable Fly (Low)",
+          "sets": [{ "weight": 60, "reps": 12 }]
+        }
+      ]
+    }
+  ],
+  "customExercises": [
+    {
+      "slug": "custom:abc123",
+      "name": "Cable Fly (Low)",
+      "category": "chest",
+      "usesBar": false
+    }
+  ]
+}

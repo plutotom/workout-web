@@ -1,0 +1,18 @@
+{
+  "format": "workout.export",
+  "exportedAt": 1741953600000,
+  "unit": "lb",
+  "templates": [
+    {
+      "name": "Push Day",
+      "exercises": [
+        {
+          "slug": "bench",
+          "name": "Bench Press (Barbell)",
+          "sets": [{ "weight": 185, "reps": 5 }]
+        }
+      ]
+    }
+  ],
+  "customExercises": []
+}

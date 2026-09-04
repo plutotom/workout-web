@@ -57,7 +57,8 @@ export const workoutTables = {
     completedAt: v.optional(v.number()),
     // Last AI reshape batch — used to restore removed exercises on Undo.
     aiUndoBatch: v.optional(aiUndoBatchValidator),
-    // Gym/room for this session. Missing on legacy rows = treat as Home.
+    // Gym/room for this session. Missing on legacy rows = untagged; recap
+    // counts those toward the starred default gym only.
     placeId: v.optional(v.id("places")),
     placeName: v.optional(v.string()),
     sessionKind: v.optional(sessionKindValidator),

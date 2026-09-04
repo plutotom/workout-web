@@ -40,6 +40,13 @@ transports, both apps:
   another account resolve instead of dangling.
 - **Weights convert** when sender and recipient use different units. `0` means
   "no preset" and stays `0`.
+- **Old files must keep importing.** Frozen payloads live in
+  `src/lib/fixtures/import-compat/` (Prettier-ignored so they cannot be
+  rewritten). `pnpm test:import-compat` (also a pre-commit hook) parses every
+  file in that folder, then runs Convex's `portableBundleValidator` on the
+  object the importer would send to the server. New export fields must be
+  `v.optional(...)` with client defaults — never edit those fixtures; add a
+  new one. See `.cursor/rules/import-compat.mdc`.
 - Share tokens are 128-bit bearer secrets — revocable, 30-day default expiry,
   50 live links per user. `shares.queries.preview` is intentionally
   **unauthenticated** (the recipient may have no account yet) and exposes only

@@ -285,13 +285,13 @@ export function useLocalWorkoutRecap(
 ): WorkoutRecap | null | undefined {
   const sessions = useLocalCompletedSessions();
   const places = useLocalPlaces();
-  const homePlaceId = places?.find((place) => place.starred)?._id ?? null;
+  const defaultPlaceId = places?.find((place) => place.starred)?._id ?? null;
   return useMemo(
     () =>
       sessions === undefined || places === undefined
         ? undefined
-        : getLocalWorkoutRecap(sessions, sessionId, homePlaceId),
-    [homePlaceId, places, sessionId, sessions],
+        : getLocalWorkoutRecap(sessions, sessionId, defaultPlaceId),
+    [defaultPlaceId, places, sessionId, sessions],
   );
 }
 

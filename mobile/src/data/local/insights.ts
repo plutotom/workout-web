@@ -678,7 +678,7 @@ const PROGRESSION_POINTS = 7;
 export function getLocalWorkoutRecap(
   all: LoadedSession[],
   sessionId: string,
-  homePlaceId: string | null = null,
+  defaultPlaceId: string | null = null,
 ): WorkoutRecap | null {
   const session = all.find((candidate) => candidate.sessionId === sessionId);
   if (!session) return null;
@@ -731,7 +731,7 @@ export function getLocalWorkoutRecap(
         sessionMatchesPlace(
           { placeId: candidate.placeId },
           placeId,
-          homePlaceId,
+          defaultPlaceId,
         );
       if (
         samePlace &&

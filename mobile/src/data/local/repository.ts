@@ -42,7 +42,6 @@ import {
   assignLocalSessionMachine,
   convexMachineId,
   convexPlaceId,
-  ensureLocalHomePlace,
   findStarredLocalPlace,
   getLocalPlace,
   getLocalWorkingSets,
@@ -54,6 +53,7 @@ import {
   seedLocalSetRows,
 } from "@/data/local/places";
 import { setRowsForNewExercise } from "@/data/local/exercise-sets";
+import { sessionMatchesPlace } from "@shared/place-memory";
 import {
   convertWeight,
   type WorkoutExportBundle,
@@ -241,10 +241,9 @@ export async function getLocalWorkout(
     sessionId,
   );
   const exercises = await Promise.all(rows.map((row) => loadExercise(db, row)));
-  const starred = await findStarredLocalPlace(db);
-  const place =
-    (session.place_id ? await getLocalPlace(db, session.place_id) : null) ??
-    starred;
+  const place = session.place_id
+    ? await getLocalPlace(db, session.place_id)
+    : null;
   return {
     _id: session.id,
     remoteId: session.remote_id,
@@ -258,7 +257,7 @@ export async function getLocalWorkout(
     updatedAt: session.updated_at,
     countsTowardGoals: session.counts_toward_goals !== 0,
     health: mapHealthSummary(session),
-    placeId: session.place_id ?? place?._id ?? null,
+    placeId: session.place_id,
     placeName: session.place_name ?? place?.name ?? null,
     placeStarred: place?.starred ?? true,
     exercises,
@@ -560,8 +559,8 @@ export async function startLocalBlankWorkout(
     sessionId,
     now,
     now,
-    place._id,
-    place.name,
+    place?._id ?? null,
+    place?.name ?? null,
   );
   await queueSessionSnapshot(db, sessionId, now);
   return sessionId;
@@ -598,20 +597,20 @@ export async function startLocalTemplateWorkout(
       template.name,
       now,
       now,
-      place._id,
-      place.name,
+      place?._id ?? null,
+      place?.name ?? null,
     );
     for (const exercise of template.exercises) {
-      const machine = await lastLocalMachineForLift(
-        txn,
-        place._id,
-        exercise.slug,
-      );
-      const memory = await getLocalWorkingSets(txn, {
-        placeId: place._id,
-        exerciseSlug: exercise.slug,
-        machineId: machine?._id,
-      });
+      const machine = place
+        ? await lastLocalMachineForLift(txn, place._id, exercise.slug)
+        : null;
+      const memory = place
+        ? await getLocalWorkingSets(txn, {
+            placeId: place._id,
+            exerciseSlug: exercise.slug,
+            machineId: machine?._id,
+          })
+        : null;
       const seeded = seedLocalSetRows(exercise.sets, memory);
       const exerciseId = randomUUID();
       await txn.runAsync(
@@ -797,13 +796,17 @@ export async function addLocalExercise(
   const sessionRow = await db.getFirstAsync<{
     place_id: string | null;
   }>(`SELECT place_id FROM local_sessions WHERE id = ?`, sessionId);
-  const placeId = sessionRow?.place_id ?? (await ensureLocalHomePlace(db))._id;
-  const machine = await lastLocalMachineForLift(db, placeId, slug);
-  const memory = await getLocalWorkingSets(db, {
-    placeId,
-    exerciseSlug: slug,
-    machineId: machine?._id,
-  });
+  const placeId = sessionRow?.place_id ?? null;
+  const machine = placeId
+    ? await lastLocalMachineForLift(db, placeId, slug)
+    : null;
+  const memory = placeId
+    ? await getLocalWorkingSets(db, {
+        placeId,
+        exerciseSlug: slug,
+        machineId: machine?._id,
+      })
+    : null;
   const previous = memory?.[0] ??
     (await getLastLocalSet(db, slug, { placeId, machineId: machine?._id })) ?? {
       weight: 0,
@@ -2327,8 +2330,16 @@ export async function getLastLocalSet(
     slug,
   );
   for (const row of rows) {
-    const sessionPlace = row.place_id ?? home?._id ?? null;
-    if (placeId && sessionPlace && sessionPlace !== placeId) continue;
+    if (
+      placeId &&
+      !sessionMatchesPlace(
+        { placeId: row.place_id },
+        placeId,
+        home?._id ?? null,
+      )
+    ) {
+      continue;
+    }
     const wanted = scope?.machineId;
     if (!wanted) {
       if (row.machine_id && row.machine_id !== defaultMachineId) continue;
@@ -2341,7 +2352,7 @@ export async function getLastLocalSet(
     return {
       weight: row.weight,
       reps: row.reps,
-      placeName: row.place_name ?? home?.name ?? null,
+      placeName: row.place_name ?? null,
     };
   }
   return null;

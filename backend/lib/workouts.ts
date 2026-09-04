@@ -42,9 +42,9 @@ function normalizeExerciseSlug(slug: string) {
 
 /**
  * The most recent completed set (weight > 0) for an exercise. When placeId is
- * set, only sessions at that place (legacy untagged sessions count as Home).
- * machineId further scopes to a named station; the default machine also
- * matches older rows with no machine.
+ * set, only sessions at that place (legacy untagged sessions count toward the
+ * starred default gym). machineId further scopes to a named station; the
+ * default machine also matches older rows with no machine.
  */
 export async function lastSetForExercise(
   ctx: QueryCtx,
@@ -106,7 +106,7 @@ export async function lastSetForExercise(
       return {
         weight: done[0].weight,
         reps: done[0].reps,
-        placeName: session.placeName ?? home?.name ?? null,
+        placeName: session.placeName ?? null,
         machineName: match.machineName ?? null,
       };
     }
@@ -191,22 +191,20 @@ export async function startWorkout(
     templateName: template.name,
     status: "in_progress",
     startedAt: Date.now(),
-    placeId: place._id,
-    placeName: place.name,
+    ...(place ? { placeId: place._id, placeName: place.name } : {}),
   });
 
   for (const te of templateExercises) {
-    const machine = await lastMachineForLift(
-      ctx,
-      userId,
-      place._id,
-      te.exerciseSlug,
-    );
-    const memory = await getWorkingSets(ctx, {
-      placeId: place._id,
-      exerciseSlug: te.exerciseSlug,
-      machineId: machine?._id,
-    });
+    const machine = place
+      ? await lastMachineForLift(ctx, userId, place._id, te.exerciseSlug)
+      : null;
+    const memory = place
+      ? await getWorkingSets(ctx, {
+          placeId: place._id,
+          exerciseSlug: te.exerciseSlug,
+          machineId: machine?._id,
+        })
+      : null;
     const seeded = seedExerciseSets(te.sets, memory);
     const sessionExerciseId = await ctx.db.insert("sessionExercises", {
       sessionId,
@@ -249,8 +247,7 @@ export async function startBlankWorkout(
     userId,
     status: "in_progress",
     startedAt: Date.now(),
-    placeId: place._id,
-    placeName: place.name,
+    ...(place ? { placeId: place._id, placeName: place.name } : {}),
   });
 }
 
@@ -1061,7 +1058,6 @@ export async function getWorkout(
 
   const place =
     session.placeId != null ? await ctx.db.get(session.placeId) : null;
-  const starred = await findStarredPlace(ctx, userId);
 
   return {
     _id: session._id,
@@ -1070,9 +1066,9 @@ export async function getWorkout(
     templateName: sessionDisplayName(template, session.templateName),
     startedAt: session.startedAt,
     completedAt: session.completedAt,
-    placeId: session.placeId ?? starred?._id ?? null,
-    placeName: session.placeName ?? place?.name ?? starred?.name ?? null,
-    placeStarred: place?.starred ?? starred?.starred ?? true,
+    placeId: session.placeId ?? null,
+    placeName: session.placeName ?? place?.name ?? null,
+    placeStarred: place?.starred ?? true,
     sessionKind: normalizeSessionKind(session.sessionKind),
     countsTowardGoals: session.countsTowardGoals !== false,
     sourceName: session.sourceName ?? null,
@@ -1292,7 +1288,8 @@ export async function getWorkoutRecap(
     }
   }
 
-  // Prefer same-place lineage so Elgin 300 doesn't look like a Home deload.
+  // Prefer same-place lineage so a 300 at another gym doesn't look like a
+  // deload at the default gym.
   const samePlacePoints = allPoints.filter((p) => p.samePlace);
   const sameTemplatePoints = samePlacePoints.filter((p) => p.sameTemplate);
   const useTemplateLineage = sameTemplatePoints.length >= 2;

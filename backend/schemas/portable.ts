@@ -11,6 +11,11 @@ import { unitValidator } from "./users";
  * This validator is the single source of truth for the shape. The web/mobile
  * helper in `src/lib/workout-export.ts` derives its TypeScript type from it via
  * a type-only import, so the two can never drift.
+ *
+ * New fields must be `v.optional(...)`. A required key here rejects every
+ * export sitting on someone's phone. Frozen payloads in
+ * `src/lib/fixtures/import-compat/` plus `pnpm test:import-compat` (pre-commit)
+ * are the lock. See `.cursor/rules/import-compat.mdc`.
  */
 export const PORTABLE_FORMAT = "workout.export";
 export const PORTABLE_VERSION = 1;

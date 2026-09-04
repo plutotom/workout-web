@@ -116,7 +116,7 @@ export function PlacePickerSheet({
         <SheetHeader className="shrink-0">
           <SheetTitle>Where are you training?</SheetTitle>
           <SheetDescription>
-            Weights are remembered per place, so Home 400 stays Home 400.
+            Last weights at this gym stay here.
           </SheetDescription>
         </SheetHeader>
         <div className="min-h-0 flex-1 overflow-y-auto px-4">
@@ -162,7 +162,7 @@ export function PlacePickerSheet({
                   id="new-place-name"
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
-                  placeholder="Elgin, Wheaton…"
+                  placeholder="Home gym, commercial gym, hotel…"
                   className="text-base"
                   autoFocus
                 />

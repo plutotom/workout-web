@@ -4,7 +4,7 @@ import { v } from "convex/values";
 import { exerciseSlugValidator } from "./exercises";
 
 export const placeTables = {
-  // Gyms / rooms the user trains in. One is starred (Home).
+  // Gyms / rooms the user trains in. At most one is starred as the default.
   places: defineTable({
     userId: v.id("users"),
     name: v.string(),

@@ -12,6 +12,7 @@ import {
   GripVertical,
   MoreHorizontal,
   Plus,
+  Settings2,
   StickyNote,
   Trash2,
   X,
@@ -59,10 +60,7 @@ import { useExerciseCatalog } from "@/components/app/exercise-catalog-provider";
 import { formatLb } from "@/components/app/workout-design";
 import { formatHealthDistance, formatHealthEnergy } from "@/lib/health-summary";
 import { SessionPlaceBar } from "@/components/app/session-place-bar";
-import {
-  MachineChip,
-  MachinePickerSheet,
-} from "@/components/app/machine-picker";
+import { MachinePickerSheet } from "@/components/app/machine-picker";
 
 type DragState = {
   from: number;
@@ -106,6 +104,9 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
     id: Id<"sessionExercises">;
     name: string;
     hasNote: boolean;
+    slug: string;
+    machineId: Id<"machines"> | null;
+    machineName: string | null;
   } | null>(null);
   const [exerciseToRemove, setExerciseToRemove] = useState<{
     id: Id<"sessionExercises">;
@@ -488,119 +489,113 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
               >
                 <CardHeader
                   className={cn(
-                    "flex flex-row items-start justify-between gap-3 space-y-0",
+                    "flex flex-col gap-1.5 space-y-0",
                     isReordering ? "px-3 py-3" : isCollapsed ? "pb-0" : "pb-2",
                   )}
                 >
-                  <button
-                    type="button"
-                    className="flex min-w-0 flex-1 items-start gap-2 text-left"
-                    aria-expanded={!isCollapsed}
-                    aria-controls={`session-ex-body-${exercise._id}`}
-                    disabled={isReordering}
-                    onClick={() => {
-                      hapticTap();
-                      setCollapsed((current) => {
-                        const next = { ...current };
-                        if (next[exercise._id]) delete next[exercise._id];
-                        else next[exercise._id] = true;
-                        return next;
-                      });
-                    }}
-                  >
-                    {!isReordering ? (
-                      <ChevronDown
-                        className={cn(
-                          "text-muted-foreground mt-0.5 size-4 shrink-0 transition-transform duration-200",
-                          isCollapsed && "-rotate-90",
-                        )}
-                        aria-hidden
-                      />
-                    ) : null}
-                    <div className="min-w-0 flex-1">
-                      <CardTitle className="truncate text-base">
-                        {exerciseName}
-                      </CardTitle>
-                      {editable && session.placeId ? (
-                        <MachineChip
-                          placeName={session.placeName}
-                          machineName={exercise.machineName}
+                  <div className="flex items-start justify-between gap-3">
+                    <button
+                      type="button"
+                      className="flex min-w-0 flex-1 items-start gap-2 text-left"
+                      aria-expanded={!isCollapsed}
+                      aria-controls={`session-ex-body-${exercise._id}`}
+                      disabled={isReordering}
+                      onClick={() => {
+                        hapticTap();
+                        setCollapsed((current) => {
+                          const next = { ...current };
+                          if (next[exercise._id]) delete next[exercise._id];
+                          else next[exercise._id] = true;
+                          return next;
+                        });
+                      }}
+                    >
+                      {!isReordering ? (
+                        <ChevronDown
+                          className={cn(
+                            "text-muted-foreground mt-0.5 size-4 shrink-0 transition-transform duration-200",
+                            isCollapsed && "-rotate-90",
+                          )}
+                          aria-hidden
+                        />
+                      ) : null}
+                      <div className="min-w-0 flex-1">
+                        <CardTitle className="truncate text-base">
+                          {exerciseName}
+                        </CardTitle>
+                        {session.placeName ? (
+                          <p className="text-muted-foreground mt-0.5 text-xs">
+                            {exercise.machineName
+                              ? `${session.placeName} · ${exercise.machineName}`
+                              : session.placeName}
+                          </p>
+                        ) : null}
+                        {!isReordering ? (
+                          <p className="text-muted-foreground mt-1 text-xs">
+                            {exercise.sets.length} × {repSummary} · up to{" "}
+                            {maxWeight} lb
+                            {isCollapsed
+                              ? ` · ${doneSets}/${exercise.sets.length} done`
+                              : ""}
+                          </p>
+                        ) : null}
+                      </div>
+                    </button>
+                    {editable ? (
+                      <div className="flex shrink-0 items-center">
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="text-muted-foreground hover:text-foreground -mr-1 h-11 w-11 sm:size-9"
+                          aria-label={`${exerciseName} options`}
                           onClick={() =>
-                            setMachinePicker({
-                              exerciseId: exercise._id,
+                            setExerciseMenu({
+                              id: exercise._id,
+                              name: exerciseName,
+                              hasNote: Boolean(exercise.notes?.trim()),
                               slug: exercise.slug,
                               machineId: exercise.machineId,
+                              machineName: exercise.machineName,
                             })
                           }
-                        />
-                      ) : session.placeName ? (
-                        <p className="text-muted-foreground mt-0.5 text-xs">
-                          {exercise.machineName
-                            ? `${session.placeName} · ${exercise.machineName}`
-                            : session.placeName}
-                        </p>
-                      ) : null}
-                      {!isReordering ? (
-                        <p className="text-muted-foreground mt-1 text-xs">
-                          {exercise.sets.length} × {repSummary} · up to{" "}
-                          {maxWeight} lb
-                          {isCollapsed
-                            ? ` · ${doneSets}/${exercise.sets.length} done`
-                            : ""}
-                        </p>
-                      ) : null}
-                    </div>
-                  </button>
-                  {editable ? (
-                    <div className="flex shrink-0 items-center">
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        className="text-muted-foreground hover:text-foreground -mr-1 h-11 w-11 sm:size-9"
-                        aria-label={`${exerciseName} options`}
-                        onClick={() =>
-                          setExerciseMenu({
-                            id: exercise._id,
-                            name: exerciseName,
-                            hasNote: Boolean(exercise.notes?.trim()),
-                          })
-                        }
-                      >
-                        <MoreHorizontal className="size-4" />
-                      </Button>
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        className={cn(
-                          "text-muted-foreground hover:text-foreground -mr-2 h-11 w-11 cursor-grab touch-none active:cursor-grabbing sm:-mr-1 sm:size-9",
-                          isReordering && "bg-foreground/5",
-                        )}
-                        aria-label={`Reorder ${exerciseName}`}
-                        aria-pressed={drag?.from === exIndex}
-                        onPointerDown={(event) => {
-                          event.preventDefault();
-                          const row = event.currentTarget.closest<HTMLElement>(
-                            "[data-session-ex-index]",
-                          );
-                          const rect = row?.getBoundingClientRect();
-                          hapticTap();
-                          setDrag({
-                            from: exIndex,
-                            over: exIndex,
-                            pointerId: event.pointerId,
-                            pointerY: event.clientY,
-                            offsetY: rect ? event.clientY - rect.top : 32,
-                            rowLeft: rect?.left ?? 0,
-                            rowWidth: rect?.width ?? 0,
-                          });
-                        }}
-                      >
-                        <GripVertical className="size-4" />
-                      </Button>
-                    </div>
-                  ) : null}
+                        >
+                          <MoreHorizontal className="size-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className={cn(
+                            "text-muted-foreground hover:text-foreground -mr-2 h-11 w-11 cursor-grab touch-none active:cursor-grabbing sm:-mr-1 sm:size-9",
+                            isReordering && "bg-foreground/5",
+                          )}
+                          aria-label={`Reorder ${exerciseName}`}
+                          aria-pressed={drag?.from === exIndex}
+                          onPointerDown={(event) => {
+                            event.preventDefault();
+                            const row =
+                              event.currentTarget.closest<HTMLElement>(
+                                "[data-session-ex-index]",
+                              );
+                            const rect = row?.getBoundingClientRect();
+                            hapticTap();
+                            setDrag({
+                              from: exIndex,
+                              over: exIndex,
+                              pointerId: event.pointerId,
+                              pointerY: event.clientY,
+                              offsetY: rect ? event.clientY - rect.top : 32,
+                              rowLeft: rect?.left ?? 0,
+                              rowWidth: rect?.width ?? 0,
+                            });
+                          }}
+                        >
+                          <GripVertical className="size-4" />
+                        </Button>
+                      </div>
+                    ) : null}
+                  </div>
                 </CardHeader>
                 {!isReordering && !isCollapsed ? (
                   <CardContent
@@ -745,6 +740,27 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
             <SheetDescription>Exercise options</SheetDescription>
           </SheetHeader>
           <div className="flex flex-col gap-1 px-3 pb-2">
+            {session.placeId ? (
+              <Button
+                type="button"
+                variant="ghost"
+                className="text-muted-foreground hover:text-foreground h-12 justify-start gap-3 px-3 text-base"
+                onClick={() => {
+                  if (!exerciseMenu) return;
+                  setMachinePicker({
+                    exerciseId: exerciseMenu.id,
+                    slug: exerciseMenu.slug,
+                    machineId: exerciseMenu.machineId,
+                  });
+                  setExerciseMenu(null);
+                }}
+              >
+                <Settings2 className="size-4" />
+                {exerciseMenu?.machineName
+                  ? `Machine · ${exerciseMenu.machineName}`
+                  : "Choose machine"}
+              </Button>
+            ) : null}
             <Button
               type="button"
               variant="ghost"

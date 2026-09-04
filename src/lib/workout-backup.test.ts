@@ -1,8 +1,9 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { encodeBundleCode, parseBundle } from "./workout-export";
 import {
-  BACKUP_FORMAT,
   BACKUP_VERSION,
   bundleFromBackup,
   parseBackup,
@@ -13,96 +14,28 @@ import {
 
 const CREATED_AT = Date.UTC(2026, 3, 2, 12, 0, 0);
 
-/** Shape the first iOS backup version actually wrote — no Health fields, no
- *  notification prefs, no sessionKind. Newer parsers must still accept this. */
-function originalIosBackup() {
-  return {
-    format: BACKUP_FORMAT,
-    version: 1,
-    createdAt: CREATED_AT,
-    preferences: {
-      unit: "lb",
-      barWeightLb: 45,
-      barWeightKg: 20,
-      activeWorkoutMode: "list",
-      restTimerEnabled: true,
-    },
-    customExercises: [
-      {
-        id: "lift-1",
-        slug: "custom:local-11111111-2222-3333-4444-555555555555",
-        name: "Cable Fly (Low)",
-        short: null,
-        category: "chest",
-        usesBar: false,
-        archived: false,
-        updatedAt: CREATED_AT,
-      },
-    ],
-    templates: [
-      {
-        id: "tmpl-1",
-        name: "Push Day",
-        updatedAt: CREATED_AT,
-        exercises: [
-          {
-            id: "ex-1",
-            slug: "bench",
-            orderIndex: 0,
-            sets: [
-              { weight: 185, reps: 5 },
-              { weight: 205, reps: 3 },
-            ],
-          },
-          {
-            id: "ex-2",
-            slug: "custom:local-11111111-2222-3333-4444-555555555555",
-            orderIndex: 1,
-            sets: [{ weight: 60, reps: 12 }],
-          },
-        ],
-      },
-    ],
-    exerciseNotes: [
-      {
-        slug: "bench",
-        notes: "Pause on the chest",
-        updatedAt: CREATED_AT,
-      },
-    ],
-    sessions: [
-      {
-        id: "sess-1",
-        templateId: "tmpl-1",
-        templateName: "Push Day",
-        status: "completed",
-        startedAt: CREATED_AT,
-        completedAt: CREATED_AT + 3_600_000,
-        updatedAt: CREATED_AT,
-        exercises: [
-          {
-            id: "se-1",
-            slug: "bench",
-            orderIndex: 0,
-            restSeconds: 90,
-            notes: null,
-            sets: [
-              {
-                id: "set-1",
-                orderIndex: 0,
-                targetWeight: 185,
-                targetReps: 5,
-                weight: 185,
-                reps: 5,
-                completed: true,
-                completedAt: CREATED_AT + 60_000,
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  };
+/** Shape the first iOS backup version actually wrote — frozen in
+ *  `fixtures/import-compat/`. Newer parsers must still accept this. */
+type RawBackup = {
+  customExercises: Array<Record<string, unknown>>;
+  templates: Array<
+    Record<string, unknown> & { exercises: Array<Record<string, unknown>> }
+  >;
+  sessions: Array<
+    Record<string, unknown> & { exercises: Array<Record<string, unknown>> }
+  >;
+};
+
+function originalIosBackup(): RawBackup {
+  return JSON.parse(
+    readFileSync(
+      join(
+        import.meta.dirname,
+        "fixtures/import-compat/ios-backup-v1-original.json",
+      ),
+      "utf8",
+    ),
+  ) as RawBackup;
 }
 
 function currentBackup(): WorkoutBackupSnapshot {
@@ -255,8 +188,8 @@ describe("web Export all ↔ iOS backup", () => {
       })),
       sessions: original.sessions.map((session) => ({
         ...session,
-        placeId: "place-elgin",
-        placeName: "Elgin",
+        placeId: "place-gym-b",
+        placeName: "Gym B",
         exercises: session.exercises.map((exercise) => ({
           ...exercise,
           machineId: "machine-1",
@@ -274,8 +207,8 @@ describe("web Export all ↔ iOS backup", () => {
           updatedAt: CREATED_AT,
         },
         {
-          id: "place-elgin",
-          name: "Elgin",
+          id: "place-gym-b",
+          name: "Gym B",
           starred: false,
           archived: false,
           lastUsedAt: CREATED_AT,
@@ -285,7 +218,7 @@ describe("web Export all ↔ iOS backup", () => {
       machines: [
         {
           id: "machine-1",
-          placeId: "place-elgin",
+          placeId: "place-gym-b",
           exerciseSlug: "bench",
           name: "Usual",
           isDefault: true,
@@ -296,7 +229,7 @@ describe("web Export all ↔ iOS backup", () => {
       ],
       placeWeights: [
         {
-          placeId: "place-elgin",
+          placeId: "place-gym-b",
           exerciseSlug: "bench",
           machineKey: "machine-1",
           sets: [{ weight: 300, reps: 8 }],
@@ -309,7 +242,7 @@ describe("web Export all ↔ iOS backup", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.snapshot.templates[0]!.lastPlaceId).toBe("place-home");
-    expect(result.snapshot.sessions[0]!.placeName).toBe("Elgin");
+    expect(result.snapshot.sessions[0]!.placeName).toBe("Gym B");
     expect(result.snapshot.sessions[0]!.exercises[0]!.machineName).toBe(
       "Usual",
     );

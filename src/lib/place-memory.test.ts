@@ -82,21 +82,29 @@ describe("reseedIncompleteSets", () => {
 
 describe("normalizePlaceName", () => {
   it("trims and rejects empty names", () => {
-    expect(normalizePlaceName("  Elgin  ")).toBe("Elgin");
+    expect(normalizePlaceName("  Gym B  ")).toBe("Gym B");
     expect(() => normalizePlaceName("   ")).toThrow(/name/i);
   });
 });
 
 describe("sessionMatchesPlace", () => {
-  it("treats untagged sessions as Home", () => {
-    expect(sessionMatchesPlace({ placeId: null }, "home", "home")).toBe(true);
-    expect(sessionMatchesPlace({}, "home", "home")).toBe(true);
+  it("treats untagged sessions as the default gym", () => {
+    expect(sessionMatchesPlace({ placeId: null }, "default", "default")).toBe(
+      true,
+    );
+    expect(sessionMatchesPlace({}, "default", "default")).toBe(true);
   });
 
-  it("does not count Home history toward a guest place", () => {
-    expect(sessionMatchesPlace({ placeId: null }, "elgin", "home")).toBe(false);
-    expect(sessionMatchesPlace({ placeId: "home" }, "elgin", "home")).toBe(
+  it("does not count untagged history toward another gym", () => {
+    expect(sessionMatchesPlace({ placeId: null }, "gym-b", "default")).toBe(
       false,
     );
+    expect(
+      sessionMatchesPlace({ placeId: "default" }, "gym-b", "default"),
+    ).toBe(false);
+  });
+
+  it("does not count untagged history toward any gym when nothing is starred", () => {
+    expect(sessionMatchesPlace({ placeId: null }, "gym-b", null)).toBe(false);
   });
 });

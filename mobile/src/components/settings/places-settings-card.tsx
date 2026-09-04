@@ -73,10 +73,6 @@ export function PlacesSettingsCard() {
   }
 
   function confirmArchive(place: LocalPlace) {
-    if (place.starred) {
-      Alert.alert("Star another place before removing Home");
-      return;
-    }
     Alert.alert(
       `Remove ${place.name}?`,
       "Past workouts keep the name. You can add this place again later.",
@@ -108,7 +104,8 @@ export function PlacesSettingsCard() {
         <MapPin color={colors.text} size={22} />
         <SectionTitle title="Places" />
         <Text style={{ color: colors.dim, fontSize: 13, lineHeight: 19 }}>
-          Home, Elgin, Wheaton — working weights are remembered per place.
+          Working weights are remembered per gym, so numbers at one place
+          don&apos;t follow you to another.
         </Text>
         {(places ?? []).map((place) => (
           <View
@@ -127,7 +124,9 @@ export function PlacesSettingsCard() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={
-                place.starred ? "Starred home place" : `Star ${place.name}`
+                place.starred
+                  ? "Default place"
+                  : `Star ${place.name} as default`
               }
               onPress={() => void handleStar(place)}
               style={{
@@ -173,14 +172,12 @@ export function PlacesSettingsCard() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={`Remove ${place.name}`}
-              disabled={place.starred}
               onPress={() => confirmArchive(place)}
               style={{
                 width: 44,
                 height: 44,
                 alignItems: "center",
                 justifyContent: "center",
-                opacity: place.starred ? 0.35 : 1,
               }}
             >
               <Archive size={16} color={colors.dim} />
@@ -192,7 +189,7 @@ export function PlacesSettingsCard() {
             <TextInput
               value={newName}
               onChangeText={setNewName}
-              placeholder="Elgin, Wheaton…"
+              placeholder="Home gym, commercial gym, hotel…"
               placeholderTextColor={colors.dim}
               autoFocus
               style={{

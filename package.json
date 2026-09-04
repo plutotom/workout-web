@@ -26,6 +26,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
+    "test:import-compat": "vitest run src/lib/import-compat.test.ts",
     "smoke:ai": "node scripts/ai-gateway-smoke.mjs",
     "generate:splash": "node scripts/generate-splash-screens.mjs scripts/splash-base.png",
     "verify": "node scripts/verify.mjs",

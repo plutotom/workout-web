@@ -12,7 +12,6 @@ import type {
 } from "@/data/local/types";
 import {
   DEFAULT_MACHINE_KEY,
-  HOME_PLACE_NAME,
   MAX_MACHINES_PER_LIFT,
   MAX_PLACES,
   USUAL_MACHINE_NAME,
@@ -184,48 +183,22 @@ export async function findStarredLocalPlace(db: SQLiteDatabase) {
   return row ? mapPlace(row) : null;
 }
 
-/** Idempotent starred Home, matching the server `ensureHomePlace`. */
-export async function ensureLocalHomePlace(
+async function promoteDefaultLocalPlace(
   db: SQLiteDatabase,
-): Promise<LocalPlace> {
-  const starred = await findStarredLocalPlace(db);
-  if (starred) return starred;
-
-  const namedHome = await db.getFirstAsync<PlaceRow>(
-    `SELECT id, remote_id, name, starred, archived, last_used_at, updated_at
-       FROM local_places
-      WHERE archived = 0 AND lower(name) = 'home'
-      LIMIT 1`,
+  excludingId?: string,
+) {
+  const remaining = (await listLocalPlaces(db)).filter(
+    (place) => place._id !== excludingId,
   );
-  if (namedHome) {
-    await db.runAsync(
-      "UPDATE local_places SET starred = CASE WHEN id = ? THEN 1 ELSE 0 END",
-      namedHome.id,
-    );
-    await queuePlaceSnapshot(db, namedHome.id);
-    return { ...mapPlace(namedHome), starred: true };
-  }
-
-  const now = Date.now();
-  const id = randomUUID();
-  await db.runAsync(
-    `INSERT INTO local_places (
-       id, remote_id, name, starred, archived, last_used_at, updated_at
-     ) VALUES (?, NULL, ?, 1, 0, NULL, ?)`,
-    id,
-    HOME_PLACE_NAME,
-    now,
-  );
-  await queuePlaceSnapshot(db, id, now);
-  return {
-    _id: id,
-    remoteId: null,
-    name: HOME_PLACE_NAME,
-    starred: true,
-    archived: false,
-    lastUsedAt: null,
-    updatedAt: now,
-  };
+  const next =
+    remaining.sort((a, b) => {
+      const aUsed = a.lastUsedAt ?? 0;
+      const bUsed = b.lastUsedAt ?? 0;
+      if (aUsed !== bUsed) return bUsed - aUsed;
+      return a.name.localeCompare(b.name);
+    })[0] ?? null;
+  if (!next) return;
+  await starLocalPlace(db, next._id);
 }
 
 export async function resolveLocalPlaceForStart(
@@ -233,30 +206,29 @@ export async function resolveLocalPlaceForStart(
   {
     placeId,
     templateLastPlaceId,
-    blank,
   }: {
     placeId?: string | null;
     templateLastPlaceId?: string | null;
     blank?: boolean;
   },
-): Promise<LocalPlace> {
-  const home = await ensureLocalHomePlace(db);
+): Promise<LocalPlace | null> {
   if (placeId) {
     const chosen = await getLocalPlace(db, placeId);
     if (chosen) return chosen;
   }
-  if (!blank && templateLastPlaceId) {
+  if (templateLastPlaceId) {
     const last = await getLocalPlace(db, templateLastPlaceId);
     if (last) return last;
   }
-  if (blank) {
-    const lastPlaceId = await getLastLocalSessionPlaceId(db);
-    if (lastPlaceId) {
-      const last = await getLocalPlace(db, lastPlaceId);
-      if (last) return last;
-    }
+  const lastPlaceId = await getLastLocalSessionPlaceId(db);
+  if (lastPlaceId) {
+    const last = await getLocalPlace(db, lastPlaceId);
+    if (last) return last;
   }
-  return home;
+  const starred = await findStarredLocalPlace(db);
+  if (starred) return starred;
+  const places = await listLocalPlaces(db);
+  return places[0] ?? null;
 }
 
 export async function getLastLocalSessionPlaceId(
@@ -444,9 +416,7 @@ export async function archiveLocalPlace(db: SQLiteDatabase, id: string) {
     id,
   );
   if (!row) throw new Error("Place not found");
-  if (row.starred === 1) {
-    throw new Error("Star another place before removing Home");
-  }
+  const wasStarred = row.starred === 1;
   await db.runAsync(
     `UPDATE local_places
         SET archived = 1, starred = 0, updated_at = ?
@@ -455,6 +425,9 @@ export async function archiveLocalPlace(db: SQLiteDatabase, id: string) {
     row.id,
   );
   await queuePlaceSnapshot(db, row.id);
+  if (wasStarred) {
+    await promoteDefaultLocalPlace(db, row.id);
+  }
 }
 
 /** Create a place locally and queue it for later upload. Works offline. */
@@ -462,7 +435,6 @@ export async function createLocalPlace(
   db: SQLiteDatabase,
   name: string,
 ): Promise<LocalPlace> {
-  await ensureLocalHomePlace(db);
   const normalized = normalizePlaceName(name);
   const active = await listLocalPlaces(db);
   if (active.length >= MAX_PLACES) {
@@ -477,12 +449,14 @@ export async function createLocalPlace(
   }
   const now = Date.now();
   const id = randomUUID();
+  const starred = !active.some((place) => place.starred);
   await db.runAsync(
     `INSERT INTO local_places (
        id, remote_id, name, starred, archived, last_used_at, updated_at
-     ) VALUES (?, NULL, ?, 0, 0, NULL, ?)`,
+     ) VALUES (?, NULL, ?, ?, 0, NULL, ?)`,
     id,
     normalized,
+    starred ? 1 : 0,
     now,
   );
   await queuePlaceSnapshot(db, id, now);
@@ -1090,8 +1064,6 @@ export async function applyPlacesBootstrap(
       weight.updatedAt,
     );
   }
-
-  await ensureLocalHomePlace(txn);
 }
 
 export function convexPlaceId(place: LocalPlace | null | undefined) {

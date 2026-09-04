@@ -8,7 +8,6 @@
 
 export const DEFAULT_MACHINE_KEY = "default";
 export const USUAL_MACHINE_NAME = "Usual";
-export const HOME_PLACE_NAME = "Home";
 export const MAX_PLACES = 20;
 export const MAX_MACHINES_PER_LIFT = 10;
 export const MAX_PLACE_NAME_LENGTH = 40;
@@ -57,15 +56,15 @@ export function placeNameKey(name: string) {
 }
 
 /**
- * Untagged sessions (no placeId) count as Home. Used by recap so a Home PR
- * still sees history from before places existed.
+ * Untagged sessions (no placeId) count toward the starred default gym only.
+ * Recap uses that so a default-gym PR still sees history from before places
+ * existed, without leaking those numbers into another gym.
  */
 export function sessionMatchesPlace(
   session: { placeId?: string | null },
   placeId: string,
-  homeId: string | null,
+  defaultPlaceId: string | null,
 ): boolean {
-  const resolved = session.placeId ?? homeId;
-  if (!resolved) return true;
-  return resolved === placeId;
+  if (session.placeId) return session.placeId === placeId;
+  return defaultPlaceId != null && placeId === defaultPlaceId;
 }

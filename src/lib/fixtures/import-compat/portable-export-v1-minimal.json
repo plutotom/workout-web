@@ -1,0 +1,16 @@
+{
+  "format": "workout.export",
+  "exportedAt": 1741953600000,
+  "unit": "lb",
+  "templates": [
+    {
+      "name": "Push Day",
+      "exercises": [
+        {
+          "slug": "bench",
+          "sets": [{ "weight": 185, "reps": 5 }]
+        }
+      ]
+    }
+  ]
+}

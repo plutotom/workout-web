@@ -3,3 +3,5 @@ node_modules
 out
 build
 pnpm-lock.yaml
+# Frozen historical payloads — Prettier must not rewrite them on commit.
+src/lib/fixtures/import-compat/

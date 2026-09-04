@@ -112,7 +112,7 @@ describe("getLocalOverview health summaries", () => {
 
 describe("getLocalWorkoutRecap place scoping", () => {
   const now = Date.parse("2026-09-04T18:00:00.000Z");
-  const homeId = "place-home";
+  const defaultId = "place-default";
 
   function lift(
     id: string,
@@ -141,34 +141,51 @@ describe("getLocalWorkoutRecap place scoping", () => {
     });
   }
 
-  it("counts untagged history as Home when recapping a Home session", () => {
+  it("counts untagged history toward the default gym", () => {
     const recap = getLocalWorkoutRecap(
       [
-        lift("today-home", now, { placeId: homeId, weight: 275 }),
+        lift("today-default", now, { placeId: defaultId, weight: 275 }),
         lift("legacy", now - 7 * 24 * 60 * 60 * 1000, {
           placeId: null,
           weight: 225,
         }),
       ],
-      "today-home",
-      homeId,
+      "today-default",
+      defaultId,
     );
 
     expect(recap?.standout?.priorBest).toMatchObject({ weight: 225, reps: 5 });
     expect(recap?.standout?.isPr).toBe(true);
   });
 
-  it("does not count Home history toward an Elgin recap", () => {
+  it("does not count untagged history toward another gym", () => {
     const recap = getLocalWorkoutRecap(
       [
-        lift("today-elgin", now, { placeId: "place-elgin", weight: 300 }),
+        lift("today-gym-b", now, { placeId: "place-gym-b", weight: 300 }),
         lift("legacy", now - 7 * 24 * 60 * 60 * 1000, {
           placeId: null,
           weight: 225,
         }),
       ],
-      "today-elgin",
-      homeId,
+      "today-gym-b",
+      defaultId,
+    );
+
+    expect(recap?.standout?.priorBest).toBeNull();
+    expect(recap?.standout?.isPr).toBe(true);
+  });
+
+  it("does not count untagged history toward a gym when nothing is starred", () => {
+    const recap = getLocalWorkoutRecap(
+      [
+        lift("today-gym-b", now, { placeId: "place-gym-b", weight: 300 }),
+        lift("legacy", now - 7 * 24 * 60 * 60 * 1000, {
+          placeId: null,
+          weight: 225,
+        }),
+      ],
+      "today-gym-b",
+      null,
     );
 
     expect(recap?.standout?.priorBest).toBeNull();

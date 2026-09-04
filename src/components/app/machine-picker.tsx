@@ -22,35 +22,6 @@ import {
 import { useVisualViewportFrame } from "@/hooks/use-visual-viewport-frame";
 import { cn } from "@/lib/utils";
 
-export function MachineChip({
-  placeName,
-  machineName,
-  onClick,
-  disabled,
-}: {
-  placeName: string | null;
-  machineName: string | null;
-  onClick: () => void;
-  disabled?: boolean;
-}) {
-  const label = machineName
-    ? `${placeName ?? "Place"} · ${machineName}`
-    : (placeName ?? "Place");
-  return (
-    <button
-      type="button"
-      onClick={(event) => {
-        event.stopPropagation();
-        onClick();
-      }}
-      disabled={disabled}
-      className="text-muted-foreground mt-0.5 text-left text-xs font-medium underline-offset-2 hover:underline disabled:no-underline"
-    >
-      {label}
-    </button>
-  );
-}
-
 export function MachinePickerSheet({
   open,
   onOpenChange,
@@ -119,7 +90,8 @@ export function MachinePickerSheet({
         <SheetHeader className="shrink-0">
           <SheetTitle>Which machine?</SheetTitle>
           <SheetDescription>
-            Only this lift at this place. Last used is already selected.
+            Named machines keep their own last weights at this gym. Last used is
+            already selected.
           </SheetDescription>
         </SheetHeader>
         <div className="min-h-0 flex-1 overflow-y-auto px-4">

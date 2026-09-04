@@ -117,7 +117,8 @@ export function PlacesSettings() {
       <CardHeader>
         <CardTitle className="text-base">Places</CardTitle>
         <CardDescription>
-          Home, Elgin, Wheaton — working weights are remembered per place.
+          Working weights are remembered per gym, so numbers at one place
+          don&apos;t follow you to another.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-2">
@@ -133,7 +134,9 @@ export function PlacesSettings() {
               }}
               className="flex size-11 shrink-0 items-center justify-center"
               aria-label={
-                place.starred ? "Starred home place" : `Star ${place.name}`
+                place.starred
+                  ? "Default place"
+                  : `Star ${place.name} as default`
               }
             >
               <Star
@@ -160,7 +163,6 @@ export function PlacesSettings() {
               size="icon"
               variant="ghost"
               aria-label={`Remove ${place.name}`}
-              disabled={place.starred}
               onClick={() => setArchiving({ id: place._id, name: place.name })}
             >
               <Archive className="size-4" />
@@ -175,7 +177,7 @@ export function PlacesSettings() {
               id="settings-new-place"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
-              placeholder="Elgin, Wheaton…"
+              placeholder="Home gym, commercial gym, hotel…"
               className="text-base"
               autoFocus
             />

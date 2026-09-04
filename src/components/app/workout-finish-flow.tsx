@@ -125,10 +125,10 @@ export function useWorkoutFinishFlow({
     ) ?? false;
   // undefined = template still loading; null = blank / missing; object = ready
   const templateReady = isBlankSession || template !== undefined;
-  const isHomePlace = session?.placeStarred !== false;
+  const isDefaultPlace = session?.placeStarred !== false;
   const templateDiffers =
     !isBlankSession &&
-    isHomePlace &&
+    isDefaultPlace &&
     !!session &&
     template !== undefined &&
     templateDiffersFromSession(session.exercises, template);

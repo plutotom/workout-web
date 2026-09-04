@@ -1,0 +1,87 @@
+{
+  "format": "workout.backup",
+  "version": 1,
+  "createdAt": 1775124000000,
+  "preferences": {
+    "unit": "lb",
+    "barWeightLb": 45,
+    "barWeightKg": 20,
+    "activeWorkoutMode": "list",
+    "restTimerEnabled": true
+  },
+  "customExercises": [
+    {
+      "id": "lift-1",
+      "slug": "custom:local-11111111-2222-3333-4444-555555555555",
+      "name": "Cable Fly (Low)",
+      "short": null,
+      "category": "chest",
+      "usesBar": false,
+      "archived": false,
+      "updatedAt": 1775124000000
+    }
+  ],
+  "templates": [
+    {
+      "id": "tmpl-1",
+      "name": "Push Day",
+      "updatedAt": 1775124000000,
+      "exercises": [
+        {
+          "id": "ex-1",
+          "slug": "bench",
+          "orderIndex": 0,
+          "sets": [
+            { "weight": 185, "reps": 5 },
+            { "weight": 205, "reps": 3 }
+          ]
+        },
+        {
+          "id": "ex-2",
+          "slug": "custom:local-11111111-2222-3333-4444-555555555555",
+          "orderIndex": 1,
+          "sets": [{ "weight": 60, "reps": 12 }]
+        }
+      ]
+    }
+  ],
+  "exerciseNotes": [
+    {
+      "slug": "bench",
+      "notes": "Pause on the chest",
+      "updatedAt": 1775124000000
+    }
+  ],
+  "sessions": [
+    {
+      "id": "sess-1",
+      "templateId": "tmpl-1",
+      "templateName": "Push Day",
+      "status": "completed",
+      "startedAt": 1775124000000,
+      "completedAt": 1775127600000,
+      "updatedAt": 1775124000000,
+      "exercises": [
+        {
+          "id": "se-1",
+          "slug": "bench",
+          "orderIndex": 0,
+          "restSeconds": 90,
+          "notes": null,
+          "sets": [
+            {
+              "id": "set-1",
+              "orderIndex": 0,
+              "targetWeight": 185,
+              "targetReps": 5,
+              "weight": 185,
+              "reps": 5,
+              "completed": true,
+              "completedAt": 1775124060000
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

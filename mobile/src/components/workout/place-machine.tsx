@@ -1,4 +1,4 @@
-import { Check, MapPin, Plus, Star } from "lucide-react-native";
+import { Check, MapPin, Plus, Settings2, Star } from "lucide-react-native";
 import { useMemo, useState } from "react";
 import {
   Alert,
@@ -167,7 +167,7 @@ export function PlacePickerModal({
             Where are you training?
           </Text>
           <Text style={{ color: colors.dim, fontSize: 14, lineHeight: 20 }}>
-            Weights are remembered per place, so Home 400 stays Home 400.
+            Last weights at this gym stay here.
           </Text>
         </View>
         <ScrollView
@@ -236,7 +236,7 @@ export function PlacePickerModal({
               <TextInput
                 value={newName}
                 onChangeText={setNewName}
-                placeholder="Elgin, Wheaton…"
+                placeholder="Home gym, commercial gym, hotel…"
                 placeholderTextColor={colors.dim}
                 autoFocus
                 style={{
@@ -281,34 +281,6 @@ export function PlacePickerModal({
         </View>
       </SafeAreaView>
     </Modal>
-  );
-}
-
-export function MachineChip({
-  placeName,
-  machineName,
-  onPress,
-}: {
-  placeName: string | null;
-  machineName: string | null;
-  onPress: () => void;
-}) {
-  const label = machineName
-    ? `${placeName ?? "Place"} · ${machineName}`
-    : (placeName ?? "Place");
-  return (
-    <Pressable onPress={onPress} hitSlop={8}>
-      <Text
-        style={{
-          color: colors.dim,
-          fontSize: 12,
-          fontWeight: "600",
-          marginTop: 2,
-        }}
-      >
-        {label}
-      </Text>
-    </Pressable>
   );
 }
 
@@ -379,7 +351,8 @@ export function MachinePickerModal({
             Which machine?
           </Text>
           <Text style={{ color: colors.dim, fontSize: 14, lineHeight: 20 }}>
-            Only this lift at this place. Last used is already selected.
+            Named machines keep their own last weights at this gym. Last used is
+            already selected.
           </Text>
         </View>
         <ScrollView contentContainerStyle={{ padding: 16, gap: 8 }}>
@@ -412,6 +385,7 @@ export function MachinePickerModal({
                   paddingHorizontal: 12,
                 }}
               >
+                <Settings2 size={16} color={colors.dim} />
                 <Text
                   style={{
                     flex: 1,

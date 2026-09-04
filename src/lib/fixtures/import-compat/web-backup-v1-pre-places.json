@@ -1,0 +1,89 @@
+{
+  "format": "workout.backup",
+  "version": 1,
+  "createdAt": 1775124000000,
+  "preferences": {
+    "unit": "lb",
+    "barWeightLb": 45,
+    "barWeightKg": 20,
+    "activeWorkoutMode": "list",
+    "restTimerEnabled": true,
+    "restTimerNotificationsEnabled": true,
+    "appleHealthImportNotificationsEnabled": false
+  },
+  "customExercises": [
+    {
+      "id": "custom-1",
+      "remoteId": "custom-1",
+      "slug": "custom:custom-1",
+      "name": "My press",
+      "short": null,
+      "category": "chest",
+      "usesBar": false,
+      "archived": false,
+      "updatedAt": 1
+    }
+  ],
+  "templates": [
+    {
+      "id": "template-1",
+      "remoteId": "template-1",
+      "name": "Push Day",
+      "updatedAt": 1775124000000,
+      "exercises": [
+        {
+          "id": "tex-1",
+          "slug": "bench",
+          "orderIndex": 0,
+          "sets": [{ "weight": 185, "reps": 5 }]
+        }
+      ]
+    }
+  ],
+  "exerciseNotes": [],
+  "sessions": [
+    {
+      "id": "session-1",
+      "remoteId": "session-1",
+      "templateId": "template-1",
+      "remoteTemplateId": "template-1",
+      "templateName": "Push Day",
+      "status": "completed",
+      "sessionKind": "tracked",
+      "startedAt": 10,
+      "completedAt": 20,
+      "updatedAt": 20,
+      "countsTowardGoals": true,
+      "externalProvider": null,
+      "externalId": null,
+      "activityType": null,
+      "sourceName": null,
+      "sourceBundleId": null,
+      "durationSeconds": null,
+      "energyKcal": null,
+      "distanceMeters": null,
+      "importedAt": null,
+      "exercises": [
+        {
+          "id": "sex-1",
+          "slug": "bench",
+          "orderIndex": 0,
+          "restSeconds": 75,
+          "notes": null,
+          "sets": [
+            {
+              "id": "set-1",
+              "orderIndex": 0,
+              "targetWeight": 185,
+              "targetReps": 5,
+              "weight": 185,
+              "reps": 5,
+              "completed": true,
+              "completedAt": 15
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

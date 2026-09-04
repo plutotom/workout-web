@@ -44,11 +44,11 @@ import {
 import { PlateModal } from "@/components/workout/plate-modal";
 import { RestBar } from "@/components/workout/rest-bar";
 import {
-  MachineChip,
   MachinePickerModal,
   PlaceChip,
   PlacePickerModal,
 } from "@/components/workout/place-machine";
+import { ExerciseOptionsButton } from "@/components/workout/exercise-options";
 import { WatchCompanionCard } from "@/health/watch-companion-card";
 import { useSessionAi } from "@/components/workout/use-session-ai";
 import { appleGenerateSheetCopy } from "@/lib/ai-copy";
@@ -311,13 +311,17 @@ function ListWorkout({
             >
               <View style={{ padding: 14, gap: 9 }}>
                 <View
-                  style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "flex-start",
+                    gap: 8,
+                  }}
                 >
                   <Pressable
                     style={{
                       flex: 1,
                       flexDirection: "row",
-                      alignItems: "center",
+                      alignItems: "flex-start",
                       gap: 8,
                     }}
                     hitSlop={7}
@@ -332,7 +336,7 @@ function ListWorkout({
                     ) : (
                       <ChevronDown size={18} color={colors.dim} />
                     )}
-                    <View style={{ flex: 1 }}>
+                    <View style={{ flex: 1, gap: 6 }}>
                       <Text
                         style={{
                           color: colors.text,
@@ -342,22 +346,24 @@ function ListWorkout({
                       >
                         {catalog.name(exercise.slug)}
                       </Text>
-                      <MachineChip
-                        placeName={session.placeName}
-                        machineName={exercise.machineName}
-                        onPress={() =>
-                          setMachinePicker({
-                            exerciseId: exercise._id,
-                            slug: exercise.slug,
-                            machineId: exercise.machineId,
-                          })
-                        }
-                      />
+                      {session.placeName ? (
+                        <Text
+                          style={{
+                            color: colors.dim,
+                            fontSize: 12,
+                            fontWeight: "600",
+                          }}
+                          numberOfLines={1}
+                        >
+                          {exercise.machineName
+                            ? `${session.placeName} · ${exercise.machineName}`
+                            : session.placeName}
+                        </Text>
+                      ) : null}
                       <Text
                         style={{
                           color: colors.dim,
                           fontSize: 11,
-                          marginTop: 3,
                         }}
                       >
                         {exercise.sets.filter((set) => set.completed).length}/
@@ -366,6 +372,23 @@ function ListWorkout({
                       </Text>
                     </View>
                   </Pressable>
+                  <ExerciseOptionsButton
+                    machineName={exercise.machineName}
+                    onChooseMachine={
+                      session.placeId
+                        ? () =>
+                            setMachinePicker({
+                              exerciseId: exercise._id,
+                              slug: exercise.slug,
+                              machineId: exercise.machineId,
+                            })
+                        : () =>
+                            Alert.alert(
+                              "Pick a place first",
+                              "Machines are per gym, so choose where you’re training.",
+                            )
+                    }
+                  />
                   <Pressable
                     disabled={exerciseIndex === 0}
                     hitSlop={7}
@@ -855,22 +878,53 @@ function FocusWorkout({
               SET {item.setIndex + 1} · {item.exerciseIndex + 1}/
               {session.exercises.length}
             </Text>
-            <Text
+            <View
               style={{
-                color: colors.text,
-                fontSize: 34,
-                lineHeight: 38,
-                fontWeight: "700",
+                flexDirection: "row",
+                alignItems: "flex-start",
+                gap: 8,
                 marginTop: 8,
               }}
             >
-              {catalog.name(item.exercise.slug)}
-            </Text>
-            <MachineChip
-              placeName={session.placeName}
-              machineName={item.exercise.machineName}
-              onPress={() => setMachineOpen(true)}
-            />
+              <Text
+                style={{
+                  flex: 1,
+                  color: colors.text,
+                  fontSize: 34,
+                  lineHeight: 38,
+                  fontWeight: "700",
+                }}
+              >
+                {catalog.name(item.exercise.slug)}
+              </Text>
+              <ExerciseOptionsButton
+                machineName={item.exercise.machineName}
+                onChooseMachine={
+                  session.placeId
+                    ? () => setMachineOpen(true)
+                    : () =>
+                        Alert.alert(
+                          "Pick a place first",
+                          "Machines are per gym, so choose where you’re training.",
+                        )
+                }
+              />
+            </View>
+            {session.placeName ? (
+              <Text
+                style={{
+                  color: colors.dim,
+                  fontSize: 13,
+                  fontWeight: "600",
+                  marginTop: 8,
+                }}
+                numberOfLines={1}
+              >
+                {item.exercise.machineName
+                  ? `${session.placeName} · ${item.exercise.machineName}`
+                  : session.placeName}
+              </Text>
+            ) : null}
             <Text style={{ color: colors.dim, fontSize: 13, marginTop: 8 }}>
               {last
                 ? `Last time · ${last.weight} ${user.unit} × ${last.reps}${

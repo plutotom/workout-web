@@ -9,7 +9,9 @@ import {
   ChevronRight,
   ListOrdered,
   Minus,
+  MoreHorizontal,
   Plus,
+  Settings2,
   Undo2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -28,14 +30,18 @@ import { RestRing } from "@/components/app/workout-focus-rest-ring";
 import { WorkoutFocusSessionSheet } from "@/components/app/workout-focus-session-sheet";
 import { WorkoutLog } from "@/components/app/workout-log";
 import { SessionPlaceBar } from "@/components/app/session-place-bar";
-import {
-  MachineChip,
-  MachinePickerSheet,
-} from "@/components/app/machine-picker";
+import { MachinePickerSheet } from "@/components/app/machine-picker";
 import { formatLb, formatDuration } from "@/components/app/workout-design";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { hapticTap } from "@/lib/haptics";
 import {
@@ -73,6 +79,7 @@ export function WorkoutFocus({ sessionId }: { sessionId: string }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerKey, setPickerKey] = useState(0);
   const [machinePickerOpen, setMachinePickerOpen] = useState(false);
+  const [exerciseOptionsOpen, setExerciseOptionsOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   // When the ring drains naturally, snap back to the next incomplete set.
   const { rest, startRest, clearRest, addSeconds } = useWorkoutRest(() =>
@@ -407,21 +414,33 @@ export function WorkoutFocus({ sessionId }: { sessionId: string }) {
               >
                 <ChevronLeft className="size-5" />
               </Button>
-              <div className="min-w-0 text-center">
+              <div className="min-w-0 flex-1 text-center">
                 <p className="text-xs font-semibold tracking-[0.14em] text-muted-foreground uppercase">
                   Exercise {current.exIndex + 1} of {exercises.length}
                 </p>
                 <p className="truncate text-lg font-semibold">
                   {catalog.name(current.exercise.slug)}
                 </p>
-                {session.placeId ? (
-                  <MachineChip
-                    placeName={session.placeName}
-                    machineName={current.exercise.machineName}
-                    onClick={() => setMachinePickerOpen(true)}
-                  />
+                {session.placeName ? (
+                  <p className="text-muted-foreground mt-0.5 truncate text-xs">
+                    {current.exercise.machineName
+                      ? `${session.placeName} · ${current.exercise.machineName}`
+                      : session.placeName}
+                  </p>
                 ) : null}
               </div>
+              {session.placeId ? (
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="text-muted-foreground hover:text-foreground size-9"
+                  aria-label="Exercise options"
+                  onClick={() => setExerciseOptionsOpen(true)}
+                >
+                  <MoreHorizontal className="size-5" />
+                </Button>
+              ) : null}
               <Button
                 type="button"
                 size="icon"
@@ -630,6 +649,36 @@ export function WorkoutFocus({ sessionId }: { sessionId: string }) {
           setPickerOpen(true);
         }}
       />
+
+      <Sheet open={exerciseOptionsOpen} onOpenChange={setExerciseOptionsOpen}>
+        <SheetContent
+          side="bottom"
+          className="gap-0 rounded-t-2xl pb-[max(1rem,env(safe-area-inset-bottom))]"
+        >
+          <SheetHeader className="px-3 pb-2">
+            <SheetTitle className="truncate text-lg">
+              {current ? catalog.name(current.exercise.slug) : "Exercise"}
+            </SheetTitle>
+            <SheetDescription>Exercise options</SheetDescription>
+          </SheetHeader>
+          <div className="flex flex-col gap-1 px-3 pb-2">
+            <Button
+              type="button"
+              variant="ghost"
+              className="text-muted-foreground hover:text-foreground h-12 justify-start gap-3 px-3 text-base"
+              onClick={() => {
+                setExerciseOptionsOpen(false);
+                setMachinePickerOpen(true);
+              }}
+            >
+              <Settings2 className="size-4" />
+              {current?.exercise.machineName
+                ? `Machine · ${current.exercise.machineName}`
+                : "Choose machine"}
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
 
       {session.placeId && current ? (
         <MachinePickerSheet
