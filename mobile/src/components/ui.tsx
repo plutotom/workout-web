@@ -1,7 +1,5 @@
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -14,6 +12,7 @@ import {
   type TextInputProps,
   type ViewStyle,
 } from "react-native";
+import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useState, type ReactElement, type ReactNode } from "react";
 import { ChevronLeft, type LucideIcon } from "lucide-react-native";
@@ -40,7 +39,8 @@ export function Screen({
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <KeyboardAvoidingView
         style={styles.safe}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        behavior="padding"
+        automaticOffset
       >
         {scroll ? (
           <ScrollView

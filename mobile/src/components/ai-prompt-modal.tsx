@@ -1,10 +1,8 @@
 import { Sparkles, X } from "lucide-react-native";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   Keyboard,
-  KeyboardAvoidingView,
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   Text,
@@ -13,6 +11,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { GeneratingLoader } from "@/components/generating-loader";
+import { KeyboardStickyFooter } from "@/components/keyboard-sticky-footer";
 import { Button, Field } from "@/components/ui";
 import { colors } from "@/theme";
 import { APPLE_ON_DEVICE_PROMPT_CHARS } from "@shared/ai/apple-on-device";
@@ -43,20 +42,6 @@ export function AiPromptModal({
   const [prompt, setPrompt] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [keyboardOpen, setKeyboardOpen] = useState(false);
-
-  useEffect(() => {
-    const showEvent =
-      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
-    const hideEvent =
-      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
-    const show = Keyboard.addListener(showEvent, () => setKeyboardOpen(true));
-    const hide = Keyboard.addListener(hideEvent, () => setKeyboardOpen(false));
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, []);
 
   async function submit() {
     if (!prompt.trim()) return;
@@ -84,137 +69,133 @@ export function AiPromptModal({
       onRequestClose={onClose}
     >
       <SafeAreaView
-        edges={["top", "bottom"]}
+        edges={["top"]}
         style={{ flex: 1, backgroundColor: colors.bg }}
       >
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
+            paddingHorizontal: 16,
+            paddingTop: 16,
+            paddingBottom: 12,
+          }}
         >
           <View
             style={{
-              flexDirection: "row",
+              width: 40,
+              height: 40,
+              borderRadius: 12,
               alignItems: "center",
-              justifyContent: "space-between",
-              paddingHorizontal: 16,
-              paddingTop: 16,
-              paddingBottom: 12,
+              justifyContent: "center",
+              backgroundColor: colors.surface2,
             }}
           >
-            <View
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: 12,
-                alignItems: "center",
-                justifyContent: "center",
-                backgroundColor: colors.surface2,
-              }}
-            >
-              <Sparkles size={20} color={colors.text} />
-            </View>
-            <Pressable onPress={onClose} hitSlop={12}>
-              <X size={23} color={colors.text} />
-            </Pressable>
+            <Sparkles size={20} color={colors.text} />
           </View>
+          <Pressable onPress={onClose} hitSlop={12}>
+            <X size={23} color={colors.text} />
+          </Pressable>
+        </View>
 
-          <ScrollView
-            style={{ flex: 1, minHeight: 0 }}
-            contentContainerStyle={{
-              paddingHorizontal: 16,
-              paddingBottom: 16,
-              gap: 8,
+        <ScrollView
+          style={{ flex: 1, minHeight: 0 }}
+          contentContainerStyle={{
+            paddingHorizontal: 16,
+            paddingBottom: 16,
+            gap: 8,
+          }}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+          showsVerticalScrollIndicator={false}
+        >
+          <Text
+            style={{
+              color: colors.text,
+              fontSize: 28,
+              lineHeight: 32,
+              fontWeight: "700",
             }}
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="interactive"
-            showsVerticalScrollIndicator={false}
           >
-            <Text
-              style={{
-                color: colors.text,
-                fontSize: 28,
-                lineHeight: 32,
-                fontWeight: "700",
-              }}
-            >
-              {title}
-            </Text>
-            <Text
-              style={{
-                color: colors.dim,
-                fontSize: 14,
-                lineHeight: 21,
-                marginBottom: 14,
-              }}
-            >
-              {description}
-            </Text>
-            {loading ? (
-              <View style={{ alignItems: "center", paddingTop: 12 }}>
-                <GeneratingLoader label={loadingLabel} />
-              </View>
-            ) : (
-              <>
-                <Field
-                  value={prompt}
-                  onChangeText={setPrompt}
-                  multiline
-                  placeholder="Make this a 45-minute push workout with extra shoulder work…"
-                  autoFocus
-                  maxLength={maxChars}
-                />
+            {title}
+          </Text>
+          <Text
+            style={{
+              color: colors.dim,
+              fontSize: 14,
+              lineHeight: 21,
+              marginBottom: 14,
+            }}
+          >
+            {description}
+          </Text>
+          {loading ? (
+            <View style={{ alignItems: "center", paddingTop: 12 }}>
+              <GeneratingLoader label={loadingLabel} />
+            </View>
+          ) : (
+            <>
+              <Field
+                value={prompt}
+                onChangeText={setPrompt}
+                multiline
+                placeholder="Make this a 45-minute push workout with extra shoulder work…"
+                autoFocus
+                maxLength={maxChars}
+              />
+              <Text
+                style={{
+                  color: colors.faint,
+                  fontSize: 12,
+                  textAlign: "right",
+                }}
+              >
+                {prompt.length}/{maxChars}
+              </Text>
+              {error ? (
                 <Text
                   style={{
-                    color: colors.faint,
+                    color: colors.danger,
                     fontSize: 12,
-                    textAlign: "right",
+                    lineHeight: 18,
+                    marginTop: 10,
                   }}
                 >
-                  {prompt.length}/{maxChars}
+                  {error}
                 </Text>
-                {error ? (
-                  <Text
-                    style={{
-                      color: colors.danger,
-                      fontSize: 12,
-                      lineHeight: 18,
-                      marginTop: 10,
-                    }}
-                  >
-                    {error}
-                  </Text>
-                ) : null}
-              </>
-            )}
-          </ScrollView>
+              ) : null}
+            </>
+          )}
+        </ScrollView>
 
-          <View
+        {loading ? null : (
+          <KeyboardStickyFooter
             style={{
-              paddingHorizontal: 16,
-              paddingBottom: 16,
-              paddingTop: 8,
+              flexDirection: "row",
               gap: 9,
+              paddingHorizontal: 16,
+              paddingTop: 8,
             }}
           >
-            {loading ? null : (
-              <Button
-                label="Generate draft"
-                icon={Sparkles}
-                size="lg"
-                disabled={!prompt.trim()}
-                onPress={submit}
-              />
-            )}
-            {loading || keyboardOpen ? null : (
-              <Button
-                label="Cancel"
-                variant="ghost"
-                disabled={loading}
-                onPress={onClose}
-              />
-            )}
-          </View>
-        </KeyboardAvoidingView>
+            <Button
+              label="Cancel"
+              variant="outline"
+              size="lg"
+              disabled={loading}
+              onPress={onClose}
+              style={{ flex: 1 }}
+            />
+            <Button
+              label="Generate draft"
+              icon={Sparkles}
+              size="lg"
+              disabled={!prompt.trim()}
+              onPress={submit}
+              style={{ flex: 1 }}
+            />
+          </KeyboardStickyFooter>
+        )}
       </SafeAreaView>
     </Modal>
   );

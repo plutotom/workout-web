@@ -19,7 +19,6 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Keyboard,
-  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -32,6 +31,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useMobileAuth } from "@/auth/auth-provider";
 import { AiPromptModal } from "@/components/ai-prompt-modal";
 import { ExercisePicker } from "@/components/exercise-picker";
+import { KeyboardStickyFooter } from "@/components/keyboard-sticky-footer";
 import {
   Button,
   Card,
@@ -932,7 +932,6 @@ export function WorkoutFinishController() {
   // Navigating while the sheet is still on screen tears it down mid-dismissal,
   // so the recap waits for `onDismiss` (iOS fires it once the sheet is gone).
   const [recapAfterSave, setRecapAfterSave] = useState<string | null>(null);
-  const [keyboardOpen, setKeyboardOpen] = useState(false);
 
   function closeSavePrompt() {
     if (!savePrompt) return;
@@ -941,19 +940,6 @@ export function WorkoutFinishController() {
     setSavePrompt(null);
     if (Platform.OS !== "ios") showRecap(savePrompt.sessionId);
   }
-
-  useEffect(() => {
-    const showEvent =
-      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
-    const hideEvent =
-      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
-    const show = Keyboard.addListener(showEvent, () => setKeyboardOpen(true));
-    const hide = Keyboard.addListener(hideEvent, () => setKeyboardOpen(false));
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, []);
 
   useEffect(() => {
     finishController = (session) => {
@@ -1096,74 +1082,72 @@ export function WorkoutFinishController() {
         setRecapAfterSave(null);
       }}
     >
-      <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
-        <KeyboardAvoidingView
+      <SafeAreaView
+        edges={["top"]}
+        style={{ flex: 1, backgroundColor: colors.bg }}
+      >
+        <ScrollView
           style={{ flex: 1 }}
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          contentContainerStyle={{ padding: 16, gap: 18 }}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+          showsVerticalScrollIndicator={false}
         >
-          <ScrollView
-            style={{ flex: 1 }}
-            contentContainerStyle={{ padding: 16, gap: 18 }}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-          >
-            <Text
-              style={{ color: colors.text, fontSize: 24, fontWeight: "700" }}
-            >
-              Save as template?
-            </Text>
-            <Text style={{ color: colors.dim, fontSize: 14, lineHeight: 20 }}>
-              Keep this workout so you can start it again next time.
-            </Text>
-            <Field
-              label="Template name"
-              value={templateName}
-              onChangeText={(value) => {
-                setTemplateName(value);
-                if (saveError) setSaveError(null);
-              }}
-              placeholder="e.g. Push day"
-              autoFocus
-              autoCapitalize="words"
-              returnKeyType="done"
-              maxLength={80}
-              onSubmitEditing={() => Keyboard.dismiss()}
-            />
-            {saveError ? (
-              <Text
-                style={{ color: colors.danger, fontSize: 13, lineHeight: 18 }}
-              >
-                {saveError}
-              </Text>
-            ) : null}
-          </ScrollView>
-          <View
-            style={{
-              gap: 9,
-              paddingHorizontal: 16,
-              paddingTop: 12,
-              paddingBottom: 12,
-              borderTopWidth: 1,
-              borderTopColor: colors.line,
-              backgroundColor: colors.bg,
+          <Text style={{ color: colors.text, fontSize: 24, fontWeight: "700" }}>
+            Save as template?
+          </Text>
+          <Text style={{ color: colors.dim, fontSize: 14, lineHeight: 20 }}>
+            Keep this workout so you can start it again next time.
+          </Text>
+          <Field
+            label="Template name"
+            value={templateName}
+            onChangeText={(value) => {
+              setTemplateName(value);
+              if (saveError) setSaveError(null);
             }}
-          >
-            <Button
-              label={savingTemplate ? "Saving…" : "Save template"}
-              size="lg"
-              disabled={savingTemplate || !templateName.trim()}
-              onPress={confirmSaveTemplate}
-            />
-            {keyboardOpen ? null : (
-              <Button
-                label="No thanks"
-                variant="outline"
-                disabled={savingTemplate}
-                onPress={closeSavePrompt}
-              />
-            )}
-          </View>
-        </KeyboardAvoidingView>
+            placeholder="e.g. Push day"
+            autoFocus
+            autoCapitalize="words"
+            returnKeyType="done"
+            maxLength={80}
+            onSubmitEditing={() => Keyboard.dismiss()}
+          />
+          {saveError ? (
+            <Text
+              style={{ color: colors.danger, fontSize: 13, lineHeight: 18 }}
+            >
+              {saveError}
+            </Text>
+          ) : null}
+        </ScrollView>
+        <KeyboardStickyFooter
+          style={{
+            flexDirection: "row",
+            gap: 9,
+            paddingHorizontal: 16,
+            paddingTop: 12,
+            borderTopWidth: 1,
+            borderTopColor: colors.line,
+            backgroundColor: colors.bg,
+          }}
+        >
+          <Button
+            label="No thanks"
+            variant="outline"
+            size="lg"
+            disabled={savingTemplate}
+            onPress={closeSavePrompt}
+            style={{ flex: 1 }}
+          />
+          <Button
+            label={savingTemplate ? "Saving…" : "Save template"}
+            size="lg"
+            disabled={savingTemplate || !templateName.trim()}
+            onPress={confirmSaveTemplate}
+            style={{ flex: 1 }}
+          />
+        </KeyboardStickyFooter>
       </SafeAreaView>
     </Modal>
   );

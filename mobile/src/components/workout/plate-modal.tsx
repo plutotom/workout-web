@@ -20,6 +20,7 @@ import {
   type PlateCount,
   type Unit,
 } from "@shared/plates/solver";
+import { KeyboardStickyFooter } from "@/components/keyboard-sticky-footer";
 import { Button, Field, Segmented } from "@/components/ui";
 import { colors, radius, space } from "@/theme";
 
@@ -129,7 +130,7 @@ function PlateCalculator({
   }
 
   return (
-    <SafeAreaView edges={["top", "bottom"]} style={styles.safe}>
+    <SafeAreaView edges={["top"]} style={styles.safe}>
       <View style={styles.header}>
         <View style={styles.heading}>
           <View style={styles.iconWell}>
@@ -154,8 +155,10 @@ function PlateCalculator({
       <Segmented value={mode} options={modeOptions} onChange={setMode} />
 
       <ScrollView
+        style={{ flex: 1 }}
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
         showsVerticalScrollIndicator={false}
       >
         {mode === "toPlates" ? (
@@ -237,7 +240,7 @@ function PlateCalculator({
         </View>
       </ScrollView>
 
-      <View style={styles.footer}>
+      <KeyboardStickyFooter style={styles.footer}>
         <View>
           <Text style={styles.footerLabel}>LOADED TOTAL</Text>
           <Text style={styles.footerTotal}>
@@ -252,7 +255,7 @@ function PlateCalculator({
           disabled={onApply ? !canApply : false}
           onPress={onApply ? closeWithResult : onClose}
         />
-      </View>
+      </KeyboardStickyFooter>
     </SafeAreaView>
   );
 }
@@ -776,11 +779,12 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.line,
     minHeight: 84,
-    paddingVertical: 11,
+    paddingTop: 11,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
+    backgroundColor: colors.bg,
   },
   footerLabel: {
     color: colors.dim,

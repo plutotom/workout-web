@@ -1,19 +1,12 @@
 import type { MuscleGroup } from "@shared/exercises";
 import { MUSCLE_GROUPS } from "@shared/exercises";
 import { useState } from "react";
-import {
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  Text,
-  View,
-} from "react-native";
+import { Modal, Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { X } from "lucide-react-native";
 
 import { useLocalData } from "@/data/local/provider";
+import { KeyboardStickyFooter } from "@/components/keyboard-sticky-footer";
 import { Button, Field, Segmented } from "@/components/ui";
 import { colors, radius } from "@/theme";
 
@@ -47,7 +40,7 @@ export function CustomExerciseEditor({
     >
       <SafeAreaView
         style={{ flex: 1, backgroundColor: colors.bg }}
-        edges={["top", "bottom"]}
+        edges={["top"]}
       >
         <EditorBody
           exercise={exercise}
@@ -112,10 +105,7 @@ function EditorBody({
   }
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-    >
+    <>
       <View
         style={{
           flexDirection: "row",
@@ -226,17 +216,24 @@ function EditorBody({
         ) : null}
       </ScrollView>
 
-      <View
+      <KeyboardStickyFooter
         style={{
+          flexDirection: "row",
           gap: 9,
           paddingHorizontal: 16,
           paddingTop: 12,
-          paddingBottom: 12,
           borderTopWidth: 1,
           borderTopColor: colors.line,
           backgroundColor: colors.bg,
         }}
       >
+        <Button
+          label="Cancel"
+          variant="outline"
+          size="lg"
+          onPress={onCancel}
+          style={{ flex: 1 }}
+        />
         <Button
           label={
             saving
@@ -250,9 +247,9 @@ function EditorBody({
           size="lg"
           disabled={saving || !name.trim()}
           onPress={save}
+          style={{ flex: 1 }}
         />
-        <Button label="Cancel" variant="ghost" onPress={onCancel} />
-      </View>
-    </KeyboardAvoidingView>
+      </KeyboardStickyFooter>
+    </>
   );
 }

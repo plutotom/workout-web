@@ -3,9 +3,7 @@ import { useMemo, useState } from "react";
 import {
   Alert,
   FlatList,
-  KeyboardAvoidingView,
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   Text,
@@ -18,6 +16,7 @@ import type { MuscleGroup } from "@shared/exercises";
 import { MUSCLE_GROUPS } from "@shared/exercises";
 import { useLocalCustomExercises, useLocalData } from "@/data/local/provider";
 import { useCatalog } from "@/providers/catalog-provider";
+import { KeyboardStickyFooter } from "@/components/keyboard-sticky-footer";
 import { Button, Field, Segmented } from "@/components/ui";
 import { colors, radius } from "@/theme";
 
@@ -81,7 +80,7 @@ export function ExercisePicker({
     >
       <SafeAreaView
         style={{ flex: 1, backgroundColor: colors.bg }}
-        edges={["top", "bottom"]}
+        edges={["top"]}
       >
         {creating ? (
           <CreateExercise
@@ -258,13 +257,13 @@ export function ExercisePicker({
                 );
               }}
             />
-            <View
+            <KeyboardStickyFooter
               style={{
                 position: "absolute",
                 left: 12,
                 right: 12,
-                bottom: 12,
-                paddingBottom: 4,
+                bottom: 0,
+                paddingTop: 4,
               }}
             >
               <Button
@@ -280,7 +279,7 @@ export function ExercisePicker({
                   close();
                 }}
               />
-            </View>
+            </KeyboardStickyFooter>
           </>
         )}
       </SafeAreaView>
@@ -337,10 +336,7 @@ function CreateExercise({
   }
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-    >
+    <>
       <View
         style={{
           flexDirection: "row",
@@ -451,25 +447,32 @@ function CreateExercise({
         ) : null}
       </ScrollView>
 
-      <View
+      <KeyboardStickyFooter
         style={{
+          flexDirection: "row",
           gap: 9,
           paddingHorizontal: 16,
           paddingTop: 12,
-          paddingBottom: 12,
           borderTopWidth: 1,
           borderTopColor: colors.line,
           backgroundColor: colors.bg,
         }}
       >
         <Button
+          label="Cancel"
+          variant="outline"
+          size="lg"
+          onPress={onCancel}
+          style={{ flex: 1 }}
+        />
+        <Button
           label={saving ? "Creating…" : "Create exercise"}
           size="lg"
           disabled={saving || !name.trim()}
           onPress={save}
+          style={{ flex: 1 }}
         />
-        <Button label="Cancel" variant="ghost" onPress={onCancel} />
-      </View>
-    </KeyboardAvoidingView>
+      </KeyboardStickyFooter>
+    </>
   );
 }
