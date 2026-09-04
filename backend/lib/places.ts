@@ -209,20 +209,23 @@ export async function upsertPlaceFromClient(
   const existing = byClient ?? byName ?? null;
 
   if (existing) {
-    if (args.archived && existing.starred && !args.starred) {
+    if (existing.starred && args.archived) {
       throw new Error("Star another place before removing Home");
     }
-    if (args.starred) {
+    // Never leave the account with no Home. If this payload unstars the
+    // current Home, keep it starred until a later upsert stars another place.
+    const starred = args.starred || (existing.starred && !args.archived);
+    if (starred) {
       for (const row of places) {
-        const starred = row._id === existing._id;
-        if (row.starred !== starred) {
-          await ctx.db.patch(row._id, { starred });
+        const nextStarred = row._id === existing._id;
+        if (row.starred !== nextStarred) {
+          await ctx.db.patch(row._id, { starred: nextStarred });
         }
       }
     }
     await ctx.db.patch(existing._id, {
       name: normalized,
-      starred: args.starred,
+      starred,
       archived: args.archived,
       clientId: existing.clientId ?? args.clientId,
     });

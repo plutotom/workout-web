@@ -47,6 +47,7 @@ import {
   getLocalPlace,
   getLocalWorkingSets,
   lastLocalMachineForLift,
+  listLocalMachinesForLift,
   recordLocalSessionPlaceMemory,
   reseedLocalSessionToPlace,
   resolveLocalPlaceForStart,
@@ -2303,12 +2304,11 @@ export async function getLastLocalSet(
 ): Promise<{ weight: number; reps: number; placeName: string | null } | null> {
   const home = await findStarredLocalPlace(db);
   const placeId = scope?.placeId ?? home?._id ?? null;
-  const defaultMachine = placeId
-    ? await lastLocalMachineForLift(db, placeId, slug)
-    : null;
-  const defaultMachineId = defaultMachine?.isDefault
-    ? defaultMachine._id
-    : null;
+  const machines = placeId
+    ? await listLocalMachinesForLift(db, placeId, slug)
+    : [];
+  const defaultMachineId =
+    machines.find((machine) => machine.isDefault)?._id ?? null;
 
   const rows = await db.getAllAsync<{
     weight: number;

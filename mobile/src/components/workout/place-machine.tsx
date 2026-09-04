@@ -20,6 +20,7 @@ import {
   useLocalTemplate,
 } from "@/data/local/provider";
 import type { LocalMachine, LocalPlace } from "@/data/local/types";
+import { localPlaceMatchesId } from "@/data/local/places";
 import { colors, radius, space } from "@/theme";
 
 export function useStartPlace(templateId?: string) {
@@ -30,27 +31,35 @@ export function useStartPlace(templateId?: string) {
 
   const selected = useMemo(() => {
     if (!places) return null;
-    if (pickedId) return places.find((place) => place._id === pickedId) ?? null;
+    if (pickedId)
+      return (
+        places.find((place) => localPlaceMatchesId(place, pickedId)) ?? null
+      );
     if (template?.lastPlaceId) {
-      const last = places.find((place) => place._id === template.lastPlaceId);
+      const last = places.find((place) =>
+        localPlaceMatchesId(place, template.lastPlaceId),
+      );
       if (last) return last;
     }
     if (!templateId && lastSessionPlaceId) {
-      const last = places.find((place) => place._id === lastSessionPlaceId);
+      const last = places.find((place) =>
+        localPlaceMatchesId(place, lastSessionPlaceId),
+      );
       if (last) return last;
     }
     return places.find((place) => place.starred) ?? places[0] ?? null;
   }, [places, pickedId, template, templateId, lastSessionPlaceId]);
 
-  const lastPlace =
-    template?.lastPlaceId && selected?._id !== template.lastPlaceId
-      ? (places?.find((place) => place._id === template.lastPlaceId) ?? null)
-      : null;
+  const lastPlace = places?.find((place) =>
+    localPlaceMatchesId(place, template?.lastPlaceId),
+  );
+  const lastPlaceHint =
+    lastPlace && selected && lastPlace._id !== selected._id ? lastPlace : null;
 
   return {
     places: places ?? [],
     selected,
-    lastPlace,
+    lastPlace: lastPlaceHint,
     pick: setPickedId,
   };
 }
@@ -166,7 +175,7 @@ export function PlacePickerModal({
           keyboardShouldPersistTaps="handled"
         >
           {places.map((place) => {
-            const selected = place._id === selectedPlaceId;
+            const selected = localPlaceMatchesId(place, selectedPlaceId);
             return (
               <Pressable
                 key={place._id}
@@ -202,7 +211,7 @@ export function PlacePickerModal({
                 >
                   {place.name}
                 </Text>
-                {place._id === lastPlaceId && !selected ? (
+                {localPlaceMatchesId(place, lastPlaceId) && !selected ? (
                   <Text style={{ color: colors.dim, fontSize: 12 }}>
                     Last time
                   </Text>

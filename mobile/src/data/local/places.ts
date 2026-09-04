@@ -57,6 +57,15 @@ function mapPlace(row: PlaceRow): LocalPlace {
   };
 }
 
+/** Templates from bootstrap store Convex ids in `lastPlaceId`; local rows use SQLite ids. */
+export function localPlaceMatchesId(
+  place: LocalPlace,
+  id: string | null | undefined,
+) {
+  if (!id) return false;
+  return place._id === id || place.remoteId === id;
+}
+
 function mapMachine(row: MachineRow): LocalMachine {
   return {
     _id: row.id,
