@@ -6,6 +6,7 @@ import { AdminSettings } from "./admin-settings";
 import { DataSettings } from "./data-settings";
 import { DevSettings } from "./dev-settings";
 import { GeneralSettings } from "./general-settings";
+import { PlacesSettings } from "./places-settings";
 import { McpSettings } from "./mcp-settings";
 import { PlanSettings } from "./plan-settings";
 
@@ -23,11 +24,13 @@ export default function SettingsPage() {
           App controls
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Units, bar defaults, plan, and external access.
+          Units, bar defaults, places, plan, and external access.
         </p>
       </div>
 
       <GeneralSettings />
+
+      <PlacesSettings />
 
       <DataSettings />
 

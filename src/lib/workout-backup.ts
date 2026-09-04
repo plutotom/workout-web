@@ -64,6 +64,7 @@ export type BackupTemplate = {
   remoteId?: string | null;
   name: string;
   updatedAt: number;
+  lastPlaceId?: string | null;
   exercises: Array<{
     id: string;
     slug: string;
@@ -95,6 +96,8 @@ export type BackupSessionExercise = {
   orderIndex: number;
   restSeconds: number;
   notes: string | null;
+  machineId?: string | null;
+  machineName?: string | null;
   sets: BackupSet[];
 };
 
@@ -121,7 +124,39 @@ export type BackupSession = {
   energyKcal?: number | null;
   distanceMeters?: number | null;
   importedAt?: number | null;
+  placeId?: string | null;
+  placeName?: string | null;
   exercises: BackupSessionExercise[];
+};
+
+export type BackupPlace = {
+  id: string;
+  remoteId?: string | null;
+  name: string;
+  starred: boolean;
+  archived: boolean;
+  lastUsedAt: number | null;
+  updatedAt: number;
+};
+
+export type BackupMachine = {
+  id: string;
+  remoteId?: string | null;
+  placeId: string;
+  exerciseSlug: string;
+  name: string;
+  isDefault: boolean;
+  archived: boolean;
+  lastUsedAt: number | null;
+  updatedAt: number;
+};
+
+export type BackupPlaceWeight = {
+  placeId: string;
+  exerciseSlug: string;
+  machineKey: string;
+  sets: BackupTemplateSet[];
+  updatedAt: number;
 };
 
 export type WorkoutBackupSnapshot = {
@@ -133,6 +168,9 @@ export type WorkoutBackupSnapshot = {
   templates: BackupTemplate[];
   exerciseNotes: BackupExerciseNote[];
   sessions: BackupSession[];
+  places?: BackupPlace[];
+  machines?: BackupMachine[];
+  placeWeights?: BackupPlaceWeight[];
 };
 
 const MAX_INPUT_LENGTH = 32_000_000;
@@ -142,6 +180,9 @@ const MAX_CUSTOM_EXERCISES = 1_000;
 const MAX_NOTES = 5_000;
 const MAX_EXERCISES_PER_SESSION = 200;
 const MAX_SETS_PER_EXERCISE = 200;
+const MAX_PLACES = 50;
+const MAX_MACHINES = 2_000;
+const MAX_PLACE_WEIGHTS = 5_000;
 
 const MUSCLE_GROUPS: readonly BackupMuscleGroup[] = [
   "chest",
@@ -312,6 +353,7 @@ export function validateBackup(value: unknown): BackupParseResult {
       remoteId: optionalNonEmptyString(raw.remoteId),
       name: raw.name,
       updatedAt: isFiniteNumber(raw.updatedAt) ? raw.updatedAt : 0,
+      lastPlaceId: optionalString(raw.lastPlaceId),
       exercises,
     });
   }
@@ -384,6 +426,8 @@ export function validateBackup(value: unknown): BackupParseResult {
           ? rawExercise.restSeconds
           : 75,
         notes: optionalString(rawExercise.notes),
+        machineId: optionalString(rawExercise.machineId),
+        machineName: optionalString(rawExercise.machineName),
         sets,
       });
     }
@@ -416,9 +460,18 @@ export function validateBackup(value: unknown): BackupParseResult {
         ? raw.distanceMeters
         : null,
       importedAt: isFiniteNumber(raw.importedAt) ? raw.importedAt : null,
+      placeId: optionalString(raw.placeId),
+      placeName: optionalString(raw.placeName),
       exercises,
     });
   }
+
+  const places = parseBackupPlaces(value.places);
+  if (!places.ok) return places;
+  const machines = parseBackupMachines(value.machines);
+  if (!machines.ok) return machines;
+  const placeWeights = parseBackupPlaceWeights(value.placeWeights);
+  if (!placeWeights.ok) return placeWeights;
 
   if (
     sessions.length === 0 &&
@@ -440,8 +493,102 @@ export function validateBackup(value: unknown): BackupParseResult {
       templates,
       exerciseNotes,
       sessions,
+      ...(places.value && places.value.length > 0
+        ? { places: places.value }
+        : {}),
+      ...(machines.value && machines.value.length > 0
+        ? { machines: machines.value }
+        : {}),
+      ...(placeWeights.value && placeWeights.value.length > 0
+        ? { placeWeights: placeWeights.value }
+        : {}),
     },
   };
+}
+
+type OptionalParse<T> =
+  | { ok: true; value: T[] | undefined }
+  | { ok: false; error: string };
+
+function parseBackupPlaces(value: unknown): OptionalParse<BackupPlace> {
+  if (value === undefined) return { ok: true, value: undefined };
+  if (!Array.isArray(value)) return { ok: true, value: undefined };
+  if (value.length > MAX_PLACES)
+    return { ok: false, error: "That backup has too many places" };
+  const places: BackupPlace[] = [];
+  for (const raw of value) {
+    if (!isRecord(raw)) continue;
+    if (typeof raw.id !== "string" || typeof raw.name !== "string") continue;
+    places.push({
+      id: raw.id,
+      remoteId: optionalNonEmptyString(raw.remoteId),
+      name: raw.name,
+      starred: raw.starred === true,
+      archived: raw.archived === true,
+      lastUsedAt: isFiniteNumber(raw.lastUsedAt) ? raw.lastUsedAt : null,
+      updatedAt: isFiniteNumber(raw.updatedAt) ? raw.updatedAt : 0,
+    });
+  }
+  return { ok: true, value: places };
+}
+
+function parseBackupMachines(value: unknown): OptionalParse<BackupMachine> {
+  if (value === undefined) return { ok: true, value: undefined };
+  if (!Array.isArray(value)) return { ok: true, value: undefined };
+  if (value.length > MAX_MACHINES)
+    return { ok: false, error: "That backup has too many machines" };
+  const machines: BackupMachine[] = [];
+  for (const raw of value) {
+    if (!isRecord(raw)) continue;
+    if (typeof raw.id !== "string" || typeof raw.placeId !== "string") continue;
+    if (typeof raw.exerciseSlug !== "string" || typeof raw.name !== "string")
+      continue;
+    machines.push({
+      id: raw.id,
+      remoteId: optionalNonEmptyString(raw.remoteId),
+      placeId: raw.placeId,
+      exerciseSlug: raw.exerciseSlug,
+      name: raw.name,
+      isDefault: raw.isDefault === true,
+      archived: raw.archived === true,
+      lastUsedAt: isFiniteNumber(raw.lastUsedAt) ? raw.lastUsedAt : null,
+      updatedAt: isFiniteNumber(raw.updatedAt) ? raw.updatedAt : 0,
+    });
+  }
+  return { ok: true, value: machines };
+}
+
+function parseBackupPlaceWeights(
+  value: unknown,
+): OptionalParse<BackupPlaceWeight> {
+  if (value === undefined) return { ok: true, value: undefined };
+  if (!Array.isArray(value)) return { ok: true, value: undefined };
+  if (value.length > MAX_PLACE_WEIGHTS)
+    return { ok: false, error: "That backup has too many place weights" };
+  const weights: BackupPlaceWeight[] = [];
+  for (const raw of value) {
+    if (!isRecord(raw)) continue;
+    if (typeof raw.placeId !== "string") continue;
+    if (typeof raw.exerciseSlug !== "string") continue;
+    if (typeof raw.machineKey !== "string") continue;
+    const rawSets = Array.isArray(raw.sets) ? raw.sets : [];
+    weights.push({
+      placeId: raw.placeId,
+      exerciseSlug: raw.exerciseSlug,
+      machineKey: raw.machineKey,
+      sets: rawSets
+        .slice(0, MAX_SETS_PER_EXERCISE)
+        .flatMap((set) =>
+          isRecord(set) &&
+          isFiniteNumber(set.weight) &&
+          isFiniteNumber(set.reps)
+            ? [{ weight: set.weight, reps: set.reps }]
+            : [],
+        ),
+      updatedAt: isFiniteNumber(raw.updatedAt) ? raw.updatedAt : 0,
+    });
+  }
+  return { ok: true, value: weights };
 }
 
 function validatePreferences(value: unknown): BackupPreferences {

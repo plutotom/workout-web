@@ -58,6 +58,11 @@ import {
 import { useExerciseCatalog } from "@/components/app/exercise-catalog-provider";
 import { formatLb } from "@/components/app/workout-design";
 import { formatHealthDistance, formatHealthEnergy } from "@/lib/health-summary";
+import { SessionPlaceBar } from "@/components/app/session-place-bar";
+import {
+  MachineChip,
+  MachinePickerSheet,
+} from "@/components/app/machine-picker";
 
 type DragState = {
   from: number;
@@ -118,6 +123,11 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
   const [now, setNow] = useState(() => Date.now());
   const { rest, startRest, clearRest, addSeconds } = useWorkoutRest();
   const [drag, setDrag] = useState<DragState | null>(null);
+  const [machinePicker, setMachinePicker] = useState<{
+    exerciseId: Id<"sessionExercises">;
+    slug: string;
+    machineId: Id<"machines"> | null;
+  } | null>(null);
 
   const exerciseCount = session?.exercises.length ?? 0;
   const dragOverFromPoint = useCallback(
@@ -382,6 +392,20 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
         </div>
       </div>
 
+      {editable ? (
+        <SessionPlaceBar
+          sessionId={session._id}
+          placeId={session.placeId}
+          placeName={session.placeName}
+          editable={editable}
+          hasCompletedSets={session.exercises.some((exercise) =>
+            exercise.sets.some((set) => set.completed),
+          )}
+        />
+      ) : session.placeName ? (
+        <p className="text-muted-foreground text-sm">{session.placeName}</p>
+      ) : null}
+
       {isHealthSummary ? (
         <Card>
           <CardHeader>
@@ -497,6 +521,25 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
                       <CardTitle className="truncate text-base">
                         {exerciseName}
                       </CardTitle>
+                      {editable && session.placeId ? (
+                        <MachineChip
+                          placeName={session.placeName}
+                          machineName={exercise.machineName}
+                          onClick={() =>
+                            setMachinePicker({
+                              exerciseId: exercise._id,
+                              slug: exercise.slug,
+                              machineId: exercise.machineId,
+                            })
+                          }
+                        />
+                      ) : session.placeName ? (
+                        <p className="text-muted-foreground mt-0.5 text-xs">
+                          {exercise.machineName
+                            ? `${session.placeName} · ${exercise.machineName}`
+                            : session.placeName}
+                        </p>
+                      ) : null}
                       {!isReordering ? (
                         <p className="text-muted-foreground mt-1 text-xs">
                           {exercise.sets.length} × {repSummary} · up to{" "}
@@ -779,6 +822,19 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
       </Dialog>
 
       {finishDialogs}
+
+      {machinePicker && session.placeId ? (
+        <MachinePickerSheet
+          open
+          onOpenChange={(open) => {
+            if (!open) setMachinePicker(null);
+          }}
+          placeId={session.placeId}
+          exerciseSlug={machinePicker.slug}
+          sessionExerciseId={machinePicker.exerciseId}
+          selectedMachineId={machinePicker.machineId}
+        />
+      ) : null}
 
       {rest && restTimerEnabled ? (
         <div className="fixed inset-x-0 bottom-[calc(57px+env(safe-area-inset-bottom))] z-50 mx-auto max-w-[600px] px-3">

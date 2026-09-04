@@ -101,6 +101,7 @@ export const startWorkout = mutation({
     apiKey: v.string(),
     templateId: v.id("workoutTemplates"),
     abandonExisting: v.optional(v.boolean()),
+    placeId: v.optional(v.id("places")),
   },
   handler: async (ctx, args) => {
     const user = await requireUserFromApiKey(ctx, args.apiKey);

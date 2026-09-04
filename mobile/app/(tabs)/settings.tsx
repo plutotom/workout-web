@@ -35,6 +35,7 @@ import {
 import { PlateModal } from "@/components/workout/plate-modal";
 import { DescribeWithAiButton } from "@/components/describe-with-ai-button";
 import { NotificationSettingsCard } from "@/components/settings/notification-settings-card";
+import { PlacesSettingsCard } from "@/components/settings/places-settings-card";
 import { useBackupStatus, useLocalData } from "@/data/local/provider";
 import { offlineAiSettingsCopy, planAiSettingsCopy } from "@/lib/ai-copy";
 import { useAiGeneration, useAppleAiAvailability } from "@/lib/ai";
@@ -109,6 +110,7 @@ function OfflineSettingsScreen() {
       </Card>
       <HealthSettingsCard />
       <NotificationSettingsCard />
+      <PlacesSettingsCard />
       <BackupCard signedIn={false} />
       <Card>
         <Sparkles color={colors.text} size={22} />
@@ -330,6 +332,7 @@ function SettingsContent({
                   : "Changes save automatically."}
           </Text>
         </Card>
+        <PlacesSettingsCard />
         <Card>
           <CircleDot color={colors.text} size={22} strokeWidth={2.3} />
           <SectionTitle title="Training tools" />

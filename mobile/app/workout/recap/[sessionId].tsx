@@ -395,14 +395,16 @@ function WeekGrid({ daysWorked }: { daysWorked: boolean[] }) {
 function standoutCallout(
   standout: NonNullable<WorkoutRecap["standout"]>,
   shortName: string,
+  placeName?: string | null,
 ) {
+  const placeLabel = placeName || "here";
   const { isPr, priorBest, weight, reps } = standout;
   if (isPr) {
     return {
-      title: priorBest ? "New personal best" : "First logged best",
+      title: priorBest ? "PR here" : "First logged best here",
       detail: priorBest
-        ? `Beat your previous ${shortName} best of ${formatSet(priorBest.weight, priorBest.reps)}`
-        : `First time logging ${shortName} — this sets the bar`,
+        ? `Beat your previous ${placeLabel} ${shortName} best of ${formatSet(priorBest.weight, priorBest.reps)}`
+        : `First time logging ${shortName} ${placeLabel === "here" ? "here" : `at ${placeLabel}`} — this sets the bar`,
     };
   }
   if (!priorBest) return null;
@@ -410,11 +412,11 @@ function standoutCallout(
   const underByWeight = priorBest.weight - weight;
   return {
     title: matched
-      ? "Matched your best"
+      ? `Matched your ${placeLabel} best`
       : underByWeight > 0
-        ? `${underByWeight} lb under your best`
-        : `${priorBest.reps - reps} reps under your best`,
-    detail: `Your all-time ${shortName} best is ${formatSet(priorBest.weight, priorBest.reps)}`,
+        ? `${underByWeight} lb under your ${placeLabel} best`
+        : `${priorBest.reps - reps} reps under your ${placeLabel} best`,
+    detail: `Your ${placeLabel} ${shortName} best is ${formatSet(priorBest.weight, priorBest.reps)}`,
   };
 }
 
@@ -531,7 +533,9 @@ export default function WorkoutRecapScreen() {
   const { completedAt, templateName } = recap.session;
   const { standout, progressionStory: story } = recap;
   const standoutShort = standout ? catalog.short(standout.slug) : "Progress";
-  const callout = standout ? standoutCallout(standout, standoutShort) : null;
+  const callout = standout
+    ? standoutCallout(standout, standoutShort, recap.session.placeName)
+    : null;
   const progressionBeat = story ? progressionCopy(story, standoutShort) : null;
   const unit = prefs?.unit ?? "lb";
   const isHealthSummary = recap.session.sessionKind === "health_summary";

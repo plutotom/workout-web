@@ -28,8 +28,8 @@ function databaseAtVersion(version: number) {
 }
 
 describe("migrateLocalDatabase", () => {
-  it("accepts an existing version 6 database", async () => {
-    const fixture = databaseAtVersion(6);
+  it("accepts an existing version 7 database", async () => {
+    const fixture = databaseAtVersion(7);
 
     await expect(migrateLocalDatabase(fixture.db)).resolves.toBeUndefined();
 
@@ -45,18 +45,36 @@ describe("migrateLocalDatabase", () => {
     await migrateLocalDatabase(fixture.db);
 
     expect(fixture.transactionCount).toBe(1);
-    expect(fixture.executedSql).toHaveLength(2);
+    expect(fixture.executedSql).toHaveLength(3);
     expect(fixture.executedSql[1]).toContain(
       "ALTER TABLE local_sessions ADD COLUMN health_segments_json TEXT;",
     );
     expect(fixture.executedSql[1]).toContain("PRAGMA user_version = 6;");
+    expect(fixture.executedSql[2]).toContain(
+      "ALTER TABLE local_templates ADD COLUMN last_place_id TEXT;",
+    );
+    expect(fixture.executedSql[2]).toContain("PRAGMA user_version = 7;");
+  });
+
+  it("upgrades a version 6 database with the places schema", async () => {
+    const fixture = databaseAtVersion(6);
+
+    await migrateLocalDatabase(fixture.db);
+
+    expect(fixture.transactionCount).toBe(1);
+    expect(fixture.executedSql).toHaveLength(2);
+    expect(fixture.executedSql[1]).toContain(
+      "ALTER TABLE local_sessions ADD COLUMN place_id TEXT;",
+    );
+    expect(fixture.executedSql[1]).not.toContain("health_segments_json");
+    expect(fixture.executedSql[1]).toContain("PRAGMA user_version = 7;");
   });
 
   it("still rejects databases newer than the supported schema", async () => {
-    const fixture = databaseAtVersion(7);
+    const fixture = databaseAtVersion(8);
 
     await expect(migrateLocalDatabase(fixture.db)).rejects.toThrow(
-      "Workout database version 7 is newer than this app supports",
+      "Workout database version 8 is newer than this app supports",
     );
   });
 });
