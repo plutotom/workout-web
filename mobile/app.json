@@ -3,7 +3,7 @@
     "name": "Grayed Lift",
     "slug": "workout-ios-v1",
     "scheme": "workout",
-    "version": "0.1.11",
+    "version": "0.1.12",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "icon": "./assets/icon.png",
@@ -24,7 +24,7 @@
         "com.apple.developer.healthkit": true,
         "com.apple.developer.private-cloud-compute": true
       },
-      "buildNumber": "10"
+      "buildNumber": "11"
     },
     "owner": "plutotom",
     "runtimeVersion": {
