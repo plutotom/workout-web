@@ -14,7 +14,7 @@ import {
   type InsightsSessionSummary,
   type WorkoutRecap,
 } from "@/data/local/insights";
-import { useLocalData } from "@/data/local/provider";
+import { useLocalData, useLocalPlaces } from "@/data/local/provider";
 import {
   listLocalCompletedSessions,
   type LocalInsightsSession,
@@ -150,6 +150,8 @@ export function remoteSessionSummariesToLocal(
       completedAt: session.completedAt,
       sessionKind: session.sessionKind ?? "tracked",
       countsTowardGoals: true,
+      placeId: null,
+      placeName: null,
       health:
         session.sessionKind === "health_summary"
           ? {
@@ -198,6 +200,8 @@ function remoteTemplateHistoryToLocal(
     sessionKind: "tracked" as const,
     countsTowardGoals: true,
     health: null,
+    placeId: null,
+    placeName: null,
     exercises: session.exercises.map((exercise) => ({
       slug: exercise.slug,
       sets: Array.from(
@@ -228,6 +232,8 @@ function remoteExerciseHistoryToLocal(
     sessionKind: "tracked" as const,
     countsTowardGoals: true,
     health: null,
+    placeId: null,
+    placeName: null,
     exercises: [
       {
         slug,
@@ -278,12 +284,14 @@ export function useLocalWorkoutRecap(
   sessionId: string,
 ): WorkoutRecap | null | undefined {
   const sessions = useLocalCompletedSessions();
+  const places = useLocalPlaces();
+  const homePlaceId = places?.find((place) => place.starred)?._id ?? null;
   return useMemo(
     () =>
-      sessions === undefined
+      sessions === undefined || places === undefined
         ? undefined
-        : getLocalWorkoutRecap(sessions, sessionId),
-    [sessionId, sessions],
+        : getLocalWorkoutRecap(sessions, sessionId, homePlaceId),
+    [homePlaceId, places, sessionId, sessions],
   );
 }
 

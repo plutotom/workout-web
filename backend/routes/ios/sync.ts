@@ -8,6 +8,11 @@ import {
   resolvePushSessionTarget,
   resolveReceiptRemoteSessionId,
 } from "../../lib/ios_session_sync";
+import {
+  recordSessionPlaceMemory,
+  upsertMachineFromClient,
+  upsertPlaceFromClient,
+} from "../../lib/places";
 import { deleteWorkout } from "../../lib/workouts";
 import { muscleGroupValidator } from "../../schemas/exercises";
 import {
@@ -32,6 +37,8 @@ const exerciseSnapshotValidator = v.object({
   orderIndex: v.number(),
   restSeconds: v.number(),
   notes: v.union(v.string(), v.null()),
+  machineId: v.optional(v.union(v.id("machines"), v.null())),
+  machineName: v.optional(v.union(v.string(), v.null())),
   sets: v.array(setSnapshotValidator),
 });
 
@@ -43,6 +50,8 @@ const sessionSnapshotValidator = v.object({
   startedAt: v.number(),
   completedAt: v.union(v.number(), v.null()),
   updatedAt: v.number(),
+  placeId: v.optional(v.union(v.id("places"), v.null())),
+  placeName: v.optional(v.union(v.string(), v.null())),
   sessionKind: v.optional(sessionKindValidator),
   countsTowardGoals: v.optional(v.boolean()),
   externalProvider: v.optional(v.union(v.literal("apple_health"), v.null())),
@@ -105,6 +114,104 @@ async function findSessionsForPush(
     null;
   return { existingByClient, existingByExternal };
 }
+
+/**
+ * Upload one place authored offline. Client id is the local SQLite row id so
+ * retries resolve to the same Convex document.
+ */
+export const pushPlace = mutation({
+  args: {
+    operationId: v.string(),
+    deviceId: v.string(),
+    place: v.object({
+      clientId: v.string(),
+      name: v.string(),
+      starred: v.boolean(),
+      archived: v.boolean(),
+    }),
+  },
+  returns: v.object({
+    remotePlaceId: v.id("places"),
+    serverTime: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const user = await requireUser(ctx);
+    const remotePlaceId = await upsertPlaceFromClient(ctx, user._id, {
+      clientId: args.place.clientId,
+      name: args.place.name,
+      starred: args.place.starred,
+      archived: args.place.archived,
+    });
+
+    const duplicate = await ctx.db
+      .query("iosSyncReceipts")
+      .withIndex("by_user_operation_id", (q) =>
+        q.eq("userId", user._id).eq("operationId", args.operationId),
+      )
+      .first();
+    if (!duplicate) {
+      await ctx.db.insert("iosSyncReceipts", {
+        userId: user._id,
+        operationId: args.operationId,
+        deviceId: args.deviceId,
+        appliedAt: Date.now(),
+      });
+    }
+
+    return { remotePlaceId, serverTime: Date.now() };
+  },
+});
+
+/**
+ * Upload one machine authored offline. The place must already be synced
+ * (`placeClientId` matches a place's client id or Convex id).
+ */
+export const pushMachine = mutation({
+  args: {
+    operationId: v.string(),
+    deviceId: v.string(),
+    machine: v.object({
+      clientId: v.string(),
+      placeClientId: v.string(),
+      exerciseSlug: v.string(),
+      name: v.string(),
+      isDefault: v.boolean(),
+      archived: v.boolean(),
+    }),
+  },
+  returns: v.object({
+    remoteMachineId: v.id("machines"),
+    serverTime: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const user = await requireUser(ctx);
+    const remoteMachineId = await upsertMachineFromClient(ctx, user._id, {
+      clientId: args.machine.clientId,
+      placeClientId: args.machine.placeClientId,
+      exerciseSlug: args.machine.exerciseSlug,
+      name: args.machine.name,
+      isDefault: args.machine.isDefault,
+      archived: args.machine.archived,
+    });
+
+    const duplicate = await ctx.db
+      .query("iosSyncReceipts")
+      .withIndex("by_user_operation_id", (q) =>
+        q.eq("userId", user._id).eq("operationId", args.operationId),
+      )
+      .first();
+    if (!duplicate) {
+      await ctx.db.insert("iosSyncReceipts", {
+        userId: user._id,
+        operationId: args.operationId,
+        deviceId: args.deviceId,
+        appliedAt: Date.now(),
+      });
+    }
+
+    return { remoteMachineId, serverTime: Date.now() };
+  },
+});
 
 /**
  * Upload one custom exercise authored offline. The phone references it locally
@@ -285,6 +392,8 @@ export const pushSession = mutation({
       energyKcal: args.session.energyKcal ?? undefined,
       distanceMeters: args.session.distanceMeters ?? undefined,
       importedAt: args.session.importedAt ?? undefined,
+      placeId: args.session.placeId ?? undefined,
+      placeName: args.session.placeName ?? undefined,
     };
     const sessionId =
       existing?._id ??
@@ -312,6 +421,8 @@ export const pushSession = mutation({
         orderIndex: exercise.orderIndex,
         restSeconds: exercise.restSeconds,
         notes: exercise.notes ?? undefined,
+        machineId: exercise.machineId ?? undefined,
+        machineName: exercise.machineName ?? undefined,
       };
       const exerciseId = existingExercise
         ? existingExercise._id
@@ -369,6 +480,10 @@ export const pushSession = mutation({
         for (const set of sets) await ctx.db.delete(set._id);
         await ctx.db.delete(exercise._id);
       }
+    }
+
+    if (args.session.status === "completed") {
+      await recordSessionPlaceMemory(ctx, user._id, sessionId);
     }
 
     await ctx.db.insert("iosSyncReceipts", {

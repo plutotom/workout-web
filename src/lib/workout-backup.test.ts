@@ -130,6 +130,8 @@ describe("older iOS backups", () => {
     expect(result.snapshot.templates[0]!.remoteId).toBeNull();
     expect(result.snapshot.sessions[0]!.remoteId).toBeNull();
     expect(result.snapshot.sessions[0]!.remoteTemplateId).toBeNull();
+    expect(result.snapshot.sessions[0]!.placeId).toBeNull();
+    expect(result.snapshot.places).toBeUndefined();
   });
 
   it("survives a UTF-8 BOM", () => {
@@ -241,5 +243,80 @@ describe("web Export all ↔ iOS backup", () => {
     const result = parseBackup(JSON.stringify(source));
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.snapshot.templates[0]!.remoteId).toBeNull();
+  });
+
+  it("keeps optional place and machine fields from a newer snapshot", () => {
+    const original = originalIosBackup();
+    const source = {
+      ...original,
+      templates: original.templates.map((template) => ({
+        ...template,
+        lastPlaceId: "place-home",
+      })),
+      sessions: original.sessions.map((session) => ({
+        ...session,
+        placeId: "place-elgin",
+        placeName: "Elgin",
+        exercises: session.exercises.map((exercise) => ({
+          ...exercise,
+          machineId: "machine-1",
+          machineName: "Usual",
+        })),
+      })),
+      places: [
+        {
+          id: "place-home",
+          remoteId: "place-home",
+          name: "Home",
+          starred: true,
+          archived: false,
+          lastUsedAt: CREATED_AT,
+          updatedAt: CREATED_AT,
+        },
+        {
+          id: "place-elgin",
+          name: "Elgin",
+          starred: false,
+          archived: false,
+          lastUsedAt: CREATED_AT,
+          updatedAt: CREATED_AT,
+        },
+      ],
+      machines: [
+        {
+          id: "machine-1",
+          placeId: "place-elgin",
+          exerciseSlug: "bench",
+          name: "Usual",
+          isDefault: true,
+          archived: false,
+          lastUsedAt: CREATED_AT,
+          updatedAt: CREATED_AT,
+        },
+      ],
+      placeWeights: [
+        {
+          placeId: "place-elgin",
+          exerciseSlug: "bench",
+          machineKey: "machine-1",
+          sets: [{ weight: 300, reps: 8 }],
+          updatedAt: CREATED_AT,
+        },
+      ],
+    };
+
+    const result = parseBackup(JSON.stringify(source));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.snapshot.templates[0]!.lastPlaceId).toBe("place-home");
+    expect(result.snapshot.sessions[0]!.placeName).toBe("Elgin");
+    expect(result.snapshot.sessions[0]!.exercises[0]!.machineName).toBe(
+      "Usual",
+    );
+    expect(result.snapshot.places).toHaveLength(2);
+    expect(result.snapshot.machines?.[0]!.name).toBe("Usual");
+    expect(result.snapshot.placeWeights?.[0]!.sets).toEqual([
+      { weight: 300, reps: 8 },
+    ]);
   });
 });

@@ -37,6 +37,22 @@ import {
   localTemplateRemoteId,
   remoteCustomSlug,
 } from "@/data/local/types";
+import {
+  applyPlacesBootstrap,
+  assignLocalSessionMachine,
+  convexMachineId,
+  convexPlaceId,
+  ensureLocalHomePlace,
+  findStarredLocalPlace,
+  getLocalPlace,
+  getLocalWorkingSets,
+  lastLocalMachineForLift,
+  listLocalMachinesForLift,
+  recordLocalSessionPlaceMemory,
+  reseedLocalSessionToPlace,
+  resolveLocalPlaceForStart,
+  seedLocalSetRows,
+} from "@/data/local/places";
 import { setRowsForNewExercise } from "@/data/local/exercise-sets";
 import {
   convertWeight,
@@ -84,13 +100,15 @@ type SessionRow = {
   energy_kcal: number | null;
   distance_meters: number | null;
   imported_at: number | null;
+  place_id: string | null;
+  place_name: string | null;
 };
 
 const SESSION_COLUMNS = `id, remote_id, template_id, remote_template_id, template_name,
             status, session_kind, started_at, completed_at, updated_at,
             counts_toward_goals, external_provider, external_id, activity_type,
             source_name, source_bundle_id, duration_seconds, energy_kcal,
-            distance_meters, imported_at`;
+            distance_meters, imported_at, place_id, place_name`;
 
 function mapHealthSummary(row: SessionRow): LocalHealthSummary | null {
   if (row.external_provider !== "apple_health" || !row.external_id) return null;
@@ -118,6 +136,8 @@ type ExerciseRow = {
   order_index: number;
   rest_seconds: number;
   notes: string | null;
+  machine_id: string | null;
+  machine_name: string | null;
 };
 
 type SetRow = {
@@ -137,6 +157,7 @@ type TemplateRow = {
   remote_id: string;
   name: string;
   updated_at: number;
+  last_place_id: string | null;
 };
 
 type TemplateExerciseRow = {
@@ -192,6 +213,8 @@ async function loadExercise(
     orderIndex: row.order_index,
     restSeconds: row.rest_seconds,
     notes: row.notes ?? undefined,
+    machineId: row.machine_id,
+    machineName: row.machine_name,
     sets: sets.map(mapSet),
   };
 }
@@ -209,7 +232,8 @@ export async function getLocalWorkout(
   if (!session) return null;
   const rows = await db.getAllAsync<ExerciseRow>(
     `SELECT e.id, e.session_id, e.slug, e.order_index, e.rest_seconds,
-            COALESCE(e.notes, n.notes) AS notes
+            COALESCE(e.notes, n.notes) AS notes,
+            e.machine_id, e.machine_name
        FROM local_session_exercises e
        LEFT JOIN local_exercise_notes n ON n.slug = e.slug
       WHERE e.session_id = ?
@@ -217,6 +241,10 @@ export async function getLocalWorkout(
     sessionId,
   );
   const exercises = await Promise.all(rows.map((row) => loadExercise(db, row)));
+  const starred = await findStarredLocalPlace(db);
+  const place =
+    (session.place_id ? await getLocalPlace(db, session.place_id) : null) ??
+    starred;
   return {
     _id: session.id,
     remoteId: session.remote_id,
@@ -230,6 +258,9 @@ export async function getLocalWorkout(
     updatedAt: session.updated_at,
     countsTowardGoals: session.counts_toward_goals !== 0,
     health: mapHealthSummary(session),
+    placeId: session.place_id ?? place?._id ?? null,
+    placeName: session.place_name ?? place?.name ?? null,
+    placeStarred: place?.starred ?? true,
     exercises,
   };
 }
@@ -245,6 +276,8 @@ export type LocalInsightsSession = {
   sessionKind: LocalSessionKind;
   countsTowardGoals: boolean;
   health: LocalHealthSummary | null;
+  placeId: string | null;
+  placeName: string | null;
   exercises: Array<{
     slug: string;
     sets: Array<{
@@ -316,6 +349,8 @@ export async function listLocalCompletedSessions(
         sessionKind: mapSessionKind(session.session_kind),
         countsTowardGoals: session.counts_toward_goals !== 0,
         health: mapHealthSummary(session),
+        placeId: session.place_id,
+        placeName: session.place_name,
         exercises: withSets,
       } satisfies LocalInsightsSession;
     }),
@@ -354,9 +389,47 @@ export async function getLocalActiveWorkout(
     : null;
 }
 
-function snapshotFromSession(
+async function snapshotFromSession(
+  db: SQLiteDatabase,
   session: LocalWorkoutSession,
-): SessionSyncSnapshot {
+): Promise<SessionSyncSnapshot> {
+  const place = session.placeId
+    ? await getLocalPlace(db, session.placeId)
+    : null;
+  const exercises = await Promise.all(
+    session.exercises.map(async (exercise) => {
+      const machine = exercise.machineId
+        ? await db.getFirstAsync<{ remote_id: string | null }>(
+            `SELECT remote_id FROM local_machines WHERE id = ? OR remote_id = ?`,
+            exercise.machineId,
+            exercise.machineId,
+          )
+        : null;
+      return {
+        clientId: exercise._id,
+        slug: exercise.slug,
+        orderIndex: exercise.orderIndex,
+        restSeconds: exercise.restSeconds,
+        notes: exercise.notes ?? null,
+        machineId: convexMachineId(
+          machine
+            ? { _id: exercise.machineId ?? "", remoteId: machine.remote_id }
+            : null,
+        ),
+        machineName: exercise.machineName,
+        sets: exercise.sets.map((set) => ({
+          clientId: set._id,
+          orderIndex: set.orderIndex,
+          targetWeight: set.targetWeight,
+          targetReps: set.targetReps,
+          weight: set.weight,
+          reps: set.reps,
+          completed: set.completed,
+          completedAt: set.completedAt ?? null,
+        })),
+      };
+    }),
+  );
   return {
     clientId: session._id,
     remoteTemplateId: session.remoteTemplateId,
@@ -367,6 +440,8 @@ function snapshotFromSession(
     completedAt: session.completedAt ?? null,
     updatedAt: session.updatedAt,
     countsTowardGoals: session.countsTowardGoals,
+    placeId: convexPlaceId(place),
+    placeName: session.placeName,
     externalProvider: session.health?.provider ?? null,
     externalId: session.health?.externalId ?? null,
     activityType: session.health?.activityType ?? null,
@@ -376,23 +451,7 @@ function snapshotFromSession(
     energyKcal: session.health?.energyKcal ?? null,
     distanceMeters: session.health?.distanceMeters ?? null,
     importedAt: session.health?.importedAt ?? null,
-    exercises: session.exercises.map((exercise) => ({
-      clientId: exercise._id,
-      slug: exercise.slug,
-      orderIndex: exercise.orderIndex,
-      restSeconds: exercise.restSeconds,
-      notes: exercise.notes ?? null,
-      sets: exercise.sets.map((set) => ({
-        clientId: set._id,
-        orderIndex: set.orderIndex,
-        targetWeight: set.targetWeight,
-        targetReps: set.targetReps,
-        weight: set.weight,
-        reps: set.reps,
-        completed: set.completed,
-        completedAt: set.completedAt ?? null,
-      })),
-    })),
+    exercises,
   };
 }
 
@@ -415,7 +474,7 @@ export async function queueSessionSnapshot(
        attempt_count = 0`,
     sessionId,
     randomUUID(),
-    JSON.stringify(snapshotFromSession(session)),
+    JSON.stringify(await snapshotFromSession(db, session)),
     createdAt,
   );
 }
@@ -485,17 +544,24 @@ async function abandonExistingIfAllowed(
 export async function startLocalBlankWorkout(
   db: SQLiteDatabase,
   abandonExisting = false,
+  placeId?: string | null,
 ) {
   const now = Date.now();
   await abandonExistingIfAllowed(db, abandonExisting, now);
+  const place = await resolveLocalPlaceForStart(db, {
+    placeId,
+    blank: true,
+  });
   const sessionId = randomUUID();
   await db.runAsync(
     `INSERT INTO local_sessions (
-       id, template_name, status, started_at, updated_at
-     ) VALUES (?, 'Quick start', 'in_progress', ?, ?)`,
+       id, template_name, status, started_at, updated_at, place_id, place_name
+     ) VALUES (?, 'Quick start', 'in_progress', ?, ?, ?, ?)`,
     sessionId,
     now,
     now,
+    place._id,
+    place.name,
   );
   await queueSessionSnapshot(db, sessionId, now);
   return sessionId;
@@ -505,19 +571,24 @@ export async function startLocalTemplateWorkout(
   db: SQLiteDatabase,
   templateId: string,
   abandonExisting = false,
+  placeId?: string | null,
 ) {
   const template = await getLocalTemplate(db, templateId);
   if (!template) throw new Error("Template is not available offline yet");
   const now = Date.now();
   await abandonExistingIfAllowed(db, abandonExisting, now);
+  const place = await resolveLocalPlaceForStart(db, {
+    placeId,
+    templateLastPlaceId: template.lastPlaceId,
+  });
   const sessionId = randomUUID();
 
   await db.withExclusiveTransactionAsync(async (txn) => {
     await txn.runAsync(
       `INSERT INTO local_sessions (
          id, template_id, remote_template_id, template_name, status,
-         started_at, updated_at
-       ) VALUES (?, ?, ?, ?, 'in_progress', ?, ?)`,
+         started_at, updated_at, place_id, place_name
+       ) VALUES (?, ?, ?, ?, 'in_progress', ?, ?, ?, ?)`,
       sessionId,
       template._id,
       // A template that has not synced yet only has a `local:` placeholder, and
@@ -527,21 +598,37 @@ export async function startLocalTemplateWorkout(
       template.name,
       now,
       now,
+      place._id,
+      place.name,
     );
     for (const exercise of template.exercises) {
+      const machine = await lastLocalMachineForLift(
+        txn,
+        place._id,
+        exercise.slug,
+      );
+      const memory = await getLocalWorkingSets(txn, {
+        placeId: place._id,
+        exerciseSlug: exercise.slug,
+        machineId: machine?._id,
+      });
+      const seeded = seedLocalSetRows(exercise.sets, memory);
       const exerciseId = randomUUID();
       await txn.runAsync(
         `INSERT INTO local_session_exercises (
-           id, session_id, slug, order_index, rest_seconds
-         ) VALUES (?, ?, ?, ?, ?)`,
+           id, session_id, slug, order_index, rest_seconds,
+           machine_id, machine_name
+         ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
         exerciseId,
         sessionId,
         exercise.slug,
         exercise.orderIndex,
         DEFAULT_REST_SECONDS,
+        machine?._id ?? null,
+        machine?.name ?? null,
       );
-      for (let index = 0; index < exercise.sets.length; index++) {
-        const set = exercise.sets[index];
+      for (let index = 0; index < seeded.length; index++) {
+        const set = seeded[index];
         await txn.runAsync(
           `INSERT INTO local_sets (
              id, session_exercise_id, order_index, target_weight,
@@ -560,6 +647,28 @@ export async function startLocalTemplateWorkout(
   });
   await queueSessionSnapshot(db, sessionId, now);
   return sessionId;
+}
+
+export async function setLocalSessionPlace(
+  db: SQLiteDatabase,
+  sessionId: string,
+  placeId: string,
+) {
+  await requireEditableSession(db, sessionId);
+  const result = await reseedLocalSessionToPlace(db, sessionId, placeId);
+  await markSessionUpdated(db, sessionId);
+  return result;
+}
+
+export async function setLocalSessionMachine(
+  db: SQLiteDatabase,
+  sessionExerciseId: string,
+  machineId: string,
+) {
+  const sessionId = await sessionIdForExercise(db, sessionExerciseId);
+  await requireEditableSession(db, sessionId);
+  await assignLocalSessionMachine(db, sessionExerciseId, machineId);
+  await markSessionUpdated(db, sessionId);
 }
 
 export async function updateLocalSet(
@@ -685,33 +794,37 @@ export async function addLocalExercise(
   if (exercises.some((exercise) => exercise.slug === slug))
     throw new Error("Exercise already in workout");
 
-  const previous = await db.getFirstAsync<{
-    weight: number;
-    reps: number;
-  }>(
-    `SELECT s.weight, s.reps
-       FROM local_sets s
-       JOIN local_session_exercises e ON e.id = s.session_exercise_id
-       JOIN local_sessions w ON w.id = e.session_id
-      WHERE e.slug = ? AND w.status = 'completed'
-        AND s.completed = 1 AND s.reps > 0
-      ORDER BY COALESCE(s.completed_at, w.completed_at, w.started_at) DESC
-      LIMIT 1`,
-    slug,
-  );
-  const seed = previous ?? { weight: 0, reps: 0 };
+  const sessionRow = await db.getFirstAsync<{
+    place_id: string | null;
+  }>(`SELECT place_id FROM local_sessions WHERE id = ?`, sessionId);
+  const placeId = sessionRow?.place_id ?? (await ensureLocalHomePlace(db))._id;
+  const machine = await lastLocalMachineForLift(db, placeId, slug);
+  const memory = await getLocalWorkingSets(db, {
+    placeId,
+    exerciseSlug: slug,
+    machineId: machine?._id,
+  });
+  const previous = memory?.[0] ??
+    (await getLastLocalSet(db, slug, { placeId, machineId: machine?._id })) ?? {
+      weight: 0,
+      reps: 0,
+    };
+  const seed = previous;
   const rows = setRowsForNewExercise(presets, seed);
   const exerciseId = randomUUID();
   await db.withExclusiveTransactionAsync(async (txn) => {
     await txn.runAsync(
       `INSERT INTO local_session_exercises (
-         id, session_id, slug, order_index, rest_seconds
-       ) VALUES (?, ?, ?, ?, ?)`,
+         id, session_id, slug, order_index, rest_seconds,
+         machine_id, machine_name
+       ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
       exerciseId,
       sessionId,
       slug,
       exercises.length,
       DEFAULT_REST_SECONDS,
+      machine?._id ?? null,
+      machine?.name ?? null,
     );
     for (let index = 0; index < rows.length; index++) {
       const weight = boundedWhole(rows[index]!.weight, MAX_WEIGHT, "Weight");
@@ -833,6 +946,7 @@ export async function finishLocalWorkout(
     now,
     sessionId,
   );
+  await recordLocalSessionPlaceMemory(db, sessionId);
   await queueSessionSnapshot(db, sessionId, now);
 }
 
@@ -900,7 +1014,7 @@ export async function getLocalTemplate(
   templateId: string,
 ): Promise<LocalTemplate | null> {
   const template = await db.getFirstAsync<TemplateRow>(
-    `SELECT id, remote_id, name, updated_at
+    `SELECT id, remote_id, name, updated_at, last_place_id
        FROM local_templates
       WHERE id = ? OR remote_id = ?
       LIMIT 1`,
@@ -920,6 +1034,7 @@ export async function getLocalTemplate(
     remoteId: template.remote_id,
     name: template.name,
     updatedAt: template.updated_at,
+    lastPlaceId: template.last_place_id,
     exercises: exercises.map((exercise) => ({
       slug: exercise.slug,
       orderIndex: exercise.order_index,
@@ -1917,6 +2032,56 @@ export async function completeCustomExerciseSync(
   await requeueRemapped(db, targets, now);
 }
 
+export async function completePlaceSync(
+  db: SQLiteDatabase,
+  operationId: string,
+  placeId: string,
+  remoteId: string,
+) {
+  await db.runAsync(
+    "UPDATE local_places SET remote_id = ? WHERE id = ?",
+    remoteId,
+    placeId,
+  );
+  await db.runAsync(
+    "DELETE FROM local_sync_outbox WHERE operation_id = ?",
+    operationId,
+  );
+  const sessions = await db.getAllAsync<{ id: string }>(
+    "SELECT id FROM local_sessions WHERE place_id = ?",
+    placeId,
+  );
+  const now = Date.now();
+  for (const session of sessions) {
+    await queueSessionSnapshot(db, session.id, now);
+  }
+}
+
+export async function completeMachineSync(
+  db: SQLiteDatabase,
+  operationId: string,
+  machineId: string,
+  remoteId: string,
+) {
+  await db.runAsync(
+    "UPDATE local_machines SET remote_id = ? WHERE id = ?",
+    remoteId,
+    machineId,
+  );
+  await db.runAsync(
+    "DELETE FROM local_sync_outbox WHERE operation_id = ?",
+    operationId,
+  );
+  const sessions = await db.getAllAsync<{ session_id: string }>(
+    "SELECT DISTINCT session_id FROM local_session_exercises WHERE machine_id = ?",
+    machineId,
+  );
+  const now = Date.now();
+  for (const row of sessions) {
+    await queueSessionSnapshot(db, row.session_id, now);
+  }
+}
+
 export async function applyIosBootstrap(
   db: SQLiteDatabase,
   payload: IosBootstrapPayload,
@@ -1944,15 +2109,17 @@ export async function applyIosBootstrap(
       );
       const localId = existing?.id ?? template.remoteId;
       await txn.runAsync(
-        `INSERT INTO local_templates (id, remote_id, name, updated_at)
-         VALUES (?, ?, ?, ?)
+        `INSERT INTO local_templates (id, remote_id, name, updated_at, last_place_id)
+         VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(remote_id) DO UPDATE SET
            name = excluded.name,
-           updated_at = excluded.updated_at`,
+           updated_at = excluded.updated_at,
+           last_place_id = excluded.last_place_id`,
         localId,
         template.remoteId,
         template.name,
         template.updatedAt,
+        template.lastPlaceId ?? null,
       );
       await txn.runAsync(
         "DELETE FROM local_template_exercises WHERE template_id = ?",
@@ -2060,6 +2227,8 @@ export async function applyIosBootstrap(
       );
     }
 
+    await applyPlacesBootstrap(txn, payload);
+
     for (const note of payload.exerciseNotes) {
       await txn.runAsync(
         `INSERT INTO local_exercise_notes (slug, notes, updated_at)
@@ -2131,18 +2300,51 @@ export async function setLocalNotificationPreferences(
 export async function getLastLocalSet(
   db: SQLiteDatabase,
   slug: string,
-): Promise<{ weight: number; reps: number } | null> {
-  return await db.getFirstAsync<{ weight: number; reps: number }>(
-    `SELECT s.weight, s.reps
+  scope?: { placeId?: string | null; machineId?: string | null },
+): Promise<{ weight: number; reps: number; placeName: string | null } | null> {
+  const home = await findStarredLocalPlace(db);
+  const placeId = scope?.placeId ?? home?._id ?? null;
+  const machines = placeId
+    ? await listLocalMachinesForLift(db, placeId, slug)
+    : [];
+  const defaultMachineId =
+    machines.find((machine) => machine.isDefault)?._id ?? null;
+
+  const rows = await db.getAllAsync<{
+    weight: number;
+    reps: number;
+    place_id: string | null;
+    place_name: string | null;
+    machine_id: string | null;
+  }>(
+    `SELECT s.weight, s.reps, w.place_id, w.place_name, e.machine_id
        FROM local_sets s
        JOIN local_session_exercises e ON e.id = s.session_exercise_id
        JOIN local_sessions w ON w.id = e.session_id
       WHERE e.slug = ? AND w.status = 'completed'
         AND s.completed = 1 AND s.reps > 0
-      ORDER BY COALESCE(s.completed_at, w.completed_at, w.started_at) DESC
-      LIMIT 1`,
+      ORDER BY COALESCE(s.completed_at, w.completed_at, w.started_at) DESC`,
     slug,
   );
+  for (const row of rows) {
+    const sessionPlace = row.place_id ?? home?._id ?? null;
+    if (placeId && sessionPlace && sessionPlace !== placeId) continue;
+    const wanted = scope?.machineId;
+    if (!wanted) {
+      if (row.machine_id && row.machine_id !== defaultMachineId) continue;
+    } else if (
+      row.machine_id !== wanted &&
+      !(row.machine_id == null && defaultMachineId === wanted)
+    ) {
+      continue;
+    }
+    return {
+      weight: row.weight,
+      reps: row.reps,
+      placeName: row.place_name ?? home?.name ?? null,
+    };
+  }
+  return null;
 }
 
 export async function getPendingSessionSync(

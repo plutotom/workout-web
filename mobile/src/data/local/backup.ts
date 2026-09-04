@@ -6,6 +6,7 @@ import {
   queueSessionSnapshot,
   queueTemplateSnapshot,
 } from "@/data/local/repository";
+import { queueMachineSnapshot, queuePlaceSnapshot } from "@/data/local/places";
 import type {
   LocalMuscleGroup,
   LocalSessionKind,
@@ -58,6 +59,34 @@ type TemplateRow = {
   remote_id: string;
   name: string;
   updated_at: number;
+  last_place_id: string | null;
+};
+type PlaceRow = {
+  id: string;
+  remote_id: string | null;
+  name: string;
+  starred: number;
+  archived: number;
+  last_used_at: number | null;
+  updated_at: number;
+};
+type MachineRow = {
+  id: string;
+  remote_id: string | null;
+  place_id: string;
+  exercise_slug: string;
+  name: string;
+  is_default: number;
+  archived: number;
+  last_used_at: number | null;
+  updated_at: number;
+};
+type PlaceWeightRow = {
+  place_id: string;
+  exercise_slug: string;
+  machine_key: string;
+  sets_json: string;
+  updated_at: number;
 };
 type TemplateExerciseRow = {
   id: string;
@@ -99,6 +128,8 @@ type SessionRow = {
   energy_kcal: number | null;
   distance_meters: number | null;
   imported_at: number | null;
+  place_id: string | null;
+  place_name: string | null;
 };
 type SessionExerciseRow = {
   id: string;
@@ -107,6 +138,8 @@ type SessionExerciseRow = {
   order_index: number;
   rest_seconds: number;
   notes: string | null;
+  machine_id: string | null;
+  machine_name: string | null;
 };
 type SetRow = {
   id: string;
@@ -173,7 +206,7 @@ export async function createLocalBackup(
     "SELECT slug, notes, updated_at FROM local_exercise_notes ORDER BY slug",
   );
   const templateRows = await db.getAllAsync<TemplateRow>(
-    `SELECT id, remote_id, name, updated_at
+    `SELECT id, remote_id, name, updated_at, last_place_id
        FROM local_templates
       ORDER BY name`,
   );
@@ -187,12 +220,13 @@ export async function createLocalBackup(
             status, session_kind, started_at, completed_at, updated_at,
             counts_toward_goals, external_provider, external_id, activity_type,
             source_name, source_bundle_id, duration_seconds, energy_kcal,
-            distance_meters, imported_at
+            distance_meters, imported_at, place_id, place_name
        FROM local_sessions
       ORDER BY started_at`,
   );
   const sessionExerciseRows = await db.getAllAsync<SessionExerciseRow>(
-    `SELECT id, session_id, slug, order_index, rest_seconds, notes
+    `SELECT id, session_id, slug, order_index, rest_seconds, notes,
+            machine_id, machine_name
        FROM local_session_exercises
       ORDER BY session_id, order_index`,
   );
@@ -201,6 +235,22 @@ export async function createLocalBackup(
             weight, reps, completed, completed_at
        FROM local_sets
       ORDER BY session_exercise_id, order_index`,
+  );
+  const placeRows = await db.getAllAsync<PlaceRow>(
+    `SELECT id, remote_id, name, starred, archived, last_used_at, updated_at
+       FROM local_places
+      ORDER BY starred DESC, name`,
+  );
+  const machineRows = await db.getAllAsync<MachineRow>(
+    `SELECT id, remote_id, place_id, exercise_slug, name, is_default,
+            archived, last_used_at, updated_at
+       FROM local_machines
+      ORDER BY place_id, exercise_slug, name`,
+  );
+  const placeWeightRows = await db.getAllAsync<PlaceWeightRow>(
+    `SELECT place_id, exercise_slug, machine_key, sets_json, updated_at
+       FROM local_exercise_place_weights
+      ORDER BY place_id, exercise_slug, machine_key`,
   );
 
   const exercisesByTemplate = groupBy(templateExerciseRows, (row) =>
@@ -236,6 +286,7 @@ export async function createLocalBackup(
       remoteId: row.remote_id,
       name: row.name,
       updatedAt: row.updated_at,
+      lastPlaceId: row.last_place_id,
       exercises: (exercisesByTemplate.get(row.id) ?? []).map((exercise) => ({
         id: exercise.id,
         slug: exercise.slug,
@@ -271,12 +322,16 @@ export async function createLocalBackup(
       energyKcal: row.energy_kcal,
       distanceMeters: row.distance_meters,
       importedAt: row.imported_at,
+      placeId: row.place_id,
+      placeName: row.place_name,
       exercises: (exercisesBySession.get(row.id) ?? []).map((exercise) => ({
         id: exercise.id,
         slug: exercise.slug,
         orderIndex: exercise.order_index,
         restSeconds: exercise.rest_seconds,
         notes: exercise.notes,
+        machineId: exercise.machine_id,
+        machineName: exercise.machine_name,
         sets: (setsByExercise.get(exercise.id) ?? []).map((set) => ({
           id: set.id,
           orderIndex: set.order_index,
@@ -288,6 +343,33 @@ export async function createLocalBackup(
           completedAt: set.completed_at,
         })),
       })),
+    })),
+    places: placeRows.map((row) => ({
+      id: row.id,
+      remoteId: row.remote_id,
+      name: row.name,
+      starred: row.starred === 1,
+      archived: row.archived === 1,
+      lastUsedAt: row.last_used_at,
+      updatedAt: row.updated_at,
+    })),
+    machines: machineRows.map((row) => ({
+      id: row.id,
+      remoteId: row.remote_id,
+      placeId: row.place_id,
+      exerciseSlug: row.exercise_slug,
+      name: row.name,
+      isDefault: row.is_default === 1,
+      archived: row.archived === 1,
+      lastUsedAt: row.last_used_at,
+      updatedAt: row.updated_at,
+    })),
+    placeWeights: placeWeightRows.map((row) => ({
+      placeId: row.place_id,
+      exerciseSlug: row.exercise_slug,
+      machineKey: row.machine_key,
+      sets: parseTemplateSets(row.sets_json),
+      updatedAt: row.updated_at,
     })),
   };
 }
@@ -359,6 +441,8 @@ export async function restoreLocalBackup(
   const addedSessionIds: string[] = [];
   const addedCustomIds: string[] = [];
   const customIdsToSync: string[] = [];
+  const placeIdsToSync: string[] = [];
+  const machineIdsToSync: string[] = [];
   const templateIdsToSync: string[] = [];
   const sessionIdsToSync: string[] = [];
   let notesAdded = 0;
@@ -416,16 +500,69 @@ export async function restoreLocalBackup(
       }
     }
 
+    for (const place of snapshot.places ?? []) {
+      const result = await txn.runAsync(
+        `INSERT OR IGNORE INTO local_places (
+           id, remote_id, name, starred, archived, last_used_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        place.id,
+        place.remoteId ?? null,
+        place.name,
+        place.starred ? 1 : 0,
+        place.archived ? 1 : 0,
+        place.lastUsedAt,
+        place.updatedAt,
+      );
+      if (result.changes === 0) skipped++;
+      else if (!place.remoteId) placeIdsToSync.push(place.id);
+    }
+
+    for (const machine of snapshot.machines ?? []) {
+      const result = await txn.runAsync(
+        `INSERT OR IGNORE INTO local_machines (
+           id, remote_id, place_id, exercise_slug, name, is_default,
+           archived, last_used_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        machine.id,
+        machine.remoteId ?? null,
+        machine.placeId,
+        machine.exerciseSlug,
+        machine.name,
+        machine.isDefault ? 1 : 0,
+        machine.archived ? 1 : 0,
+        machine.lastUsedAt,
+        machine.updatedAt,
+      );
+      if (result.changes === 0) skipped++;
+      else if (!machine.remoteId) machineIdsToSync.push(machine.id);
+    }
+
+    for (const weight of snapshot.placeWeights ?? []) {
+      const result = await txn.runAsync(
+        `INSERT OR IGNORE INTO local_exercise_place_weights (
+           place_id, exercise_slug, machine_key, sets_json, updated_at
+         ) VALUES (?, ?, ?, ?, ?)`,
+        weight.placeId,
+        weight.exerciseSlug,
+        weight.machineKey,
+        JSON.stringify(weight.sets),
+        weight.updatedAt,
+      );
+      if (result.changes === 0) skipped++;
+    }
+
     for (const template of snapshot.templates) {
       const result = await txn.runAsync(
-        `INSERT OR IGNORE INTO local_templates (id, remote_id, name, updated_at)
-         VALUES (?, ?, ?, ?)`,
+        `INSERT OR IGNORE INTO local_templates (
+           id, remote_id, name, updated_at, last_place_id
+         ) VALUES (?, ?, ?, ?, ?)`,
         template.id,
         // Older backups didn't carry this field. Rebuild the phone-only id
         // they used so their existing sync/idempotency behavior is unchanged.
         template.remoteId ?? localTemplateRemoteId(template.id),
         template.name,
         template.updatedAt,
+        template.lastPlaceId ?? null,
       );
       if (result.changes === 0) {
         skipped++;
@@ -491,14 +628,14 @@ export async function restoreLocalBackup(
            status, session_kind, started_at, completed_at, updated_at,
            counts_toward_goals, external_provider, external_id, activity_type,
            source_name, source_bundle_id, duration_seconds, energy_kcal,
-           distance_meters, imported_at
+           distance_meters, imported_at, place_id, place_name
          ) VALUES (
            ?, ?,
            COALESCE(
              (SELECT id FROM local_templates WHERE id = ?),
              (SELECT id FROM local_templates WHERE remote_id = ?)
            ),
-           ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+           ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
          )`,
         session.id,
         session.remoteId ?? null,
@@ -521,6 +658,8 @@ export async function restoreLocalBackup(
         session.energyKcal ?? null,
         session.distanceMeters ?? null,
         session.importedAt ?? null,
+        session.placeId ?? null,
+        session.placeName ?? null,
       );
       if (result.changes === 0) {
         skipped++;
@@ -533,14 +672,17 @@ export async function restoreLocalBackup(
       for (const exercise of session.exercises) {
         await txn.runAsync(
           `INSERT OR IGNORE INTO local_session_exercises (
-             id, session_id, slug, order_index, rest_seconds, notes
-           ) VALUES (?, ?, ?, ?, ?, ?)`,
+             id, session_id, slug, order_index, rest_seconds, notes,
+             machine_id, machine_name
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
           exercise.id,
           session.id,
           exercise.slug,
           exercise.orderIndex,
           exercise.restSeconds,
           exercise.notes,
+          exercise.machineId ?? null,
+          exercise.machineName ?? null,
         );
         for (const set of exercise.sets) {
           await txn.runAsync(
@@ -567,6 +709,8 @@ export async function restoreLocalBackup(
   // helpers read back through `db`. Local-only rows still need uploading;
   // account-backed rows keep their real remote ids and must not be recreated.
   const now = Date.now();
+  for (const id of placeIdsToSync) await queuePlaceSnapshot(db, id, now);
+  for (const id of machineIdsToSync) await queueMachineSnapshot(db, id, now);
   for (const id of customIdsToSync)
     await queueCustomExerciseSnapshot(db, id, now);
   for (const id of templateIdsToSync) await queueTemplateSnapshot(db, id, now);

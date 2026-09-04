@@ -4,7 +4,7 @@ import type { SQLiteDatabase } from "expo-sqlite";
 // release was built from main. Keep mobile database versions monotonic across
 // release branches: installing a newer app preserves this database, so a
 // later bundle must never lower the maximum supported version.
-const DATABASE_VERSION = 6;
+const DATABASE_VERSION = 7;
 
 export async function migrateLocalDatabase(db: SQLiteDatabase) {
   await db.execAsync("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
@@ -197,6 +197,53 @@ export async function migrateLocalDatabase(db: SQLiteDatabase) {
       await db.execAsync(`
         ALTER TABLE local_sessions ADD COLUMN health_segments_json TEXT;
         PRAGMA user_version = 6;
+      `);
+    }
+
+    if (currentVersion < 7) {
+      await db.execAsync(`
+        ALTER TABLE local_templates ADD COLUMN last_place_id TEXT;
+        ALTER TABLE local_sessions ADD COLUMN place_id TEXT;
+        ALTER TABLE local_sessions ADD COLUMN place_name TEXT;
+        ALTER TABLE local_session_exercises ADD COLUMN machine_id TEXT;
+        ALTER TABLE local_session_exercises ADD COLUMN machine_name TEXT;
+
+        CREATE TABLE IF NOT EXISTS local_places (
+          id TEXT PRIMARY KEY NOT NULL,
+          remote_id TEXT UNIQUE,
+          name TEXT NOT NULL,
+          starred INTEGER NOT NULL DEFAULT 0,
+          archived INTEGER NOT NULL DEFAULT 0,
+          last_used_at INTEGER,
+          updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS local_places_by_archived
+          ON local_places(archived, starred DESC, name);
+
+        CREATE TABLE IF NOT EXISTS local_machines (
+          id TEXT PRIMARY KEY NOT NULL,
+          remote_id TEXT UNIQUE,
+          place_id TEXT NOT NULL REFERENCES local_places(id) ON DELETE CASCADE,
+          exercise_slug TEXT NOT NULL,
+          name TEXT NOT NULL,
+          is_default INTEGER NOT NULL DEFAULT 0,
+          archived INTEGER NOT NULL DEFAULT 0,
+          last_used_at INTEGER,
+          updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS local_machines_by_place_slug
+          ON local_machines(place_id, exercise_slug, archived);
+
+        CREATE TABLE IF NOT EXISTS local_exercise_place_weights (
+          place_id TEXT NOT NULL,
+          exercise_slug TEXT NOT NULL,
+          machine_key TEXT NOT NULL,
+          sets_json TEXT NOT NULL,
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY (place_id, exercise_slug, machine_key)
+        );
+
+        PRAGMA user_version = 7;
       `);
     }
   });

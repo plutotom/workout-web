@@ -336,6 +336,7 @@ export async function listTemplates(ctx: QueryCtx, userId: Id<"users">) {
         name: t.name,
         updatedAt: t.updatedAt,
         lastSessionAt,
+        lastPlaceId: t.lastPlaceId ?? null,
         exercises: exercises.map((e) => ({
           slug: e.exerciseSlug,
           setCount: e.sets.length,
@@ -373,5 +374,6 @@ export async function getTemplate(
       sets: e.sets,
       notes: notesBySlug[e.exerciseSlug],
     })),
+    lastPlaceId: template.lastPlaceId ?? null,
   };
 }

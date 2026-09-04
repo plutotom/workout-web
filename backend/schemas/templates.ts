@@ -9,6 +9,8 @@ export const templateTables = {
     name: v.string(),
     createdAt: v.number(),
     updatedAt: v.number(),
+    // Last place this template was finished at. Used to preselect Start.
+    lastPlaceId: v.optional(v.id("places")),
   }).index("by_user", ["userId"]),
 
   templateExercises: defineTable({

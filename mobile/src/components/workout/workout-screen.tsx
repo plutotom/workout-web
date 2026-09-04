@@ -43,6 +43,12 @@ import {
 } from "@/components/ui";
 import { PlateModal } from "@/components/workout/plate-modal";
 import { RestBar } from "@/components/workout/rest-bar";
+import {
+  MachineChip,
+  MachinePickerModal,
+  PlaceChip,
+  PlacePickerModal,
+} from "@/components/workout/place-machine";
 import { WatchCompanionCard } from "@/health/watch-companion-card";
 import { useSessionAi } from "@/components/workout/use-session-ai";
 import { appleGenerateSheetCopy } from "@/lib/ai-copy";
@@ -51,10 +57,15 @@ import { formatHealthDistance, formatHealthEnergy } from "@/health/mapping";
 import {
   useLocalData,
   useLocalLastSet,
+  useLocalPlaces,
   useLocalPreferences,
   useLocalWorkout,
 } from "@/data/local/provider";
-import type { LocalPreferences, LocalWorkoutSession } from "@/data/local/types";
+import type {
+  LocalPlace,
+  LocalPreferences,
+  LocalWorkoutSession,
+} from "@/data/local/types";
 import { formatClock, useRestTimer } from "@/lib/rest-timer";
 import { useCatalog } from "@/providers/catalog-provider";
 import { colors } from "@/theme";
@@ -157,6 +168,54 @@ function ElapsedSubtitle({ startedAt }: { startedAt: number }) {
   );
 }
 
+function SessionPlaceControls({ session }: { session: WorkoutSession }) {
+  const { setSessionPlace } = useLocalData();
+  const places = useLocalPlaces();
+  const [open, setOpen] = useState(false);
+  const hasCompletedSets = session.exercises.some((exercise) =>
+    exercise.sets.some((set) => set.completed),
+  );
+
+  async function apply(place: LocalPlace) {
+    const result = await setSessionPlace(session._id, place._id);
+    if (result.hadCompletedSets) {
+      Alert.alert(
+        `Logged sets stay. This workout will count for ${place.name}.`,
+      );
+    }
+  }
+
+  return (
+    <>
+      <PlaceChip name={session.placeName} onPress={() => setOpen(true)} />
+      <PlacePickerModal
+        visible={open}
+        onClose={() => setOpen(false)}
+        places={places ?? []}
+        selectedPlaceId={session.placeId}
+        onSelect={(place) => {
+          if (place._id === session.placeId) return;
+          if (hasCompletedSets) {
+            Alert.alert(
+              `Switch to ${place.name}?`,
+              `Incomplete sets pick up last weights from ${place.name}. Logged sets stay as-is. When you finish, the whole workout counts for ${place.name}.`,
+              [
+                { text: "Cancel", style: "cancel" },
+                {
+                  text: "Switch place",
+                  onPress: () => void apply(place),
+                },
+              ],
+            );
+            return;
+          }
+          void apply(place);
+        }}
+      />
+    </>
+  );
+}
+
 function ListWorkout({
   session,
   user,
@@ -173,8 +232,14 @@ function ListWorkout({
     removeExercise,
     moveExercise,
     saveNote,
+    setSessionMachine,
   } = useLocalData();
   const [picker, setPicker] = useState(false);
+  const [machinePicker, setMachinePicker] = useState<{
+    exerciseId: string;
+    slug: string;
+    machineId: string | null;
+  } | null>(null);
   // Collapsed cards are opt-in and independent, so a session can mix open and
   // closed exercises. Missing id means expanded.
   const [collapsed, setCollapsed] = useState<Record<string, true>>({});
@@ -214,6 +279,7 @@ function ListWorkout({
             />
           }
         />
+        <SessionPlaceControls session={session} />
         <WatchCompanionCard
           sessionId={session._id}
           startedAt={session.startedAt}
@@ -276,6 +342,17 @@ function ListWorkout({
                       >
                         {catalog.name(exercise.slug)}
                       </Text>
+                      <MachineChip
+                        placeName={session.placeName}
+                        machineName={exercise.machineName}
+                        onPress={() =>
+                          setMachinePicker({
+                            exerciseId: exercise._id,
+                            slug: exercise.slug,
+                            machineId: exercise.machineId,
+                          })
+                        }
+                      />
                       <Text
                         style={{
                           color: colors.dim,
@@ -438,6 +515,21 @@ function ListWorkout({
         usedSlugs={session.exercises.map((exercise) => exercise.slug)}
         onClose={() => setPicker(false)}
         onAdd={(slugs) => void addPicked(slugs)}
+      />
+      <MachinePickerModal
+        visible={machinePicker !== null}
+        onClose={() => setMachinePicker(null)}
+        placeId={session.placeId}
+        exerciseSlug={machinePicker?.slug ?? ""}
+        selectedMachineId={machinePicker?.machineId ?? null}
+        onSelect={(machine) => {
+          if (machinePicker)
+            void setSessionMachine(machinePicker.exerciseId, machine._id);
+        }}
+        onCreated={(machineId) => {
+          if (machinePicker)
+            void setSessionMachine(machinePicker.exerciseId, machineId);
+        }}
       />
       {aiAvailable ? (
         <AiPromptModal
@@ -620,14 +712,18 @@ function FocusWorkout({
   const rest = useRestTimer({
     notificationsEnabled: user.restTimerNotificationsEnabled,
   });
-  const { updateSet } = useLocalData();
+  const { updateSet, setSessionMachine } = useLocalData();
   const { aiAvailable, usesApple, aiOpen, setAiOpen, generate } =
     useSessionAi(session);
   const [drafts, setDrafts] = useState<
     Record<string, { weight: string; reps: string }>
   >({});
   const [plates, setPlates] = useState(false);
-  const last = useLocalLastSet(item?.exercise.slug);
+  const [machineOpen, setMachineOpen] = useState(false);
+  const last = useLocalLastSet(item?.exercise.slug, {
+    placeId: session.placeId,
+    machineId: item?.exercise.machineId,
+  });
   const aiModal = aiAvailable ? (
     <AiPromptModal
       visible={aiOpen}
@@ -732,6 +828,7 @@ function FocusWorkout({
             />
           }
         />
+        <SessionPlaceControls session={session} />
         <WatchCompanionCard
           sessionId={session._id}
           startedAt={session.startedAt}
@@ -769,9 +866,16 @@ function FocusWorkout({
             >
               {catalog.name(item.exercise.slug)}
             </Text>
+            <MachineChip
+              placeName={session.placeName}
+              machineName={item.exercise.machineName}
+              onPress={() => setMachineOpen(true)}
+            />
             <Text style={{ color: colors.dim, fontSize: 13, marginTop: 8 }}>
               {last
-                ? `Last time · ${last.weight} ${user.unit} × ${last.reps}`
+                ? `Last time · ${last.weight} ${user.unit} × ${last.reps}${
+                    last.placeName ? ` · ${last.placeName}` : ""
+                  }`
                 : "First logged session for this lift"}
             </Text>
           </View>
@@ -886,6 +990,19 @@ function FocusWorkout({
           onClear={() => void rest.clear()}
         />
       ) : null}
+      <MachinePickerModal
+        visible={machineOpen}
+        onClose={() => setMachineOpen(false)}
+        placeId={session.placeId}
+        exerciseSlug={item.exercise.slug}
+        selectedMachineId={item.exercise.machineId}
+        onSelect={(machine) =>
+          void setSessionMachine(item.exercise._id, machine._id)
+        }
+        onCreated={(machineId) =>
+          void setSessionMachine(item.exercise._id, machineId)
+        }
+      />
       {aiModal}
     </>
   );
@@ -985,9 +1102,10 @@ export function WorkoutFinishController() {
       const commit = async () => {
         // Read the drift before finishing, while the template is still the one
         // the session was started from.
-        const willPromptSync = session.templateId
-          ? await templateNeedsUpdate(session._id)
-          : false;
+        const willPromptSync =
+          session.templateId && session.placeStarred !== false
+            ? await templateNeedsUpdate(session._id)
+            : false;
         await finish(session._id);
         await Haptics.notificationAsync(
           Haptics.NotificationFeedbackType.Success,

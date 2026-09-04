@@ -7,17 +7,21 @@ export function useStartWorkout() {
   const active = useLocalActiveWorkout();
   const { startBlank, startFromTemplate } = useLocalData();
 
-  async function launch(templateId?: string, abandonExisting = false) {
+  async function launch(
+    templateId?: string,
+    abandonExisting = false,
+    placeId?: string | null,
+  ) {
     const sessionId = templateId
-      ? await startFromTemplate(templateId, abandonExisting)
-      : await startBlank(abandonExisting);
+      ? await startFromTemplate(templateId, abandonExisting, placeId)
+      : await startBlank(abandonExisting, placeId);
     router.push({
       pathname: "/workout/[sessionId]",
       params: { sessionId },
     });
   }
 
-  function begin(templateId?: string) {
+  function begin(templateId?: string, placeId?: string | null) {
     if (active) {
       Alert.alert(
         "Workout already in progress",
@@ -35,13 +39,14 @@ export function useStartWorkout() {
           {
             text: "Start new",
             style: "destructive",
-            onPress: () => void launch(templateId, true).catch(showStartError),
+            onPress: () =>
+              void launch(templateId, true, placeId).catch(showStartError),
           },
         ],
       );
       return;
     }
-    void launch(templateId).catch(showStartError);
+    void launch(templateId, false, placeId).catch(showStartError);
   }
 
   return { active, begin };
