@@ -160,7 +160,8 @@ export function PlanSettings() {
             <code>POLAR_WEBHOOK_SECRET</code>,{" "}
             <code>POLAR_PRODUCT_PRO_MONTHLY</code> /{" "}
             <code>POLAR_PRODUCT_PRO_YEARLY</code>, then point Polar webhooks at{" "}
-            <code>https://&lt;deployment&gt;.convex.site/polar/events</code>.
+            <code>https://&lt;deployment&gt;.convex.site/polar/events</code>{" "}
+            with webhook API version <code>2026-04</code>.
           </p>
         )}
 
