@@ -635,6 +635,8 @@ function PlanCard() {
   );
 
   async function openBilling(kind: "checkout" | "portal") {
+    // Polar checkout/portal URLs are created by Convex actions that pin
+    // Polar-Version: 2026-04. iOS never talks to the Polar API directly.
     setBusy(true);
     try {
       const { webUrl } = requirePublicConfig();

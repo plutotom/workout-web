@@ -6,6 +6,17 @@ import { components } from "../../_generated/api";
 import type { DataModel, Id } from "../../_generated/dataModel";
 import type { ActionCtx } from "../../_generated/server";
 import { action, internalAction } from "../../_generated/server";
+import {
+  pinPolarClientApiVersion,
+  pinPolarSdkApiVersion,
+  pinPolarWebhookEndpoints,
+} from "../../lib/polar-api-version";
+import {
+  extractUserIdFromSubscription,
+  planFromSubscriptionStatus,
+} from "../../lib/polar-subscription";
+
+pinPolarSdkApiVersion();
 
 function configuredProducts() {
   const proMonthly = process.env.POLAR_PRODUCT_PRO_MONTHLY?.trim();
@@ -94,6 +105,7 @@ export const polar = new Polar<
   },
   products: configuredProducts(),
 });
+pinPolarClientApiVersion(polar.polar);
 
 const generatedPolarApi = polar.api();
 
@@ -199,35 +211,43 @@ export const generateCustomerPortalUrl = action({
   },
 });
 
+async function pinWebhookEndpointsBestEffort() {
+  try {
+    const result = await pinPolarWebhookEndpoints();
+    if (result.pinned.length > 0) {
+      console.info(
+        `Pinned Polar webhook api_version for ${result.pinned.length} endpoint(s)`,
+      );
+    }
+  } catch (error) {
+    console.warn("Could not pin Polar webhook api_version", error);
+  }
+}
+
 /** Sync products from Polar into the component tables (run after setup). */
 export const syncProducts = internalAction({
   args: {},
   returns: v.null(),
   handler: async (ctx) => {
     await polar.syncProducts(ctx);
+    await pinWebhookEndpointsBestEffort();
     return null;
   },
 });
 
-const ACTIVE_STATUSES = new Set(["active", "trialing"]);
-
-function planFromSubscriptionStatus(status: string): "free" | "pro" {
-  return ACTIVE_STATUSES.has(status) ? "pro" : "free";
-}
-
-function extractUserIdFromSubscription(data: {
-  customer?: {
-    metadata?: Record<string, unknown>;
-    externalId?: string | null;
-  };
-}): string | null {
-  const metaUserId = data.customer?.metadata?.userId;
-  if (typeof metaUserId === "string" && metaUserId.length > 0) {
-    return metaUserId;
-  }
-  if (data.customer?.externalId) return data.customer.externalId;
-  return null;
-}
+/** Pin Polar /polar/events webhook endpoints to API version 2026-04. */
+export const pinWebhookApiVersion = internalAction({
+  args: {},
+  returns: v.object({
+    scanned: v.number(),
+    pinned: v.array(v.string()),
+    alreadyPinned: v.array(v.string()),
+    skipped: v.array(v.string()),
+  }),
+  handler: async () => {
+    return await pinPolarWebhookEndpoints();
+  },
+});
 
 export async function syncUserPlanFromPolarEvent(
   ctx: {
