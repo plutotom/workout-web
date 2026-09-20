@@ -39,6 +39,11 @@ export default function RootLayout() {
               <Stack.Screen name="insights/sessions" />
               <Stack.Screen name="insights/exercise/[slug]" />
               <Stack.Screen name="week" />
+              <Stack.Screen name="social/people" />
+              <Stack.Screen name="social/profile/[userId]" />
+              <Stack.Screen name="social/edit-profile" />
+              <Stack.Screen name="social/post/[postId]" />
+              <Stack.Screen name="social/share/[sessionId]" />
               <Stack.Screen name="settings/health" />
               <Stack.Screen name="+not-found" />
             </Stack>

@@ -2,6 +2,7 @@ import { Tabs, Redirect } from "expo-router";
 import {
   Dumbbell,
   Home,
+  UsersRound,
   Settings,
   TrendingUp,
   type LucideIcon,
@@ -87,6 +88,15 @@ export default function TabLayout() {
           title: "Insights",
           tabBarIcon: ({ focused }) => (
             <TabIcon focused={focused} icon={TrendingUp} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="social"
+        options={{
+          title: "Social",
+          tabBarIcon: ({ focused }) => (
+            <TabIcon focused={focused} icon={UsersRound} />
           ),
         }}
       />

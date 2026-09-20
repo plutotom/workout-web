@@ -9,6 +9,7 @@ import { securityTables } from "./schemas/security";
 import { userTables } from "./schemas/users";
 import { templateTables } from "./schemas/templates";
 import { workoutTables } from "./schemas/workouts";
+import { socialTables } from "./schemas/social";
 
 export default defineSchema({
   ...userTables,
@@ -20,4 +21,5 @@ export default defineSchema({
   ...shareTables,
   ...mcpTables,
   ...securityTables,
+  ...socialTables,
 });

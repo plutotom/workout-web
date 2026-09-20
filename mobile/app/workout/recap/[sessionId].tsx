@@ -859,6 +859,18 @@ export default function WorkoutRecapScreen() {
           />
         )}
       </View>
+      {!isHealthSummary ? (
+        <Button
+          label="Post to Social"
+          variant="outline"
+          onPress={() =>
+            router.push({
+              pathname: "/social/share/[sessionId]",
+              params: { sessionId },
+            })
+          }
+        />
+      ) : null}
       <Button
         label="Done"
         variant="ghost"

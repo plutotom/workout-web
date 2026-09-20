@@ -34,6 +34,9 @@ export const userTables = {
   users: defineTable({
     workosId: v.string(),
     email: v.string(),
+    displayName: v.optional(v.string()),
+    handle: v.optional(v.string()),
+    bio: v.optional(v.string()),
     // Set only after the email has been resolved from WorkOS server-side.
     // Optional while legacy rows are healed by the bootstrap action.
     emailVerifiedAt: v.optional(v.number()),
@@ -65,5 +68,6 @@ export const userTables = {
     createdAt: v.number(),
   })
     .index("by_workosId", ["workosId"])
-    .index("by_email", ["email"]),
+    .index("by_email", ["email"])
+    .index("by_handle", ["handle"]),
 };
