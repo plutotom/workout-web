@@ -16,6 +16,7 @@ import {
 import { deleteWorkout } from "../../lib/workouts";
 import { muscleGroupValidator } from "../../schemas/exercises";
 import {
+  healthSegmentValidator,
   sessionKindValidator,
   sessionStatusValidator,
 } from "../../schemas/workouts";
@@ -63,6 +64,7 @@ const sessionSnapshotValidator = v.object({
   energyKcal: v.optional(v.union(v.number(), v.null())),
   distanceMeters: v.optional(v.union(v.number(), v.null())),
   importedAt: v.optional(v.union(v.number(), v.null())),
+  healthSegments: v.optional(v.array(healthSegmentValidator)),
   exercises: v.array(exerciseSnapshotValidator),
 });
 
@@ -394,6 +396,10 @@ export const pushSession = mutation({
       importedAt: args.session.importedAt ?? undefined,
       placeId: args.session.placeId ?? undefined,
       placeName: args.session.placeName ?? undefined,
+      healthSegments:
+        args.session.healthSegments && args.session.healthSegments.length > 0
+          ? args.session.healthSegments
+          : undefined,
     };
     const sessionId =
       existing?._id ??

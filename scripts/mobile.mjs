@@ -62,8 +62,28 @@ function wantsPhysicalDevice(extra) {
   );
 }
 
+function xcodeMacosSdkRoot() {
+  const result = spawnSync("xcrun", ["--sdk", "macosx", "--show-sdk-path"], {
+    encoding: "utf8",
+  });
+  if (result.status !== 0) return undefined;
+  const sdk = result.stdout.trim();
+  return sdk || undefined;
+}
+
+function withHostSdk(env) {
+  // Xcode 26.6's ld cannot parse Command Line Tools' MacOSX27 SDK (arm64e.x1).
+  // Bare `clang` (ExpoModulesJSI stub xcframework) uses that SDK unless SDKROOT
+  // is pinned to Xcode's macosx SDK. Do not override an explicit user value.
+  if (env.SDKROOT) return env;
+  const sdk = xcodeMacosSdkRoot();
+  if (!sdk) return env;
+  console.log(`[mobile] SDKROOT=${sdk}`);
+  return { ...env, SDKROOT: sdk };
+}
+
 function childEnv(extra) {
-  const env = { ...process.env, ...mobileEnvironment };
+  const env = withHostSdk({ ...process.env, ...mobileEnvironment });
   if (process.env.KEEP_PAID_IOS_ENTITLEMENTS === "1") {
     // Paid-team / TestFlight / App Store: the strip plugin is a no-op so PCC
     // can overflow on-device 4k. Do not inject the Personal Team signing shim.
@@ -113,6 +133,7 @@ function ensureIosPodsMatchNodeModules(command) {
   const result = spawnSync("pod", ["install"], {
     cwd: path.join(root, "mobile/ios"),
     stdio: "inherit",
+    env: withHostSdk({ ...process.env, ...mobileEnvironment }),
   });
   if (result.status !== 0) {
     throw new Error("pod install failed; iOS native paths are stale");

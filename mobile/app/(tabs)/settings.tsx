@@ -6,7 +6,6 @@ import { router } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
 import {
   ChevronDown,
-  CircleDot,
   CloudCheck,
   Copy,
   Crown,
@@ -16,7 +15,6 @@ import {
   Settings2,
   Share2,
   Shield,
-  Sparkles,
   Trash2,
 } from "lucide-react-native";
 import { useRef, useState } from "react";
@@ -32,13 +30,12 @@ import {
   SectionTitle,
   Segmented,
 } from "@/components/ui";
-import { PlateModal } from "@/components/workout/plate-modal";
 import { DescribeWithAiButton } from "@/components/describe-with-ai-button";
 import { NotificationSettingsCard } from "@/components/settings/notification-settings-card";
 import { PlacesSettingsCard } from "@/components/settings/places-settings-card";
 import { useBackupStatus, useLocalData } from "@/data/local/provider";
-import { offlineAiSettingsCopy, planAiSettingsCopy } from "@/lib/ai-copy";
-import { useAiGeneration, useAppleAiAvailability } from "@/lib/ai";
+import { planAiSettingsCopy } from "@/lib/ai-copy";
+import { useAppleAiAvailability } from "@/lib/ai";
 import { appleAiIsUsable } from "@shared/ai/apple-on-device";
 import { requirePublicConfig } from "@/lib/config";
 import { formatRelativeDay } from "@/lib/format";
@@ -74,7 +71,6 @@ function AuthenticatedSettingsScreen() {
 
 function OfflineSettingsScreen() {
   const { signIn } = useMobileAuth();
-  const { usesApple } = useAiGeneration();
   const [connecting, setConnecting] = useState(false);
 
   async function connectAccount() {
@@ -112,22 +108,6 @@ function OfflineSettingsScreen() {
       <NotificationSettingsCard />
       <PlacesSettingsCard />
       <BackupCard signedIn={false} />
-      <Card>
-        <Sparkles color={colors.text} size={22} />
-        <SectionTitle title="AI workouts" />
-        <Text style={{ color: colors.dim, fontSize: 13, lineHeight: 19 }}>
-          {offlineAiSettingsCopy(usesApple)}
-        </Text>
-        {usesApple ? <DescribeWithAiButton variant="outline" /> : null}
-      </Card>
-      <Card>
-        <CircleDot color={colors.text} size={22} strokeWidth={2.3} />
-        <SectionTitle title="Training tools" />
-        <Text style={{ color: colors.dim, fontSize: 13, lineHeight: 19 }}>
-          The workout tracker and plate calculator remain available without an
-          account.
-        </Text>
-      </Card>
     </Screen>
   );
 }
@@ -154,7 +134,6 @@ function SettingsContent({
   const [saveState, setSaveState] = useState<
     "idle" | "saving" | "saved" | "error"
   >("idle");
-  const [plateCalculatorOpen, setPlateCalculatorOpen] = useState(false);
   const saveSequence = useRef(0);
   const barSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const setUnit = useMutation(api.routes.auth.users.setUnit);
@@ -202,201 +181,173 @@ function SettingsContent({
   }
 
   return (
-    <>
-      <Screen>
-        <Card>
-          <Settings2 color={colors.text} size={22} />
-          <Text
-            style={{
-              color: colors.dim,
-              fontSize: 11,
-              fontWeight: "700",
-              letterSpacing: 2,
+    <Screen>
+      <Card>
+        <Settings2 color={colors.text} size={22} />
+        <Text
+          style={{
+            color: colors.dim,
+            fontSize: 11,
+            fontWeight: "700",
+            letterSpacing: 2,
+          }}
+        >
+          SETTINGS
+        </Text>
+        <Text style={{ color: colors.text, fontSize: 30, fontWeight: "700" }}>
+          App controls
+        </Text>
+        <Text style={{ color: colors.dim, fontSize: 13 }}>
+          Units, bar defaults, plan, and external access.
+        </Text>
+      </Card>
+      <Card>
+        <SectionTitle title="General" />
+        <Field label="Email" value={user.email} editable={false} />
+        <View style={{ gap: 7 }}>
+          <Text style={{ color: colors.text, fontSize: 13, fontWeight: "600" }}>
+            Default unit
+          </Text>
+          <Segmented
+            value={unit}
+            options={unitOptions}
+            onChange={(next) => {
+              clearQueuedBarSave();
+              setUnitValue(next);
+              setBarValue(
+                String(
+                  next === "lb"
+                    ? (user.barWeightLb ?? 45)
+                    : (user.barWeightKg ?? 20),
+                ),
+              );
+              void persist(() => setUnit({ unit: next }));
             }}
-          >
-            SETTINGS
+          />
+          <Text style={{ color: colors.dim, fontSize: 11 }}>
+            New weights are entered in this unit.
           </Text>
-          <Text style={{ color: colors.text, fontSize: 30, fontWeight: "700" }}>
-            App controls
+        </View>
+        <View style={{ gap: 7 }}>
+          <Text style={{ color: colors.text, fontSize: 13, fontWeight: "600" }}>
+            Active workout view
           </Text>
-          <Text style={{ color: colors.dim, fontSize: 13 }}>
-            Units, bar defaults, plan, and external access.
-          </Text>
-        </Card>
-        <Card>
-          <SectionTitle title="General" />
-          <Field label="Email" value={user.email} editable={false} />
-          <View style={{ gap: 7 }}>
-            <Text
-              style={{ color: colors.text, fontSize: 13, fontWeight: "600" }}
-            >
-              Default unit
-            </Text>
-            <Segmented
-              value={unit}
-              options={unitOptions}
-              onChange={(next) => {
-                clearQueuedBarSave();
-                setUnitValue(next);
-                setBarValue(
-                  String(
-                    next === "lb"
-                      ? (user.barWeightLb ?? 45)
-                      : (user.barWeightKg ?? 20),
-                  ),
-                );
-                void persist(() => setUnit({ unit: next }));
-              }}
-            />
-            <Text style={{ color: colors.dim, fontSize: 11 }}>
-              New weights are entered in this unit.
-            </Text>
-          </View>
-          <View style={{ gap: 7 }}>
-            <Text
-              style={{ color: colors.text, fontSize: 13, fontWeight: "600" }}
-            >
-              Active workout view
-            </Text>
-            <Segmented
-              value={mode}
-              options={modeOptions}
-              onChange={(next) => {
-                setMode(next);
-                void persist(() => setActiveWorkoutMode({ mode: next }));
-              }}
-            />
-            <Text style={{ color: colors.dim, fontSize: 11 }}>
-              Switching during a workout is safe; both views share the same
-              session.
-            </Text>
-          </View>
-          <View style={{ gap: 7 }}>
-            <Text
-              style={{ color: colors.text, fontSize: 13, fontWeight: "600" }}
-            >
-              Rest timer
-            </Text>
-            <Segmented
-              value={rest}
-              options={restOptions}
-              onChange={(next) => {
-                setRest(next);
-                void persist(() =>
-                  setRestTimerEnabled({ enabled: next === "on" }),
-                );
-              }}
-            />
-          </View>
-          <Field
-            label={`Default bar (${unit})`}
-            value={bar}
-            onChangeText={(value) => {
-              const next = value.replace(/\D/g, "");
-              setBarValue(next);
-              queueBarSave(next);
+          <Segmented
+            value={mode}
+            options={modeOptions}
+            onChange={(next) => {
+              setMode(next);
+              void persist(() => setActiveWorkoutMode({ mode: next }));
             }}
-            onBlur={() => {
-              if (barSaveTimer.current || bar === "") saveBarValue(bar);
+          />
+          <Text style={{ color: colors.dim, fontSize: 11 }}>
+            Switching during a workout is safe; both views share the same
+            session.
+          </Text>
+        </View>
+        <View style={{ gap: 7 }}>
+          <Text style={{ color: colors.text, fontSize: 13, fontWeight: "600" }}>
+            Rest timer
+          </Text>
+          <Segmented
+            value={rest}
+            options={restOptions}
+            onChange={(next) => {
+              setRest(next);
+              void persist(() =>
+                setRestTimerEnabled({ enabled: next === "on" }),
+              );
             }}
-            keyboardType="number-pad"
           />
-          <View style={{ flexDirection: "row", gap: 8 }}>
-            {(unit === "lb" ? [35, 45] : [15, 20]).map((preset) => (
-              <Button
-                key={preset}
-                label={`${preset} ${unit}`}
-                variant={Number(bar) === preset ? "primary" : "outline"}
-                size="sm"
-                onPress={() => {
-                  const next = String(preset);
-                  setBarValue(next);
-                  saveBarValue(next);
-                }}
-              />
-            ))}
-          </View>
-          <Text
-            accessibilityLiveRegion="polite"
-            style={{
-              color: saveState === "error" ? colors.danger : colors.dim,
-              fontSize: 11,
-            }}
-          >
-            {saveState === "saving"
-              ? "Saving changes…"
-              : saveState === "error"
-                ? "Couldn’t save. Check your connection and try again."
-                : saveState === "saved"
-                  ? "Changes saved automatically."
-                  : "Changes save automatically."}
-          </Text>
-        </Card>
-        <PlacesSettingsCard />
-        <Card>
-          <CircleDot color={colors.text} size={22} strokeWidth={2.3} />
-          <SectionTitle title="Training tools" />
-          <Text style={{ color: colors.dim, fontSize: 13, lineHeight: 19 }}>
-            Load a target weight or build a bar plate by plate.
-          </Text>
-          <Button
-            label="Open plate calculator"
-            variant="outline"
-            icon={CircleDot}
-            onPress={() => setPlateCalculatorOpen(true)}
-          />
-        </Card>
-        <Card>
-          <Share2 color={colors.text} size={22} strokeWidth={2.3} />
-          <SectionTitle title="Share with someone" />
-          <Text style={{ color: colors.dim, fontSize: 13, lineHeight: 19 }}>
-            Send your templates to a friend, or bring in someone else&apos;s.
-            This moves templates only — for your logged workouts, use Backup.
-          </Text>
-          <Button
-            label="Export templates"
-            variant="outline"
-            icon={Share2}
-            onPress={() => router.push("/share-workouts")}
-          />
-          <Button
-            label="Import templates"
-            variant="outline"
-            icon={Download}
-            onPress={() => router.push("/import-workouts")}
-          />
-        </Card>
-        <HealthSettingsCard />
-        <NotificationSettingsCard />
-        <BackupCard signedIn />
-        <PlanCard />
-        <AdminCard />
-        <McpCard />
-        <Button
-          label="Sign out"
-          variant="outline"
-          icon={LogOut}
-          onPress={() =>
-            Alert.alert("Sign out?", undefined, [
-              { text: "Cancel", style: "cancel" },
-              {
-                text: "Sign out",
-                style: "destructive",
-                onPress: () =>
-                  void signOut().then(() => router.replace("/sign-in")),
-              },
-            ])
-          }
+        </View>
+        <Field
+          label={`Default bar (${unit})`}
+          value={bar}
+          onChangeText={(value) => {
+            const next = value.replace(/\D/g, "");
+            setBarValue(next);
+            queueBarSave(next);
+          }}
+          onBlur={() => {
+            if (barSaveTimer.current || bar === "") saveBarValue(bar);
+          }}
+          keyboardType="number-pad"
         />
-      </Screen>
-      <PlateModal
-        visible={plateCalculatorOpen}
-        target={unit === "lb" ? 135 : 100}
-        unit={unit}
-        barWeight={Number(bar) || (unit === "lb" ? 45 : 20)}
-        onClose={() => setPlateCalculatorOpen(false)}
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          {(unit === "lb" ? [35, 45] : [15, 20]).map((preset) => (
+            <Button
+              key={preset}
+              label={`${preset} ${unit}`}
+              variant={Number(bar) === preset ? "primary" : "outline"}
+              size="sm"
+              onPress={() => {
+                const next = String(preset);
+                setBarValue(next);
+                saveBarValue(next);
+              }}
+            />
+          ))}
+        </View>
+        <Text
+          accessibilityLiveRegion="polite"
+          style={{
+            color: saveState === "error" ? colors.danger : colors.dim,
+            fontSize: 11,
+          }}
+        >
+          {saveState === "saving"
+            ? "Saving changes…"
+            : saveState === "error"
+              ? "Couldn’t save. Check your connection and try again."
+              : saveState === "saved"
+                ? "Changes saved automatically."
+                : "Changes save automatically."}
+        </Text>
+      </Card>
+      <PlacesSettingsCard />
+      <Card>
+        <Share2 color={colors.text} size={22} strokeWidth={2.3} />
+        <SectionTitle title="Share with someone" />
+        <Text style={{ color: colors.dim, fontSize: 13, lineHeight: 19 }}>
+          Send your templates to a friend, or bring in someone else&apos;s. This
+          moves templates only — for your logged workouts, use Backup.
+        </Text>
+        <Button
+          label="Export templates"
+          variant="outline"
+          icon={Share2}
+          onPress={() => router.push("/share-workouts")}
+        />
+        <Button
+          label="Import templates"
+          variant="outline"
+          icon={Download}
+          onPress={() => router.push("/import-workouts")}
+        />
+      </Card>
+      <HealthSettingsCard />
+      <NotificationSettingsCard />
+      <BackupCard signedIn />
+      <PlanCard />
+      <AdminCard />
+      <McpCard />
+      <Button
+        label="Sign out"
+        variant="outline"
+        icon={LogOut}
+        onPress={() =>
+          Alert.alert("Sign out?", undefined, [
+            { text: "Cancel", style: "cancel" },
+            {
+              text: "Sign out",
+              style: "destructive",
+              onPress: () =>
+                void signOut().then(() => router.replace("/sign-in")),
+            },
+          ])
+        }
       />
-    </>
+    </Screen>
   );
 }
 

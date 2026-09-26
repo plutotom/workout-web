@@ -69,6 +69,7 @@ import {
   noteSessionSyncAttempt,
   noteTemplateSyncAttempt,
   queueHealthExportIfEnabled,
+  quarantineTemplateSync,
   removeLocalExercise,
   wasWatchRecorded,
   saveLocalCustomExercise,
@@ -550,6 +551,10 @@ export function useLocalSyncStore() {
         noteSessionSyncAttempt(db, operationId),
       noteTemplateAttempt: (operationId: string) =>
         noteTemplateSyncAttempt(db, operationId),
+      quarantineTemplate: async (operationId: string) => {
+        await quarantineTemplateSync(db, operationId);
+        refresh();
+      },
       noteCustomExerciseAttempt: (operationId: string) =>
         noteCustomExerciseSyncAttempt(db, operationId),
       notePlaceAttempt: (operationId: string) =>

@@ -3,17 +3,37 @@ import { v } from "convex/values";
 import { mutation } from "../../_generated/server";
 import { requireUser } from "../../lib/auth";
 import { importBundle } from "../../lib/portableTemplates";
+import {
+  allocateUniqueHandle,
+  isReservedHandle,
+  isValidHandle,
+  normalizeHandleInput,
+} from "../../lib/social_handle";
+
+/** Idempotent: assign a username from email when missing so search can find you. */
+export const ensureDiscoverable = mutation({
+  args: {},
+  returns: v.null(),
+  handler: async (ctx) => {
+    const user = await requireUser(ctx);
+    if (user.handle) return null;
+    const handle = await allocateUniqueHandle(ctx, user.email, user._id);
+    if (handle) await ctx.db.patch(user._id, { handle });
+    return null;
+  },
+});
 
 export const saveProfile = mutation({
   args: { handle: v.string(), name: v.string(), bio: v.string() },
   returns: v.null(),
   handler: async (ctx, { handle, name, bio }) => {
     const user = await requireUser(ctx);
-    const normalized = handle.trim().toLowerCase().replace(/^@/, "");
-    if (!/^[a-z0-9_]{3,24}$/.test(normalized))
+    const normalized = normalizeHandleInput(handle);
+    if (!isValidHandle(normalized))
       throw new Error(
         "Username must have 3–24 letters, digits, or underscores",
       );
+    if (isReservedHandle(normalized)) throw new Error("That username is taken");
     if (!name.trim() || name.trim().length > 60 || bio.length > 300)
       throw new Error("Invalid profile details");
     const taken = await ctx.db

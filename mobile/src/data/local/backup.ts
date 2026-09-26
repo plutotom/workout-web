@@ -14,6 +14,7 @@ import type {
   LocalTemplateSet,
 } from "@/data/local/types";
 import {
+  convexWorkoutTemplateId,
   isUnsyncedTemplateRemoteId,
   localTemplateRemoteId,
 } from "@/data/local/types";
@@ -641,7 +642,7 @@ export async function restoreLocalBackup(
         session.remoteId ?? null,
         session.templateId,
         session.remoteTemplateId ?? null,
-        session.remoteTemplateId ?? null,
+        convexWorkoutTemplateId(session.remoteTemplateId),
         session.templateName,
         session.status,
         session.sessionKind === "health_summary" ? "health_summary" : "tracked",

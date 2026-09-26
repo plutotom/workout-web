@@ -21,7 +21,7 @@ function safeNext(raw: string | undefined): Href {
 }
 
 export default function SignInScreen() {
-  const { canUseApp, continueOffline, signIn } = useMobileAuth();
+  const { isAuthenticated, continueOffline, signIn } = useMobileAuth();
   // Set when sign-in was triggered from somewhere that should be returned to —
   // e.g. a share link opened while signed out.
   const { next } = useLocalSearchParams<{ next?: string }>();
@@ -29,7 +29,7 @@ export default function SignInScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (canUseApp) return <Redirect href={destination} />;
+  if (isAuthenticated) return <Redirect href={destination} />;
 
   async function handleSignIn() {
     setLoading(true);

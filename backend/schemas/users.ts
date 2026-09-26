@@ -69,5 +69,8 @@ export const userTables = {
   })
     .index("by_workosId", ["workosId"])
     .index("by_email", ["email"])
-    .index("by_handle", ["handle"]),
+    .index("by_handle", ["handle"])
+    .searchIndex("search_displayName", {
+      searchField: "displayName",
+    }),
 };

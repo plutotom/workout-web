@@ -10,11 +10,11 @@ import {
   pinPolarClientApiVersion,
   pinPolarSdkApiVersion,
   pinPolarWebhookEndpoints,
-} from "../../lib/polar-api-version";
+} from "../../lib/polar_api_version";
 import {
   extractUserIdFromSubscription,
   planFromSubscriptionStatus,
-} from "../../lib/polar-subscription";
+} from "../../lib/polar_subscription";
 
 pinPolarSdkApiVersion();
 

@@ -3,7 +3,7 @@ import { httpRouter } from "convex/server";
 import {
   warnIfUnexpectedPolarWebhookVersion,
   webhookApiVersionFrom,
-} from "./lib/polar-api-version";
+} from "./lib/polar_api_version";
 import { polar, syncUserPlanFromPolarEvent } from "./routes/billing/polar";
 
 const http = httpRouter();

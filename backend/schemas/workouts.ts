@@ -16,6 +16,16 @@ export const sessionKindValidator = v.union(
 
 export const externalProviderValidator = v.literal("apple_health");
 
+export const healthSegmentValidator = v.object({
+  activityType: v.string(),
+  activityName: v.string(),
+  startedAt: v.number(),
+  endedAt: v.number(),
+  durationSeconds: v.number(),
+  distanceMeters: v.union(v.number(), v.null()),
+  energyKcal: v.union(v.number(), v.null()),
+});
+
 const aiUndoSetValidator = v.object({
   orderIndex: v.number(),
   weight: v.number(),
@@ -72,6 +82,8 @@ export const workoutTables = {
     distanceMeters: v.optional(v.number()),
     countsTowardGoals: v.optional(v.boolean()),
     importedAt: v.optional(v.number()),
+    /** Apple Health multisport legs (e.g. triathlon swim/bike/run). */
+    healthSegments: v.optional(v.array(healthSegmentValidator)),
   })
     .index("by_user", ["userId"])
     .index("by_user_status", ["userId", "status"])

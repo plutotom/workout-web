@@ -29,7 +29,11 @@ export default function SocialScreen() {
   );
   const [open, setOpen] = useState(false);
   useEffect(() => {
-    if (open && notifications?.some((n) => !n.read)) void markRead();
+    if (open && notifications?.some((n) => !n.read)) {
+      void markRead().catch((error) => {
+        console.warn("[social] couldn't mark notifications read", error);
+      });
+    }
   }, [open, notifications, markRead]);
 
   return (
@@ -86,7 +90,15 @@ export default function SocialScreen() {
           title="Train with others"
           description="Sign in to follow athletes, share workouts, and save their routines."
           action={
-            <Button label="Sign in" onPress={() => router.push("/sign-in")} />
+            <Button
+              label="Sign in"
+              onPress={() =>
+                router.push({
+                  pathname: "/sign-in",
+                  params: { next: "/social" },
+                })
+              }
+            />
           }
         />
       ) : null}

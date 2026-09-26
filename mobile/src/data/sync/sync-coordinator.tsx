@@ -2,17 +2,22 @@ import { api } from "@backend/api";
 import type { Id } from "@backend/dataModel";
 import { useMutation, useQuery } from "convex/react";
 import { useEffect, useRef } from "react";
+import { Alert } from "react-native";
 
 import { useMobileAuth } from "@/auth/auth-provider";
 import { useLocalData, useLocalSyncStore } from "@/data/local/provider";
-import type { IosBootstrapPayload } from "@/data/local/types";
+import {
+  convexWorkoutTemplateId,
+  type IosBootstrapPayload,
+} from "@/data/local/types";
+import { classifyTemplateSyncFailure } from "./template-sync-policy";
 
 const MAX_PUSHES_PER_PASS = 20;
 
 /**
- * Bridges durable SQLite state to Convex. Failures are intentionally silent:
- * local writes have already committed, and a later foreground/reconnect pass
- * retries the newest aggregate from the outbox.
+ * Bridges durable SQLite state to Convex. Retryable failures stay queued for a
+ * later foreground/reconnect pass. Explicit permanent template rejections are
+ * quarantined so they cannot block the outbox forever.
  */
 export function SyncCoordinator() {
   const { isAuthenticated } = useMobileAuth();
@@ -32,6 +37,13 @@ export function SyncCoordinator() {
   const { applyBootstrap } = useLocalData();
   const syncStore = useLocalSyncStore();
   const appliedBootstrap = useRef<number | null>(null);
+  const templateLimitAlertShown = useRef(false);
+
+  useEffect(() => {
+    if ((bootstrap?.templates.length ?? 0) < 100) {
+      templateLimitAlertShown.current = false;
+    }
+  }, [bootstrap?.templates.length]);
 
   useEffect(() => {
     if (!bootstrap || appliedBootstrap.current === bootstrap.serverTime) return;
@@ -147,8 +159,9 @@ export function SyncCoordinator() {
               deviceId,
               session: {
                 ...pendingSession.snapshot,
-                remoteTemplateId: pendingSession.snapshot
-                  .remoteTemplateId as Id<"workoutTemplates"> | null,
+                remoteTemplateId: convexWorkoutTemplateId(
+                  pendingSession.snapshot.remoteTemplateId,
+                ) as Id<"workoutTemplates"> | null,
                 placeId: pendingSession.snapshot.placeId as
                   | Id<"places">
                   | null
@@ -178,9 +191,24 @@ export function SyncCoordinator() {
 
         const pendingTemplate = await syncStore.getPendingTemplate();
         if (!pendingTemplate) return;
+        // Template cap precheck needs the bootstrap snapshot; sessions and
+        // places above can drain without it so a slow/failed bootstrap cannot
+        // stall the rest of the outbox.
+        if (!bootstrap) return;
         await syncStore.noteTemplateAttempt(pendingTemplate.operationId);
         try {
           const { snapshot } = pendingTemplate;
+          if (!snapshot.remoteId && bootstrap.templates.length >= 100) {
+            await syncStore.quarantineTemplate(pendingTemplate.operationId);
+            if (!cancelled && !templateLimitAlertShown.current) {
+              templateLimitAlertShown.current = true;
+              Alert.alert(
+                "Template saved on this device",
+                "Your account already has 100 templates, so this template can’t sync. Delete a cloud template, then edit the template to try again.",
+              );
+            }
+            continue;
+          }
           let remoteTemplateId = snapshot.remoteId;
           if (remoteTemplateId) {
             await updateTemplate({
@@ -200,12 +228,33 @@ export function SyncCoordinator() {
             pendingTemplate.templateId,
             remoteTemplateId,
           );
-        } catch {
-          // Connectivity/auth failures remain queued for a later pass.
+        } catch (error) {
+          const failure = classifyTemplateSyncFailure(error);
+          if (failure.kind === "permanent") {
+            await syncStore.quarantineTemplate(pendingTemplate.operationId);
+            console.warn("[template-sync] quarantined permanent failure", {
+              code: failure.code,
+              operationId: pendingTemplate.operationId,
+              templateId: pendingTemplate.templateId,
+            });
+            if (!cancelled && !templateLimitAlertShown.current) {
+              templateLimitAlertShown.current = true;
+              Alert.alert(
+                "Template saved on this device",
+                "Your account already has 100 templates, so this template can’t sync. Delete a cloud template, then edit this template to try again.",
+              );
+            }
+            continue;
+          }
+          // Connectivity/auth/unknown failures remain queued for a later pass.
           return;
         }
       }
-    })();
+    })().catch((error) => {
+      if (!cancelled) {
+        console.warn("[sync] local outbox drain failed", error);
+      }
+    });
     return () => {
       cancelled = true;
     };
@@ -220,6 +269,7 @@ export function SyncCoordinator() {
     syncStore,
     syncStore.revision,
     updateTemplate,
+    bootstrap,
   ]);
 
   return null;

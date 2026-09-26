@@ -12,7 +12,7 @@ import {
   warnIfUnexpectedPolarWebhookVersion,
   webhookApiVersionFrom,
   withPolarVersionHeaders,
-} from "./polar-api-version";
+} from "./polar_api_version";
 
 describe("withPolarVersionHeaders", () => {
   it("pins Polar-Version when the header is missing", () => {

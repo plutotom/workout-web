@@ -3,6 +3,10 @@ import { v } from "convex/values";
 import type { Doc, Id } from "../../_generated/dataModel";
 import { query, type QueryCtx } from "../../_generated/server";
 import { getUser } from "../../lib/auth";
+import {
+  collectAthleteSearchPool,
+  rankAthleteSearchResults,
+} from "../../lib/social_handle";
 
 export const personValidator = v.object({
   id: v.id("users"),
@@ -114,24 +118,25 @@ export const me = query({
 });
 
 export const search = query({
-  args: { handle: v.string() },
+  args: {
+    query: v.optional(v.string()),
+    /** @deprecated Older iOS builds sent `handle`. Prefer `query`. */
+    handle: v.optional(v.string()),
+  },
   returns: v.array(
     v.object({ id: v.id("users"), name: v.string(), handle: v.string() }),
   ),
-  handler: async (ctx, { handle }) => {
+  handler: async (ctx, args) => {
+    const searchQuery = args.query ?? args.handle ?? "";
     const viewer = await getUser(ctx);
     if (!viewer) return [];
-    const prefix = handle.trim().toLowerCase().replace(/^@/, "");
-    if (!prefix) return [];
-    const users = await ctx.db
-      .query("users")
-      .withIndex("by_handle", (q) =>
-        q.gte("handle", prefix).lt("handle", prefix + "\uffff"),
-      )
-      .take(20);
-    return users
-      .filter((u) => u._id !== viewer._id && u.handle)
-      .map((u) => ({ id: u._id, name: publicName(u), handle: u.handle! }));
+    const pool = await collectAthleteSearchPool(ctx, searchQuery);
+    const matches = rankAthleteSearchResults(pool, viewer._id, searchQuery);
+    return matches.map((u) => ({
+      id: u._id,
+      name: publicName(u),
+      handle: u.handle!,
+    }));
   },
 });
 

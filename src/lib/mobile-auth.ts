@@ -10,9 +10,14 @@ type MobileAuthSession = {
   user: Session["user"];
 };
 
-type MobileAuthExchangeTicket = MobileAuthSession & {
+type MobileAuthExchangeTicket = {
+  session: string;
   code: string;
   exp: number;
+  // Legacy tickets included these fields. Keep them optional so an in-flight
+  // exchange created before deployment can still be redeemed.
+  accessToken?: string;
+  user?: Session["user"];
 };
 
 const EXCHANGE_COOKIE = "workout_mobile_auth_exchange";
@@ -83,8 +88,11 @@ export async function sealMobileAuthExchange(
   code: string,
   value: MobileAuthSession,
 ) {
+  // Keep the browser cookie compact. The sealed session already contains the
+  // access token and user, so duplicating them here can exceed the 4 KB cookie
+  // limit when WorkOS tokens are large.
   const ticket: MobileAuthExchangeTicket = {
-    ...value,
+    session: value.session,
     code,
     exp: Date.now() + EXCHANGE_TTL_MS,
   };
@@ -95,13 +103,7 @@ export async function unsealMobileAuthExchange(ticket: string) {
   const value = await unsealData<MobileAuthExchangeTicket>(ticket, {
     password: cookiePassword(),
   });
-  if (
-    !value?.code ||
-    !value.session ||
-    !value.accessToken ||
-    !value.user ||
-    typeof value.exp !== "number"
-  ) {
+  if (!value?.code || !value.session || typeof value.exp !== "number") {
     return null;
   }
   if (value.exp <= Date.now()) return null;
@@ -149,9 +151,20 @@ export async function takeMobileAuthExchangeTicket(code: string) {
 export async function redeemMobileAuthExchangeTicket(ticket: string) {
   const value = await unsealMobileAuthExchange(ticket);
   if (!value) return null;
+  if (value.accessToken && value.user) {
+    return {
+      session: value.session,
+      accessToken: value.accessToken,
+      user: value.user,
+    };
+  }
+  const session = await unsealData<Session>(value.session, {
+    password: cookiePassword(),
+  });
+  if (!session?.accessToken || !session.user) return null;
   return {
     session: value.session,
-    accessToken: value.accessToken,
-    user: value.user,
+    accessToken: session.accessToken,
+    user: session.user,
   };
 }

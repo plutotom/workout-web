@@ -83,7 +83,16 @@ export default function PostScreen() {
                     {
                       text: "Remove",
                       style: "destructive",
-                      onPress: () => void remove({ commentId: c.id }),
+                      onPress: () => {
+                        void remove({ commentId: c.id }).catch((error) => {
+                          Alert.alert(
+                            "Couldn't remove comment",
+                            error instanceof Error
+                              ? error.message
+                              : "Please try again.",
+                          );
+                        });
+                      },
                     },
                   ]);
               }}

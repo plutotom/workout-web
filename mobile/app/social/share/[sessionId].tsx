@@ -32,7 +32,12 @@ export default function ShareWorkoutScreen() {
       {!isAuthenticated ? (
         <Button
           label="Sign in to share"
-          onPress={() => router.push("/sign-in")}
+          onPress={() =>
+            router.push({
+              pathname: "/sign-in",
+              params: { next: `/social/share/${sessionId}` },
+            })
+          }
         />
       ) : null}
       {isAuthenticated && remoteId === null ? (

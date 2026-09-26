@@ -32,6 +32,7 @@ import type {
   SessionSyncSnapshot,
 } from "@/data/local/types";
 import {
+  convexWorkoutTemplateId,
   isUnsyncedTemplateRemoteId,
   localCustomSlug,
   localTemplateRemoteId,
@@ -247,7 +248,7 @@ export async function getLocalWorkout(
   return {
     _id: session.id,
     remoteId: session.remote_id,
-    remoteTemplateId: session.remote_template_id,
+    remoteTemplateId: convexWorkoutTemplateId(session.remote_template_id),
     status: session.status,
     sessionKind: mapSessionKind(session.session_kind),
     templateId: session.template_id,
@@ -341,7 +342,7 @@ export async function listLocalCompletedSessions(
         sessionId: session.id,
         remoteId: session.remote_id,
         templateId: session.template_id,
-        remoteTemplateId: session.remote_template_id,
+        remoteTemplateId: convexWorkoutTemplateId(session.remote_template_id),
         templateName: templateName.length > 0 ? templateName : "Quick start",
         startedAt: session.started_at,
         completedAt: session.completed_at ?? session.started_at,
@@ -431,7 +432,7 @@ async function snapshotFromSession(
   );
   return {
     clientId: session._id,
-    remoteTemplateId: session.remoteTemplateId,
+    remoteTemplateId: convexWorkoutTemplateId(session.remoteTemplateId),
     templateName: session.templateName,
     status: session.status,
     sessionKind: session.sessionKind,
@@ -1596,6 +1597,28 @@ export async function noteTemplateSyncAttempt(
   );
 }
 
+export async function quarantineTemplateSync(
+  db: SQLiteDatabase,
+  operationId: string,
+) {
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    await txn.runAsync(
+      `DELETE FROM local_sync_outbox
+        WHERE entity_type = 'template_quarantined'
+          AND entity_id = (
+            SELECT entity_id FROM local_sync_outbox WHERE operation_id = ?
+          )`,
+      operationId,
+    );
+    await txn.runAsync(
+      `UPDATE local_sync_outbox
+          SET entity_type = 'template_quarantined'
+        WHERE operation_id = ? AND entity_type = 'template'`,
+      operationId,
+    );
+  });
+}
+
 export async function completeTemplateSync(
   db: SQLiteDatabase,
   operationId: string,
@@ -1658,7 +1681,8 @@ export async function deleteLocalTemplate(
     );
     await txn.runAsync(
       `DELETE FROM local_sync_outbox
-        WHERE entity_type = 'template' AND entity_id = ?`,
+        WHERE entity_type IN ('template', 'template_quarantined')
+          AND entity_id = ?`,
       existing._id,
     );
   });

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   extractUserIdFromSubscription,
   planFromSubscriptionStatus,
-} from "./polar-subscription";
+} from "./polar_subscription";
 
 describe("planFromSubscriptionStatus", () => {
   it("treats active and trialing Polar subscriptions as Pro", () => {

@@ -92,6 +92,16 @@ export function isUnsyncedTemplateRemoteId(remoteId: string) {
   return remoteId.startsWith(LOCAL_TEMPLATE_REMOTE_PREFIX);
 }
 
+/** Convex `pushSession` only accepts a real template id or null. */
+export function convexWorkoutTemplateId(
+  remoteTemplateId: string | null | undefined,
+): string | null {
+  if (!remoteTemplateId || isUnsyncedTemplateRemoteId(remoteTemplateId)) {
+    return null;
+  }
+  return remoteTemplateId;
+}
+
 export function localTemplateRemoteId(templateId: string) {
   return `${LOCAL_TEMPLATE_REMOTE_PREFIX}${templateId}`;
 }

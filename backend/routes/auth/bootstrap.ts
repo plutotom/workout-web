@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 
 import { internalMutation, internalQuery } from "../../_generated/server";
+import { allocateUniqueHandle } from "../../lib/social_handle";
 
 /**
  * Avoid repeated WorkOS API calls when bootstrap remounts within a short
@@ -48,10 +49,15 @@ export const upsertVerifiedUser = internalMutation({
         email: string;
         emailVerifiedAt: number;
         onboardingCompletedAt?: undefined;
+        handle?: string;
       } = {
         email,
         emailVerifiedAt: verifiedAt,
       };
+      if (!existing.handle) {
+        const handle = await allocateUniqueHandle(ctx, email, existing._id);
+        if (handle) patch.handle = handle;
+      }
       // Earlier builds stamped onboardingCompletedAt = createdAt to skip the
       // sheet for existing accounts. Clear that so they still get onboarding
       // until they pick a path or skip for real.
@@ -62,12 +68,14 @@ export const upsertVerifiedUser = internalMutation({
       return existing._id;
     }
 
+    const handle = await allocateUniqueHandle(ctx, email);
     const userId = await ctx.db.insert("users", {
       workosId,
       email,
       emailVerifiedAt: verifiedAt,
       unit: "lb",
       createdAt: verifiedAt,
+      ...(handle ? { handle } : {}),
     });
     return userId;
   },
