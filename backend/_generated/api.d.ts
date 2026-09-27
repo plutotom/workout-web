@@ -27,6 +27,7 @@ import type * as lib_portableTemplates from "../lib/portableTemplates.js";
 import type * as lib_rateLimits from "../lib/rateLimits.js";
 import type * as lib_shares from "../lib/shares.js";
 import type * as lib_social_handle from "../lib/social_handle.js";
+import type * as lib_template_dedupe from "../lib/template_dedupe.js";
 import type * as lib_templates from "../lib/templates.js";
 import type * as lib_workos from "../lib/workos.js";
 import type * as lib_workouts from "../lib/workouts.js";
@@ -95,6 +96,7 @@ declare const fullApi: ApiFromModules<{
   "lib/rateLimits": typeof lib_rateLimits;
   "lib/shares": typeof lib_shares;
   "lib/social_handle": typeof lib_social_handle;
+  "lib/template_dedupe": typeof lib_template_dedupe;
   "lib/templates": typeof lib_templates;
   "lib/workos": typeof lib_workos;
   "lib/workouts": typeof lib_workouts;

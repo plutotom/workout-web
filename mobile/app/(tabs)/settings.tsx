@@ -324,6 +324,7 @@ function SettingsContent({
           icon={Download}
           onPress={() => router.push("/import-workouts")}
         />
+        <RemoveDuplicateTemplatesButton />
       </Card>
       <HealthSettingsCard />
       <NotificationSettingsCard />
@@ -704,6 +705,53 @@ function PlanCard() {
   );
 }
 
+function RemoveDuplicateTemplatesButton() {
+  const removeDuplicates = useMutation(
+    api.routes.templates.mutations.removeExactDuplicates,
+  );
+  const [busy, setBusy] = useState(false);
+
+  return (
+    <Button
+      label="Remove duplicate templates"
+      variant="outline"
+      disabled={busy}
+      onPress={() => {
+        Alert.alert(
+          "Remove duplicate templates?",
+          "Keeps the oldest copy of each exact name and exercise list, and deletes the rest. Workouts stay; they point at the kept template.",
+          [
+            { text: "Cancel", style: "cancel" },
+            {
+              text: "Remove duplicates",
+              style: "destructive",
+              onPress: () => {
+                setBusy(true);
+                void removeDuplicates({})
+                  .then((result) => {
+                    Alert.alert(
+                      "Duplicates removed",
+                      result.deleted === 0
+                        ? "No exact copies were left to delete."
+                        : `Deleted ${result.deleted} extra template${result.deleted === 1 ? "" : "s"}.`,
+                    );
+                  })
+                  .catch(() => {
+                    Alert.alert(
+                      "Couldn’t remove duplicates",
+                      "Sign in again and retry. If this is a production build, the server needs the latest backend.",
+                    );
+                  })
+                  .finally(() => setBusy(false));
+              },
+            },
+          ],
+        );
+      }}
+    />
+  );
+}
+
 function AdminCard() {
   const entitlement = useQuery(api.routes.auth.users.entitlement);
   if (entitlement === undefined || !entitlement?.isAdmin) return null;
@@ -721,6 +769,7 @@ function AdminCard() {
         icon={Shield}
         onPress={() => router.push("/settings/admin")}
       />
+      <RemoveDuplicateTemplatesButton />
     </Card>
   );
 }

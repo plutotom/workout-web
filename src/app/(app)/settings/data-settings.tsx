@@ -32,7 +32,11 @@ function formatExpiry(expiresAt: number | undefined): string {
 export function DataSettings() {
   const shares = useQuery(api.routes.shares.queries.list);
   const revoke = useMutation(api.routes.shares.mutations.revoke);
+  const removeDuplicates = useMutation(
+    api.routes.templates.mutations.removeExactDuplicates,
+  );
   const [copied, setCopied] = useState<string | null>(null);
+  const [deduping, setDeduping] = useState(false);
 
   async function copyLink(token: string) {
     try {
@@ -76,6 +80,47 @@ export function DataSettings() {
             This file isn&apos;t encrypted. Anyone who opens it can read your
             training history, so keep it somewhere private.
           </p>
+        </CardContent>
+      </Card>
+
+      <Card className="bg-[var(--surface)]">
+        <CardHeader>
+          <CardTitle>Duplicate templates</CardTitle>
+          <CardDescription>
+            If iOS login created extra copies of the same template, keep the
+            oldest of each exact name and exercise list and delete the rest.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button
+            variant="outline"
+            disabled={deduping}
+            onClick={async () => {
+              if (
+                !window.confirm(
+                  "Delete extra copies of templates that match on name and exercises? Workouts stay and point at the kept template.",
+                )
+              ) {
+                return;
+              }
+              setDeduping(true);
+              try {
+                const result = await removeDuplicates({});
+                toast.success(
+                  result.deleted === 0
+                    ? "No exact copies were left to delete."
+                    : `Deleted ${result.deleted} extra template${result.deleted === 1 ? "" : "s"}.`,
+                );
+              } catch {
+                toast.error("Couldn't remove duplicates");
+              } finally {
+                setDeduping(false);
+              }
+            }}
+          >
+            <Trash2 className="size-4" />
+            {deduping ? "Removing…" : "Remove duplicate templates"}
+          </Button>
         </CardContent>
       </Card>
 

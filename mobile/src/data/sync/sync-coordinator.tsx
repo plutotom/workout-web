@@ -10,7 +10,10 @@ import {
   convexWorkoutTemplateId,
   type IosBootstrapPayload,
 } from "@/data/local/types";
-import { classifyTemplateSyncFailure } from "./template-sync-policy";
+import {
+  adoptCloudTemplateId,
+  classifyTemplateSyncFailure,
+} from "./template-sync-policy";
 
 const MAX_PUSHES_PER_PASS = 20;
 
@@ -32,8 +35,7 @@ export function SyncCoordinator() {
   );
   const pushPlace = useMutation(api.routes.ios.sync.pushPlace);
   const pushMachine = useMutation(api.routes.ios.sync.pushMachine);
-  const createTemplate = useMutation(api.routes.templates.mutations.create);
-  const updateTemplate = useMutation(api.routes.templates.mutations.update);
+  const pushTemplate = useMutation(api.routes.ios.sync.pushTemplate);
   const { applyBootstrap } = useLocalData();
   const syncStore = useLocalSyncStore();
   const appliedBootstrap = useRef<number | null>(null);
@@ -72,12 +74,12 @@ export function SyncCoordinator() {
               deviceId,
               place: pendingPlace.snapshot,
             });
-            if (cancelled) return;
             await syncStore.completePlace(
               pendingPlace.operationId,
               pendingPlace.placeId,
               result.remotePlaceId,
             );
+            if (cancelled) return;
           } catch {
             return;
           }
@@ -93,12 +95,12 @@ export function SyncCoordinator() {
               deviceId,
               machine: pendingMachine.snapshot,
             });
-            if (cancelled) return;
             await syncStore.completeMachine(
               pendingMachine.operationId,
               pendingMachine.machineId,
               result.remoteMachineId,
             );
+            if (cancelled) return;
           } catch {
             return;
           }
@@ -120,13 +122,13 @@ export function SyncCoordinator() {
               deviceId,
               exercise: pendingExercise.snapshot,
             });
-            if (cancelled) return;
             await syncStore.completeCustomExercise(
               pendingExercise.operationId,
               pendingExercise.exerciseId,
               result.remoteExerciseId,
               result.slug,
             );
+            if (cancelled) return;
           } catch {
             return;
           }
@@ -142,8 +144,8 @@ export function SyncCoordinator() {
               deviceId,
               session: pendingDelete.snapshot,
             });
-            if (cancelled) return;
             await syncStore.completeSessionDelete(pendingDelete.operationId);
+            if (cancelled) return;
           } catch {
             return;
           }
@@ -177,12 +179,12 @@ export function SyncCoordinator() {
                 ),
               },
             });
-            if (cancelled) return;
             await syncStore.completeSession(
               pendingSession.operationId,
               pendingSession.sessionId,
               result.remoteSessionId,
             );
+            if (cancelled) return;
           } catch {
             return;
           }
@@ -198,7 +200,10 @@ export function SyncCoordinator() {
         await syncStore.noteTemplateAttempt(pendingTemplate.operationId);
         try {
           const { snapshot } = pendingTemplate;
-          if (!snapshot.remoteId && bootstrap.templates.length >= 100) {
+          const adoptedRemoteId =
+            snapshot.remoteId ??
+            adoptCloudTemplateId(snapshot, bootstrap.templates);
+          if (!adoptedRemoteId && bootstrap.templates.length >= 100) {
             await syncStore.quarantineTemplate(pendingTemplate.operationId);
             if (!cancelled && !templateLimitAlertShown.current) {
               templateLimitAlertShown.current = true;
@@ -209,25 +214,21 @@ export function SyncCoordinator() {
             }
             continue;
           }
-          let remoteTemplateId = snapshot.remoteId;
-          if (remoteTemplateId) {
-            await updateTemplate({
-              templateId: remoteTemplateId as Id<"workoutTemplates">,
+          const result = await pushTemplate({
+            operationId: pendingTemplate.operationId,
+            deviceId,
+            template: {
+              remoteId: adoptedRemoteId as Id<"workoutTemplates"> | null,
               name: snapshot.name,
               exercises: snapshot.exercises,
-            });
-          } else {
-            remoteTemplateId = await createTemplate({
-              name: snapshot.name,
-              exercises: snapshot.exercises,
-            });
-          }
-          if (cancelled) return;
+            },
+          });
           await syncStore.completeTemplate(
             pendingTemplate.operationId,
             pendingTemplate.templateId,
-            remoteTemplateId,
+            result.remoteTemplateId,
           );
+          if (cancelled) return;
         } catch (error) {
           const failure = classifyTemplateSyncFailure(error);
           if (failure.kind === "permanent") {
@@ -259,16 +260,15 @@ export function SyncCoordinator() {
       cancelled = true;
     };
   }, [
-    createTemplate,
     deleteSession,
     isAuthenticated,
     pushCustomExercise,
     pushMachine,
     pushPlace,
     pushSession,
+    pushTemplate,
     syncStore,
     syncStore.revision,
-    updateTemplate,
     bootstrap,
   ]);
 

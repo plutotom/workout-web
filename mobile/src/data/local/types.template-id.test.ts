@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { convexWorkoutTemplateId, localTemplateRemoteId } from "./types";
+import {
+  convexWorkoutTemplateId,
+  localTemplateIdsToPrune,
+  localTemplateRemoteId,
+} from "./types";
 
 describe("convexWorkoutTemplateId", () => {
   it("strips unsynced local placeholders", () => {
@@ -17,5 +21,20 @@ describe("convexWorkoutTemplateId", () => {
     expect(convexWorkoutTemplateId(null)).toBeNull();
     expect(convexWorkoutTemplateId(undefined)).toBeNull();
     expect(convexWorkoutTemplateId("")).toBeNull();
+  });
+});
+
+describe("localTemplateIdsToPrune", () => {
+  it("drops cloud rows the bootstrap no longer lists", () => {
+    expect(
+      localTemplateIdsToPrune(
+        [
+          { id: "keep", remoteId: "cloud-a" },
+          { id: "gone", remoteId: "cloud-b" },
+          { id: "local", remoteId: localTemplateRemoteId("phone") },
+        ],
+        new Set(["cloud-a"]),
+      ),
+    ).toEqual(["gone"]);
   });
 });

@@ -1,6 +1,50 @@
 import { describe, expect, it } from "vitest";
 
-import { classifyTemplateSyncFailure } from "./template-sync-policy";
+import {
+  adoptCloudTemplateId,
+  classifyTemplateSyncFailure,
+} from "./template-sync-policy";
+
+describe("adoptCloudTemplateId", () => {
+  const push = {
+    remoteId: "cloud-push",
+    name: "Push Day",
+    exercises: [{ slug: "bench" }],
+  };
+
+  it("adopts a uniquely named cloud template", () => {
+    expect(
+      adoptCloudTemplateId({ name: "Push Day", exercises: [{ slug: "ohp" }] }, [
+        push,
+      ]),
+    ).toBe("cloud-push");
+  });
+
+  it("uses name+slugs when the name is shared", () => {
+    expect(
+      adoptCloudTemplateId(
+        { name: "Push Day", exercises: [{ slug: "bench" }] },
+        [
+          push,
+          {
+            remoteId: "cloud-push-2",
+            name: "Push Day",
+            exercises: [{ slug: "ohp" }],
+          },
+        ],
+      ),
+    ).toBe("cloud-push");
+  });
+
+  it("does not guess when two same-name templates share slugs", () => {
+    expect(
+      adoptCloudTemplateId(
+        { name: "Push Day", exercises: [{ slug: "bench" }] },
+        [push, { ...push, remoteId: "cloud-push-copy" }],
+      ),
+    ).toBeNull();
+  });
+});
 
 describe("classifyTemplateSyncFailure", () => {
   it.each([

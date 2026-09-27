@@ -13,6 +13,11 @@ import {
   upsertMachineFromClient,
   upsertPlaceFromClient,
 } from "../../lib/places";
+import {
+  createTemplate as createTemplateLib,
+  exerciseInputValidator,
+  updateTemplate as updateTemplateLib,
+} from "../../lib/templates";
 import { deleteWorkout } from "../../lib/workouts";
 import { muscleGroupValidator } from "../../schemas/exercises";
 import {
@@ -80,6 +85,44 @@ const resultValidator = v.object({
 
 const MAX_EXERCISES = 50;
 const MAX_SETS_PER_EXERCISE = 20;
+
+async function findReceipt(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  operationId: string,
+) {
+  return await ctx.db
+    .query("iosSyncReceipts")
+    .withIndex("by_user_operation_id", (q) =>
+      q.eq("userId", userId).eq("operationId", operationId),
+    )
+    .first();
+}
+
+async function writeReceipt(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  args: {
+    operationId: string;
+    deviceId: string;
+    targetId?: string;
+  },
+) {
+  const duplicate = await findReceipt(ctx, userId, args.operationId);
+  if (duplicate) {
+    if (args.targetId && duplicate.targetId !== args.targetId) {
+      await ctx.db.patch(duplicate._id, { targetId: args.targetId });
+    }
+    return;
+  }
+  await ctx.db.insert("iosSyncReceipts", {
+    userId,
+    operationId: args.operationId,
+    deviceId: args.deviceId,
+    appliedAt: Date.now(),
+    targetId: args.targetId,
+  });
+}
 
 async function findSessionsForPush(
   ctx: MutationCtx,
@@ -271,6 +314,65 @@ export const pushCustomExercise = mutation({
       slug: result.slug,
       serverTime: Date.now(),
     };
+  },
+});
+
+/**
+ * Upload one template. Retries with the same operationId return the original
+ * Convex id instead of inserting another copy (the phone used to cancel
+ * after create succeeded and then create again).
+ */
+export const pushTemplate = mutation({
+  args: {
+    operationId: v.string(),
+    deviceId: v.string(),
+    template: v.object({
+      remoteId: v.union(v.id("workoutTemplates"), v.null()),
+      name: v.string(),
+      exercises: v.array(exerciseInputValidator),
+    }),
+  },
+  returns: v.object({
+    remoteTemplateId: v.id("workoutTemplates"),
+    serverTime: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const user = await requireUser(ctx);
+    const receipt = await findReceipt(ctx, user._id, args.operationId);
+    const receiptTemplateId = receipt?.targetId
+      ? (receipt.targetId as Id<"workoutTemplates">)
+      : null;
+    const existing =
+      receiptTemplateId !== null ? await ctx.db.get(receiptTemplateId) : null;
+    const remoteTemplateId =
+      existing && existing.userId === user._id
+        ? existing._id
+        : args.template.remoteId;
+
+    if (remoteTemplateId) {
+      await updateTemplateLib(ctx, user._id, {
+        templateId: remoteTemplateId,
+        name: args.template.name,
+        exercises: args.template.exercises,
+      });
+      await writeReceipt(ctx, user._id, {
+        operationId: args.operationId,
+        deviceId: args.deviceId,
+        targetId: remoteTemplateId,
+      });
+      return { remoteTemplateId, serverTime: Date.now() };
+    }
+
+    const createdId = await createTemplateLib(ctx, user._id, {
+      name: args.template.name,
+      exercises: args.template.exercises,
+    });
+    await writeReceipt(ctx, user._id, {
+      operationId: args.operationId,
+      deviceId: args.deviceId,
+      targetId: createdId,
+    });
+    return { remoteTemplateId: createdId, serverTime: Date.now() };
   },
 });
 

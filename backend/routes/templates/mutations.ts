@@ -1,8 +1,14 @@
 import { v } from "convex/values";
 
-import { mutation } from "../../_generated/server";
+import type { Id } from "../../_generated/dataModel";
+import {
+  internalMutation,
+  mutation,
+  type MutationCtx,
+} from "../../_generated/server";
 import { requireUser } from "../../lib/auth";
 import { importBundle as importBundleLib } from "../../lib/portableTemplates";
+import { duplicateTemplatePlan } from "../../lib/template_dedupe";
 import {
   buildStarterTemplates,
   createTemplate as createTemplateLib,
@@ -90,6 +96,93 @@ export const remove = mutation({
   handler: async (ctx, { templateId }) => {
     const user = await requireUser(ctx);
     await removeTemplateLib(ctx, user._id, templateId);
+  },
+});
+
+const duplicateCleanupResult = v.object({
+  deleted: v.number(),
+  keptGroups: v.number(),
+});
+
+async function removeExactDuplicatesForUserId(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+): Promise<{ deleted: number; keptGroups: number }> {
+  const templates = await ctx.db
+    .query("workoutTemplates")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  const rows = await Promise.all(
+    templates.map(async (template) => {
+      const exercises = await ctx.db
+        .query("templateExercises")
+        .withIndex("by_template", (q) => q.eq("templateId", template._id))
+        .collect();
+      exercises.sort((a, b) => a.orderIndex - b.orderIndex);
+      return {
+        id: template._id,
+        name: template.name,
+        createdAt: template.createdAt,
+        slugs: exercises.map((exercise) => exercise.exerciseSlug),
+      };
+    }),
+  );
+  const plan = duplicateTemplatePlan(rows);
+  const sessions = await ctx.db
+    .query("workoutSessions")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+
+  let deleted = 0;
+  for (const group of plan) {
+    const keepId = group.keepId as Id<"workoutTemplates">;
+    for (const doomed of group.deleteIds) {
+      const doomedId = doomed as Id<"workoutTemplates">;
+      await Promise.all(
+        sessions
+          .filter((session) => session.templateId === doomedId)
+          .map((session) => ctx.db.patch(session._id, { templateId: keepId })),
+      );
+      const exercises = await ctx.db
+        .query("templateExercises")
+        .withIndex("by_template", (q) => q.eq("templateId", doomedId))
+        .collect();
+      await Promise.all(
+        exercises.map((exercise) => ctx.db.delete(exercise._id)),
+      );
+      await ctx.db.delete(doomedId);
+      deleted += 1;
+    }
+  }
+
+  return { deleted, keptGroups: plan.length };
+}
+
+/**
+ * Delete exact copies of the same template (same name + exercise slugs),
+ * keeping the oldest. Sessions on the dropped copies are retargeted to the
+ * kept row. Safe to run more than once.
+ */
+export const removeExactDuplicates = mutation({
+  args: {},
+  returns: duplicateCleanupResult,
+  handler: async (ctx) => {
+    const user = await requireUser(ctx);
+    return await removeExactDuplicatesForUserId(ctx, user._id);
+  },
+});
+
+/** CLI/dashboard cleanup for a flooded account without impersonating the user. */
+export const removeExactDuplicatesForEmail = internalMutation({
+  args: { email: v.string() },
+  returns: v.union(duplicateCleanupResult, v.null()),
+  handler: async (ctx, { email }) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", email.trim().toLowerCase()))
+      .unique();
+    if (!user) return null;
+    return await removeExactDuplicatesForUserId(ctx, user._id);
   },
 });
 

@@ -92,6 +92,20 @@ export function isUnsyncedTemplateRemoteId(remoteId: string) {
   return remoteId.startsWith(LOCAL_TEMPLATE_REMOTE_PREFIX);
 }
 
+/** Cloud rows the bootstrap no longer lists — deleted server-side or never ours. */
+export function localTemplateIdsToPrune(
+  rows: Array<{ id: string; remoteId: string }>,
+  cloudRemoteIds: Set<string>,
+): string[] {
+  return rows
+    .filter(
+      (row) =>
+        !isUnsyncedTemplateRemoteId(row.remoteId) &&
+        !cloudRemoteIds.has(row.remoteId),
+    )
+    .map((row) => row.id);
+}
+
 /** Convex `pushSession` only accepts a real template id or null. */
 export function convexWorkoutTemplateId(
   remoteTemplateId: string | null | undefined,

@@ -35,6 +35,7 @@ import {
   convexWorkoutTemplateId,
   isUnsyncedTemplateRemoteId,
   localCustomSlug,
+  localTemplateIdsToPrune,
   localTemplateRemoteId,
   remoteCustomSlug,
 } from "@/data/local/types";
@@ -2164,6 +2165,29 @@ export async function applyIosBootstrap(
           JSON.stringify(exercise.sets),
         );
       }
+    }
+
+    const cloudTemplateIds = new Set(
+      payload.templates.map((template) => template.remoteId),
+    );
+    const localTemplateRows = await txn.getAllAsync<{
+      id: string;
+      remote_id: string;
+    }>("SELECT id, remote_id FROM local_templates");
+    for (const id of localTemplateIdsToPrune(
+      localTemplateRows.map((row) => ({
+        id: row.id,
+        remoteId: row.remote_id,
+      })),
+      cloudTemplateIds,
+    )) {
+      await txn.runAsync("DELETE FROM local_templates WHERE id = ?", id);
+      await txn.runAsync(
+        `DELETE FROM local_sync_outbox
+          WHERE entity_type IN ('template', 'template_quarantined')
+            AND entity_id = ?`,
+        id,
+      );
     }
 
     for (const exercise of payload.customExercises) {

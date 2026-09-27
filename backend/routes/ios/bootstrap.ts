@@ -155,7 +155,13 @@ export const get = query({
       .take(500);
 
     return {
-      serverTime: Date.now(),
+      serverTime: Math.max(
+        0,
+        ...templates.map((template) => template.updatedAt),
+        ...placeWeights.map((row) => row.updatedAt),
+        ...places.map((place) => place.lastUsedAt ?? 0),
+        ...machineList.map((machine) => machine.lastUsedAt ?? 0),
+      ),
       preferences: {
         unit: user.unit,
         barWeightLb: user.barWeightLb ?? null,
