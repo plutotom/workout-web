@@ -10,7 +10,8 @@ import {
   useState,
 } from "react";
 
-import { requirePublicConfig } from "@/lib/config";
+import { requirePublicConfig } from "../lib/config";
+import { MobileAccountContext } from "./account-context";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -40,6 +41,7 @@ type AuthContextValue = {
   signIn: () => Promise<void>;
   signOut: () => Promise<void>;
   continueOffline: () => Promise<void>;
+  reconnect: () => Promise<void>;
   fetchAccessToken: (
     options?: boolean | { forceRefreshToken?: boolean },
   ) => Promise<string | null>;
@@ -63,24 +65,34 @@ function invalidSession(error: unknown) {
 
 async function postToken(path: string, body: unknown): Promise<TokenResponse> {
   const { webUrl } = requirePublicConfig();
-  const response = await fetch(`${webUrl}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const result = (await response.json()) as TokenResponse & { error?: string };
-  if (!response.ok)
-    throw new AuthRequestError(
-      result.error ?? "Authentication failed",
-      response.status,
-    );
-  return result;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const response = await fetch(`${webUrl}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    const result = (await response.json()) as TokenResponse & {
+      error?: string;
+    };
+    if (!response.ok)
+      throw new AuthRequestError(
+        result.error ?? "Authentication failed",
+        response.status,
+      );
+    return result;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<MobileUser | null>(null);
   const [localMode, setLocalMode] = useState(false);
+  const [hasAccessToken, setHasAccessToken] = useState(false);
   const sessionRef = useRef<string | null>(null);
   const accessTokenRef = useRef<string | null>(null);
   const refreshInFlight = useRef<Promise<string | null> | null>(null);
@@ -88,6 +100,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const accept = useCallback(async (result: TokenResponse) => {
     sessionRef.current = result.session;
     accessTokenRef.current = result.accessToken;
+    setHasAccessToken(true);
     setUser(result.user);
     setLocalMode(true);
     await Promise.all([
@@ -108,6 +121,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (expectedSession && sessionRef.current !== expectedSession) return;
     sessionRef.current = null;
     accessTokenRef.current = null;
+    setHasAccessToken(false);
     setUser(null);
     setLocalMode(false);
     await Promise.all([
@@ -215,6 +229,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await clear();
   }, [clear]);
 
+  const reconnect = useCallback(async () => {
+    setLoading(true);
+    try {
+      await fetchAccessToken({ forceRefreshToken: true });
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchAccessToken]);
+
   const continueOffline = useCallback(async () => {
     setLocalMode(true);
     await SecureStore.setItemAsync(LOCAL_MODE_KEY, "1", {
@@ -226,19 +249,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     () => ({
       loading,
       isLoading: loading,
-      isAuthenticated: Boolean(user),
+      isAuthenticated: Boolean(user) && hasAccessToken,
       canUseApp: localMode || Boolean(user),
       user,
       signIn,
       signOut,
       continueOffline,
+      reconnect,
       fetchAccessToken,
     }),
     [
       continueOffline,
       fetchAccessToken,
+      hasAccessToken,
       loading,
       localMode,
+      reconnect,
       signIn,
       signOut,
       user,
@@ -247,8 +273,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
-export function useMobileAuth() {
+/** Only the Convex auth adapter and account bootstrap should use credentials directly. */
+export function useAuthCredentials() {
   const value = useContext(AuthContext);
-  if (!value) throw new Error("useMobileAuth must be used within AuthProvider");
+  if (!value)
+    throw new Error("useAuthCredentials must be used within AuthProvider");
   return value;
+}
+
+/** Cloud features wait for server-confirmed auth and the user's account row. */
+export function useMobileAuth() {
+  const credentials = useAuthCredentials();
+  const account = useContext(MobileAccountContext);
+  if (!account) throw new Error("useMobileAuth requires MobileAccountProvider");
+  return {
+    ...credentials,
+    isAuthenticated: account.status === "ready",
+    accountStatus: account.status,
+    retryAccountConnection: account.retry,
+  };
 }

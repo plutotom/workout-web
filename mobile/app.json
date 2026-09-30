@@ -3,7 +3,7 @@
     "name": "Grayed Lift",
     "slug": "workout-ios-v1",
     "scheme": "workout",
-    "version": "0.1.12",
+    "version": "0.1.16",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "icon": "./assets/icon.png",
@@ -24,13 +24,21 @@
         "com.apple.developer.healthkit": true,
         "com.apple.developer.private-cloud-compute": true
       },
-      "buildNumber": "11"
+      "buildNumber": "15"
     },
     "owner": "plutotom",
     "runtimeVersion": {
       "policy": "appVersion"
     },
     "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "enableSceneSupport": true
+          }
+        }
+      ],
       "expo-router",
       "expo-dev-client",
       "expo-updates",

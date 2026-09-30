@@ -462,6 +462,7 @@ function useWorkoutRecap(sessionId: string) {
 }
 
 export default function WorkoutRecapScreen() {
+  const { isAuthenticated } = useMobileAuth();
   const { sessionId } = useLocalSearchParams<{ sessionId: string }>();
   const recap = useWorkoutRecap(sessionId);
   const prefs = useLocalPreferences();
@@ -475,6 +476,7 @@ export default function WorkoutRecapScreen() {
   );
 
   async function shareRecapCard() {
+    if (!isAuthenticated) return;
     if (sharing) return;
     setSharing(true);
     try {
@@ -839,14 +841,16 @@ export default function WorkoutRecapScreen() {
           <ChevronLeft color={colors.text} />
         </Pressable>
         {isLast ? (
-          <Button
-            label={sharing ? "Sharing…" : "Share recap"}
-            icon={Share2}
-            size="lg"
-            style={{ flex: 1 }}
-            disabled={sharing}
-            onPress={() => void shareRecapCard()}
-          />
+          isAuthenticated ? (
+            <Button
+              label={sharing ? "Sharing…" : "Share recap"}
+              icon={Share2}
+              size="lg"
+              style={{ flex: 1 }}
+              disabled={sharing}
+              onPress={() => void shareRecapCard()}
+            />
+          ) : null
         ) : (
           <Button
             label="Next"
@@ -859,7 +863,7 @@ export default function WorkoutRecapScreen() {
           />
         )}
       </View>
-      {!isHealthSummary ? (
+      {!isHealthSummary && isAuthenticated ? (
         <Button
           label="Post to Social"
           variant="outline"

@@ -65,18 +65,20 @@ export default function SettingsScreen() {
 function AuthenticatedSettingsScreen() {
   const user = useQuery(api.routes.auth.users.current);
   if (user === undefined) return <FullScreenLoader label="Loading settings…" />;
-  if (!user) return <FullScreenLoader label="Loading account…" />;
+  if (!user) return <OfflineSettingsScreen />;
   return <SettingsContent user={user} />;
 }
 
 function OfflineSettingsScreen() {
-  const { signIn } = useMobileAuth();
+  const { signIn, signOut, user, accountStatus, retryAccountConnection } =
+    useMobileAuth();
   const [connecting, setConnecting] = useState(false);
 
   async function connectAccount() {
     setConnecting(true);
     try {
-      await signIn();
+      if (user) await retryAccountConnection();
+      else await signIn();
     } catch {
       Alert.alert(
         "Couldn’t connect",
@@ -92,17 +94,35 @@ function OfflineSettingsScreen() {
       <Card>
         <Settings2 color={colors.text} size={22} />
         <Text style={{ color: colors.text, fontSize: 28, fontWeight: "700" }}>
-          Offline mode
+          {accountStatus === "connecting"
+            ? "Connecting account…"
+            : user
+              ? "Account unavailable"
+              : "Offline mode"}
         </Text>
         <Text style={{ color: colors.dim, fontSize: 13, lineHeight: 19 }}>
-          Workouts are saved on this phone. Connect your account whenever you
-          want to synchronize them with Grayed Lift on the web.
+          {user
+            ? "Your account connection isn’t ready. Workouts remain saved on this phone, and cloud sync will resume when your account connects."
+            : "Workouts are saved on this phone. Connect your account whenever you want to synchronize them with Grayed Lift on the web."}
         </Text>
         <Button
-          label={connecting ? "Connecting…" : "Connect account"}
-          disabled={connecting}
+          label={
+            connecting
+              ? "Connecting…"
+              : user
+                ? "Retry connection"
+                : "Connect account"
+          }
+          disabled={connecting || accountStatus === "connecting"}
           onPress={() => void connectAccount()}
         />
+        {user ? (
+          <Button
+            label="Sign out"
+            variant="ghost"
+            onPress={() => void signOut()}
+          />
+        ) : null}
       </Card>
       <HealthSettingsCard />
       <NotificationSettingsCard />
