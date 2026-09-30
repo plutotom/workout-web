@@ -33,11 +33,37 @@ export function SocialPost({
 }) {
   const like = useMutation(api.routes.social.mutations.toggleLike);
   const copy = useMutation(api.routes.social.mutations.copyWorkout);
-  const open = () =>
+  const open = () => {
+    if (detail) return;
     router.push({
       pathname: "/social/post/[postId]",
       params: { postId: post.id },
     });
+  };
+  const workout = (
+    <>
+      <Text style={{ color: colors.text, fontWeight: "700", fontSize: 20 }}>
+        {post.title}
+      </Text>
+      <Text style={{ color: colors.dim, marginTop: 4 }}>
+        {post.exerciseCount} exercises · {Math.round(post.durationSeconds / 60)}{" "}
+        min
+      </Text>
+      {post.caption ? (
+        <Text style={{ color: colors.text, marginTop: 8 }}>{post.caption}</Text>
+      ) : null}
+      {detail
+        ? post.exercises.map((exercise, i) => (
+            <Text
+              key={`${i}-${exercise.name}`}
+              style={{ color: colors.dim, marginTop: 6 }}
+            >
+              {exercise.name} · {exercise.sets} sets
+            </Text>
+          ))
+        : null}
+    </>
+  );
   return (
     <Card style={{ gap: 12, marginBottom: 12 }}>
       <Pressable
@@ -56,30 +82,11 @@ export function SocialPost({
           {new Date(post.completedAt).toLocaleDateString()}
         </Text>
       </Pressable>
-      <Pressable onPress={open}>
-        <Text style={{ color: colors.text, fontWeight: "700", fontSize: 20 }}>
-          {post.title}
-        </Text>
-        <Text style={{ color: colors.dim, marginTop: 4 }}>
-          {post.exerciseCount} exercises ·{" "}
-          {Math.round(post.durationSeconds / 60)} min
-        </Text>
-        {post.caption ? (
-          <Text style={{ color: colors.text, marginTop: 8 }}>
-            {post.caption}
-          </Text>
-        ) : null}
-        {detail
-          ? post.exercises.map((exercise, i) => (
-              <Text
-                key={`${i}-${exercise.name}`}
-                style={{ color: colors.dim, marginTop: 6 }}
-              >
-                {exercise.name} · {exercise.sets} sets
-              </Text>
-            ))
-          : null}
-      </Pressable>
+      {detail ? (
+        <View>{workout}</View>
+      ) : (
+        <Pressable onPress={open}>{workout}</Pressable>
+      )}
       <View style={{ flexDirection: "row", gap: 18, alignItems: "center" }}>
         <Pressable
           accessibilityRole="button"
@@ -101,6 +108,7 @@ export function SocialPost({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="View comments"
+          disabled={detail}
           onPress={open}
           style={{ flexDirection: "row", gap: 6, alignItems: "center" }}
         >
