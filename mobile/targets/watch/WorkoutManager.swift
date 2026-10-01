@@ -49,6 +49,9 @@ final class WorkoutManager: NSObject, ObservableObject {
   private var syncIdentifier = ""
   private let defaults = UserDefaults.standard
   private var tickTimer: Timer?
+  /// Discard the Health workout only after HKWorkoutSession reaches `.ended`.
+  private var discardOnEnd = false
+  private var isClosing = false
 
   private func startTickingIfNeeded() {
     guard tickTimer == nil else { return }
@@ -96,6 +99,8 @@ final class WorkoutManager: NSObject, ObservableObject {
     healthStore.recoverActiveWorkoutSession { [weak self] session, _ in
       guard let self, let session else { return }
       DispatchQueue.main.async {
+        self.isClosing = false
+        self.discardOnEnd = false
         self.attach(session: session, sessionId: self.defaults.string(forKey: "watch.sessionId") ?? "")
         self.syncIdentifier = self.defaults.string(forKey: "watch.syncIdentifier") ?? ""
         self.status = session.state == .running ? "recording" : "disconnected"
@@ -105,11 +110,11 @@ final class WorkoutManager: NSObject, ObservableObject {
   }
 
   func endFromWatch() {
-    end(discard: false)
+    requestEnd(discard: false)
   }
 
   func discard() {
-    end(discard: true)
+    requestEnd(discard: true)
   }
 
   private func start(
@@ -119,6 +124,8 @@ final class WorkoutManager: NSObject, ObservableObject {
     syncIdentifier: String
   ) {
     if session?.state == .running { return }
+    discardOnEnd = false
+    isClosing = false
     self.sessionId = sessionId
     self.syncIdentifier = syncIdentifier
     defaults.set(sessionId, forKey: "watch.sessionId")
@@ -165,24 +172,34 @@ final class WorkoutManager: NSObject, ObservableObject {
     builder?.delegate = self
   }
 
-  private func end(discard: Bool) {
+  private func requestEnd(discard: Bool) {
+    discardOnEnd = discard
     guard let session else {
+      if discard { notifyEnded(healthUuid: "") }
       status = "idle"
       mirrorState()
       return
     }
-    if discard {
+    switch session.state {
+    case .ended, .stopped:
+      handleSessionEnded(date: Date())
+    default:
       session.end()
+    }
+  }
+
+  private func handleSessionEnded(date: Date) {
+    guard !isClosing else { return }
+    guard session != nil || builder != nil else { return }
+    isClosing = true
+    if discardOnEnd {
       builder?.discardWorkout()
+      notifyEnded(healthUuid: "")
       clear()
-      PhoneBridge.shared.send([
-        "type": "ended",
-        "sessionId": sessionId,
-        "healthUuid": "",
-      ])
+      discardOnEnd = false
       return
     }
-    session.end()
+    finishBuilder(endDate: date)
   }
 
   private func finishBuilder(endDate: Date) {
@@ -190,12 +207,7 @@ final class WorkoutManager: NSObject, ObservableObject {
       self?.builder?.finishWorkout { workout, _ in
         DispatchQueue.main.async {
           guard let self else { return }
-          let uuid = workout?.uuid.uuidString ?? ""
-          PhoneBridge.shared.send([
-            "type": "ended",
-            "sessionId": self.sessionId,
-            "healthUuid": uuid,
-          ])
+          self.notifyEnded(healthUuid: workout?.uuid.uuidString ?? "")
           self.status = "ended"
           self.mirrorState()
           self.session = nil
@@ -203,6 +215,14 @@ final class WorkoutManager: NSObject, ObservableObject {
         }
       }
     }
+  }
+
+  private func notifyEnded(healthUuid: String) {
+    PhoneBridge.shared.send([
+      "type": "ended",
+      "sessionId": sessionId,
+      "healthUuid": healthUuid,
+    ])
   }
 
   private func clear() {
@@ -261,8 +281,8 @@ extension WorkoutManager: HKWorkoutSessionDelegate {
     date: Date
   ) {
     DispatchQueue.main.async {
-      if toState == .ended {
-        self.finishBuilder(endDate: date)
+      if toState == .ended || toState == .stopped {
+        self.handleSessionEnded(date: date)
       } else if toState == .running {
         self.status = "recording"
         self.mirrorState()

@@ -325,7 +325,9 @@ function LocalDataState({ children }: { children: ReactNode }) {
       noteBackupSaved: () => run(() => markBackupSaved(db)),
       finish: (sessionId) =>
         run(async () => {
-          await endWatchWorkout().catch(() => undefined);
+          // Watch I/O is fire-and-forget so a hung companion cannot block
+          // Finish/Discard on the phone.
+          void endWatchWorkout().catch(() => undefined);
           await finishLocalWorkout(db, sessionId);
           const watchHealthUuid = await consumeWatchHealthUuid(db, sessionId);
           const watchRecorded = await wasWatchRecorded(db, sessionId);
@@ -344,7 +346,7 @@ function LocalDataState({ children }: { children: ReactNode }) {
         }),
       abandon: (sessionId) =>
         run(async () => {
-          await discardWatchWorkout().catch(() => undefined);
+          void discardWatchWorkout().catch(() => undefined);
           await abandonLocalWorkout(db, sessionId);
         }),
       deleteSession: (sessionId) =>
