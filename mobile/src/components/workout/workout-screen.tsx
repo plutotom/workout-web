@@ -16,9 +16,10 @@ import {
   Sparkles,
   Trash2,
 } from "lucide-react-native";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  InteractionManager,
   Keyboard,
   Modal,
   Platform,
@@ -1104,6 +1105,7 @@ export function WorkoutFinishController() {
   // Navigating while the sheet is still on screen tears it down mid-dismissal,
   // so the recap waits for `onDismiss` (iOS fires it once the sheet is gone).
   const [recapAfterSave, setRecapAfterSave] = useState<string | null>(null);
+  const discardInFlight = useRef(false);
 
   function closeSavePrompt() {
     if (!savePrompt) return;
@@ -1112,6 +1114,29 @@ export function WorkoutFinishController() {
     setSavePrompt(null);
     if (Platform.OS !== "ios") showRecap(savePrompt.sessionId);
   }
+
+  const discardAndLeave = useCallback(
+    (sessionId: string) => {
+      if (discardInFlight.current) return;
+      discardInFlight.current = true;
+      void abandon(sessionId)
+        .then(() => {
+          InteractionManager.runAfterInteractions(() => {
+            router.replace("/dashboard");
+          });
+        })
+        .catch((error) => {
+          discardInFlight.current = false;
+          Alert.alert(
+            "Couldn’t discard workout",
+            error instanceof Error && error.message
+              ? error.message
+              : "Please try again.",
+          );
+        });
+    },
+    [abandon],
+  );
 
   useEffect(() => {
     finishController = (session) => {
@@ -1130,10 +1155,7 @@ export function WorkoutFinishController() {
             {
               text: "Discard",
               style: "destructive",
-              onPress: () =>
-                void abandon(session._id).then(() =>
-                  router.replace("/dashboard"),
-                ),
+              onPress: () => discardAndLeave(session._id),
             },
           ],
         );
@@ -1197,10 +1219,7 @@ export function WorkoutFinishController() {
           {
             text: "Discard",
             style: "destructive",
-            onPress: () =>
-              void abandon(session._id).then(() =>
-                router.replace("/dashboard"),
-              ),
+            onPress: () => discardAndLeave(session._id),
           },
           { text: "Save workout", onPress: () => void commit() },
         ]);
@@ -1211,6 +1230,7 @@ export function WorkoutFinishController() {
     };
   }, [
     abandon,
+    discardAndLeave,
     finish,
     saveTemplateFromSession,
     templateNeedsUpdate,
