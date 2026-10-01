@@ -485,6 +485,22 @@ export const pushSession = mutation({
       }
     }
 
+    // A second phone can edit a completed note offline before learning about
+    // its late Watch/Health attachment. The newer text revision must not erase
+    // that saved link. A different incoming UUID still represents a new link.
+    const savedHealth =
+      existing?.status === "completed" &&
+      existing.sessionKind === "tracked" &&
+      existing.inputMode === "note" &&
+      args.session.status === "completed" &&
+      args.session.sessionKind === "tracked" &&
+      args.session.inputMode === "note" &&
+      existing.externalId &&
+      (!args.session.externalId ||
+        args.session.externalId === existing.externalId)
+        ? existing
+        : null;
+
     const sessionFields = {
       clientId: args.session.clientId,
       clientUpdatedAt: args.session.updatedAt,
@@ -498,21 +514,25 @@ export const pushSession = mutation({
       noteBody: args.session.noteBody ?? undefined,
       noteUnit: args.session.noteUnit ?? undefined,
       countsTowardGoals: args.session.countsTowardGoals ?? true,
-      externalProvider: args.session.externalProvider ?? undefined,
-      externalId: args.session.externalId ?? undefined,
-      activityType: args.session.activityType ?? undefined,
-      sourceName: args.session.sourceName ?? undefined,
-      sourceBundleId: args.session.sourceBundleId ?? undefined,
-      durationSeconds: args.session.durationSeconds ?? undefined,
-      energyKcal: args.session.energyKcal ?? undefined,
-      distanceMeters: args.session.distanceMeters ?? undefined,
-      importedAt: args.session.importedAt ?? undefined,
+      externalProvider:
+        args.session.externalProvider ?? savedHealth?.externalProvider,
+      externalId: args.session.externalId ?? savedHealth?.externalId,
+      activityType: args.session.activityType ?? savedHealth?.activityType,
+      sourceName: args.session.sourceName ?? savedHealth?.sourceName,
+      sourceBundleId:
+        args.session.sourceBundleId ?? savedHealth?.sourceBundleId,
+      durationSeconds:
+        args.session.durationSeconds ?? savedHealth?.durationSeconds,
+      energyKcal: args.session.energyKcal ?? savedHealth?.energyKcal,
+      distanceMeters:
+        args.session.distanceMeters ?? savedHealth?.distanceMeters,
+      importedAt: args.session.importedAt ?? savedHealth?.importedAt,
       placeId: args.session.placeId ?? undefined,
       placeName: args.session.placeName ?? undefined,
       healthSegments:
         args.session.healthSegments && args.session.healthSegments.length > 0
           ? args.session.healthSegments
-          : undefined,
+          : savedHealth?.healthSegments,
     };
     const sessionId =
       existing?._id ??

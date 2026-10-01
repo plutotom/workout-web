@@ -31,6 +31,9 @@ function serverFixture(existing: Record<string, unknown> | null = null) {
   const patch = vi.fn(async () => {});
   const ctx = {
     db: {
+      async get() {
+        return existing ? { ...existing, userId: "user-1" } : null;
+      },
       query(table: string) {
         let indexName: string;
         return {
@@ -47,6 +50,9 @@ function serverFixture(existing: Record<string, unknown> | null = null) {
           async take() {
             return [];
           },
+          async collect() {
+            return [];
+          },
         };
       },
       insert,
@@ -56,7 +62,10 @@ function serverFixture(existing: Record<string, unknown> | null = null) {
   return { ctx, insert, patch };
 }
 
-async function push(ctx: MutationCtx, incoming = session) {
+async function push(
+  ctx: MutationCtx,
+  incoming: Infer<typeof sessionSnapshotValidator> = session,
+) {
   const handler = (
     pushSession as unknown as {
       _handler: (
@@ -134,5 +143,95 @@ describe("iOS note snapshots", () => {
     });
     expect(fixture.insert).not.toHaveBeenCalled();
     expect(fixture.patch).not.toHaveBeenCalled();
+  });
+
+  it.each([null, undefined, "health-uuid"])(
+    "preserves a late Health link when an offline note edit uploads UUID %s",
+    async (externalId) => {
+      const health = {
+        externalProvider: "apple_health",
+        externalId: "health-uuid",
+        activityType: "traditionalStrengthTraining",
+        sourceName: "Apple Watch",
+        sourceBundleId: "com.apple.health",
+        durationSeconds: 100,
+        energyKcal: 42,
+        distanceMeters: 0,
+        importedAt: 350,
+        healthSegments: [
+          {
+            activityType: "traditionalStrengthTraining",
+            activityName: "Strength training",
+            startedAt: 100,
+            endedAt: 200,
+            durationSeconds: 100,
+            energyKcal: 42,
+            distanceMeters: null,
+          },
+        ],
+      };
+      const fixture = serverFixture({
+        _id: "remote-session",
+        ...session,
+        status: "completed",
+        completedAt: 200,
+        clientUpdatedAt: 350,
+        ...health,
+      });
+      expect(
+        await push(fixture.ctx, {
+          ...session,
+          status: "completed",
+          completedAt: 200,
+          updatedAt: 400,
+          noteBody: "Edited offline on phone B",
+          externalProvider: null,
+          externalId,
+          energyKcal: null,
+          durationSeconds: null,
+          healthSegments: [],
+        }),
+      ).toMatchObject({ status: "applied" });
+      expect(fixture.patch).toHaveBeenCalledWith(
+        "remote-session",
+        expect.objectContaining({
+          noteBody: "Edited offline on phone B",
+          clientUpdatedAt: 400,
+          startedAt: 100,
+          completedAt: 200,
+          ...health,
+        }),
+      );
+    },
+  );
+
+  it("accepts a new Health UUID without copying metadata from the old link", async () => {
+    const fixture = serverFixture({
+      _id: "remote-session",
+      ...session,
+      status: "completed",
+      completedAt: 200,
+      clientUpdatedAt: 350,
+      externalProvider: "apple_health",
+      externalId: "old-health-uuid",
+      energyKcal: 42,
+    });
+    await push(fixture.ctx, {
+      ...session,
+      status: "completed",
+      completedAt: 200,
+      updatedAt: 400,
+      externalProvider: "apple_health",
+      externalId: "new-health-uuid",
+      energyKcal: null,
+    });
+    expect(fixture.patch).toHaveBeenCalledWith(
+      "remote-session",
+      expect.objectContaining({
+        externalId: "new-health-uuid",
+        externalProvider: "apple_health",
+        energyKcal: undefined,
+      }),
+    );
   });
 });
