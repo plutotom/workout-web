@@ -1,3 +1,5 @@
+import type { Id } from "@backend/dataModel";
+
 export type LocalId = string;
 export type LocalSessionStatus = "in_progress" | "completed" | "abandoned";
 export type LocalSessionKind = "tracked" | "health_summary";
@@ -114,6 +116,27 @@ export function convexWorkoutTemplateId(
     return null;
   }
   return remoteTemplateId;
+}
+
+/** Phone routes use SQLite ids (UUIDs); Convex expects the cloud `workoutTemplates` id. */
+const LOCAL_TEMPLATE_ROUTE_ID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function isLocalTemplateRouteId(templateRouteId: string) {
+  return LOCAL_TEMPLATE_ROUTE_ID.test(templateRouteId);
+}
+
+export function convexWorkoutTemplateIdForQuery(
+  templateRouteId: string,
+  localTemplate: Pick<LocalTemplate, "remoteId"> | null | undefined,
+): Id<"workoutTemplates"> | null {
+  if (isLocalTemplateRouteId(templateRouteId)) {
+    if (!localTemplate) return null;
+    const remoteId = convexWorkoutTemplateId(localTemplate.remoteId);
+    return remoteId ? (remoteId as Id<"workoutTemplates">) : null;
+  }
+  const remoteId = convexWorkoutTemplateId(templateRouteId);
+  return remoteId ? (remoteId as Id<"workoutTemplates">) : null;
 }
 
 export function localTemplateRemoteId(templateId: string) {

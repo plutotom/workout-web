@@ -2,9 +2,10 @@ import { api } from "@backend/api";
 import type { Id } from "@backend/dataModel";
 import { useMutation } from "convex/react";
 import { router } from "expo-router";
-import { Heart, MessageCircle } from "lucide-react-native";
+import { MessageCircle } from "lucide-react-native";
 import { Alert, Pressable, Text, View } from "react-native";
 
+import { CowboyHatIcon } from "@/components/cowboy-hat-icon";
 import { Button, Card } from "@/components/ui";
 import { colors } from "@/theme";
 
@@ -90,15 +91,15 @@ export function SocialPost({
       <View style={{ flexDirection: "row", gap: 18, alignItems: "center" }}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={post.liked ? "Unlike workout" : "Like workout"}
+          accessibilityLabel={post.liked ? "Remove yee haw" : "Give a yee haw"}
           onPress={() =>
             void like({ postId: post.id }).catch((e) =>
-              Alert.alert("Couldn't like", String(e)),
+              Alert.alert("Couldn't yee haw", String(e)),
             )
           }
           style={{ flexDirection: "row", gap: 6, alignItems: "center" }}
         >
-          <Heart
+          <CowboyHatIcon
             size={20}
             color={post.liked ? colors.action : colors.dim}
             fill={post.liked ? colors.action : "none"}

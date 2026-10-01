@@ -1,5 +1,4 @@
 import { api } from "@backend/api";
-import type { Id } from "@backend/dataModel";
 import { useQuery } from "convex/react";
 import { router, useLocalSearchParams } from "expo-router";
 import { ChevronRight, History } from "lucide-react-native";
@@ -8,7 +7,10 @@ import { Pressable, Text, View } from "react-native";
 import { useMobileAuth } from "@/auth/auth-provider";
 import { Card, EmptyState, PageHeader, Screen } from "@/components/ui";
 import { useLocalTemplate } from "@/data/local/provider";
-import { isUnsyncedTemplateRemoteId } from "@/data/local/types";
+import {
+  convexWorkoutTemplateIdForQuery,
+  isLocalTemplateRouteId,
+} from "@/data/local/types";
 import { useMergedTemplateHistory } from "@/data/local/use-local-insights";
 import { useCatalog } from "@/providers/catalog-provider";
 import { formatDate } from "@/lib/format";
@@ -19,25 +21,18 @@ export default function TemplateHistoryScreen() {
   const templateRouteId = id;
   const { isAuthenticated } = useMobileAuth();
   const localTemplate = useLocalTemplate(templateRouteId);
-  const canQueryRemote =
-    isAuthenticated &&
-    Boolean(templateRouteId) &&
-    !(
-      localTemplate &&
-      isUnsyncedTemplateRemoteId(localTemplate.remoteId) &&
-      localTemplate._id === templateRouteId
-    );
+  const remoteTemplateId = convexWorkoutTemplateIdForQuery(
+    templateRouteId,
+    localTemplate,
+  );
+  const canQueryRemote = isAuthenticated && remoteTemplateId !== null;
   const remoteTemplate = useQuery(
     api.routes.templates.queries.get,
-    canQueryRemote
-      ? { templateId: templateRouteId as Id<"workoutTemplates"> }
-      : "skip",
+    canQueryRemote ? { templateId: remoteTemplateId } : "skip",
   );
   const remoteSessions = useQuery(
     api.routes.workouts.queries.history,
-    canQueryRemote
-      ? { templateId: templateRouteId as Id<"workoutTemplates"> }
-      : "skip",
+    canQueryRemote ? { templateId: remoteTemplateId } : "skip",
   );
   const sessions = useMergedTemplateHistory(
     templateRouteId,

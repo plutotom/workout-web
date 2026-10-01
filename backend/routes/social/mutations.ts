@@ -245,7 +245,7 @@ export const toggleLike = mutation({
       });
       return false;
     }
-    if (post.likeCount >= 1000) throw new Error("Like limit reached");
+    if (post.likeCount >= 1000) throw new Error("Yee haw limit reached");
     await ctx.db.insert("activityLikes", { postId, userId: user._id });
     await ctx.db.patch(postId, { likeCount: post.likeCount + 1 });
     if (post.userId !== user._id)

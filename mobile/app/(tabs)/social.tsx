@@ -137,7 +137,7 @@ export default function SocialScreen() {
           />
           {notifications?.length === 0 ? (
             <Text style={{ color: colors.dim }}>
-              Follows, likes, and comments will appear here.
+              Follows, yee haws, and comments will appear here.
             </Text>
           ) : null}
           {notifications?.map((n) => (
@@ -172,7 +172,7 @@ export default function SocialScreen() {
                 {n.kind === "follow"
                   ? "followed you"
                   : n.kind === "like"
-                    ? "liked your workout"
+                    ? "yee hawed your workout"
                     : "commented on your workout"}
               </Text>
               <Text style={{ color: colors.dim, marginTop: 4 }}>

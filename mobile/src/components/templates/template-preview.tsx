@@ -1,5 +1,4 @@
 import { api } from "@backend/api";
-import type { Id } from "@backend/dataModel";
 import { useQuery } from "convex/react";
 import { router } from "expo-router";
 import { History, Pencil, Play, Share2 } from "lucide-react-native";
@@ -19,7 +18,10 @@ import {
   useLocalPreferences,
   useLocalTemplate,
 } from "@/data/local/provider";
-import { isUnsyncedTemplateRemoteId } from "@/data/local/types";
+import {
+  convexWorkoutTemplateIdForQuery,
+  isLocalTemplateRouteId,
+} from "@/data/local/types";
 import { useStartWorkout } from "@/lib/start-workout";
 import {
   PlaceChip,
@@ -257,19 +259,14 @@ export function TemplatePreview({
   const { isAuthenticated } = useMobileAuth();
   const preferences = useLocalPreferences();
   const localTemplate = useLocalTemplate(templateRouteId);
-  const canQueryRemote =
-    isAuthenticated &&
-    Boolean(templateRouteId) &&
-    !(
-      localTemplate &&
-      isUnsyncedTemplateRemoteId(localTemplate.remoteId) &&
-      localTemplate._id === templateRouteId
-    );
+  const remoteTemplateId = convexWorkoutTemplateIdForQuery(
+    templateRouteId,
+    localTemplate,
+  );
+  const canQueryRemote = isAuthenticated && remoteTemplateId !== null;
   const remoteTemplate = useQuery(
     api.routes.templates.queries.get,
-    canQueryRemote
-      ? { templateId: templateRouteId as Id<"workoutTemplates"> }
-      : "skip",
+    canQueryRemote ? { templateId: remoteTemplateId } : "skip",
   );
   const noteSlugs =
     remoteTemplate?.exercises.map((exercise) => exercise.slug) ??
@@ -278,6 +275,7 @@ export function TemplatePreview({
   const localNotes = useLocalExerciseNotes(noteSlugs);
 
   if (
+    (isLocalTemplateRouteId(templateRouteId) && localTemplate === undefined) ||
     (canQueryRemote &&
       remoteTemplate === undefined &&
       localTemplate === undefined) ||

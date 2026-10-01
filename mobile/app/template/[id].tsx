@@ -1,5 +1,4 @@
 import { api } from "@backend/api";
-import type { Id } from "@backend/dataModel";
 import { useQuery } from "convex/react";
 import { useLocalSearchParams } from "expo-router";
 
@@ -7,6 +6,10 @@ import { useMobileAuth } from "@/auth/auth-provider";
 import { TemplateEditor } from "@/components/templates/template-editor";
 import { FullScreenLoader } from "@/components/ui";
 import { useLocalTemplate } from "@/data/local/provider";
+import {
+  convexWorkoutTemplateIdForQuery,
+  isLocalTemplateRouteId,
+} from "@/data/local/types";
 import { isTemplateAiQuery } from "@/lib/ai-routes";
 
 export default function TemplateEditorScreen() {
@@ -14,14 +17,22 @@ export default function TemplateEditorScreen() {
   const templateId = id === "new" ? undefined : id;
   const { isAuthenticated } = useMobileAuth();
   const localTemplate = useLocalTemplate(templateId);
+  const remoteTemplateId = templateId
+    ? convexWorkoutTemplateIdForQuery(templateId, localTemplate)
+    : null;
   const remoteTemplate = useQuery(
     api.routes.templates.queries.get,
-    isAuthenticated && templateId
-      ? { templateId: templateId as Id<"workoutTemplates"> }
+    isAuthenticated && remoteTemplateId
+      ? { templateId: remoteTemplateId }
       : "skip",
   );
 
   if (templateId) {
+    const waitingForLocal =
+      isLocalTemplateRouteId(templateId) && localTemplate === undefined;
+    if (waitingForLocal) {
+      return <FullScreenLoader label="Loading template…" />;
+    }
     if (
       isAuthenticated &&
       remoteTemplate === undefined &&

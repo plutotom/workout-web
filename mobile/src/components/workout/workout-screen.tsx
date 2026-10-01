@@ -12,6 +12,7 @@ import {
   ChevronUp,
   CircleDot,
   Plus,
+  Share2,
   Sparkles,
   Trash2,
 } from "lucide-react-native";
@@ -1394,6 +1395,7 @@ function CompletedWorkout({
   const catalog = useCatalog();
   const { deleteSession } = useLocalData();
   const user = useLocalPreferences();
+  const { isAuthenticated } = useMobileAuth();
   // Cards start expanded, and each one toggles independently, matching the
   // live view.
   const [collapsed, setCollapsed] = useState<Record<string, true>>({});
@@ -1421,6 +1423,20 @@ function CompletedWorkout({
   const isCompleted = session.status === "completed";
   const unit = user?.unit ?? "lb";
   const isHealthSummary = session.sessionKind === "health_summary";
+  const canShareOnSocial = isCompleted && !isHealthSummary;
+  const remoteId = useQuery(
+    api.routes.social.queries.syncedSession,
+    isAuthenticated && canShareOnSocial ? { localId: session._id } : "skip",
+  );
+  const sharedPostId = useQuery(
+    api.routes.social.queries.sharedSession,
+    isAuthenticated && remoteId ? { sessionId: remoteId } : "skip",
+  );
+  const socialShareLoading =
+    isAuthenticated &&
+    canShareOnSocial &&
+    (remoteId === undefined ||
+      (remoteId !== null && sharedPostId === undefined));
   const sourceName = session.health?.sourceName ?? session.sourceName ?? null;
   const durationSeconds =
     session.health?.durationSeconds ?? session.durationSeconds ?? null;
@@ -1682,6 +1698,41 @@ function CompletedWorkout({
         />
       )}
 
+      {canShareOnSocial ? (
+        sharedPostId ? (
+          <Button
+            label="Shared on social"
+            variant="outline"
+            icon={Check}
+            onPress={() =>
+              router.push({
+                pathname: "/social/post/[postId]",
+                params: { postId: sharedPostId },
+              })
+            }
+          />
+        ) : (
+          <Button
+            label="Share on social"
+            variant="outline"
+            icon={Share2}
+            disabled={socialShareLoading}
+            onPress={() => {
+              if (!isAuthenticated) {
+                router.push({
+                  pathname: "/sign-in",
+                  params: { next: `/social/share/${session._id}` },
+                });
+                return;
+              }
+              router.push({
+                pathname: "/social/share/[sessionId]",
+                params: { sessionId: session._id },
+              });
+            }}
+          />
+        )
+      ) : null}
       <Button label="Done" onPress={() => router.replace("/dashboard")} />
       {canDelete ? (
         <Button

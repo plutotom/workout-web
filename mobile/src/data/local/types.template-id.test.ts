@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   convexWorkoutTemplateId,
+  convexWorkoutTemplateIdForQuery,
+  isLocalTemplateRouteId,
   localTemplateIdsToPrune,
   localTemplateRemoteId,
 } from "./types";
@@ -21,6 +23,45 @@ describe("convexWorkoutTemplateId", () => {
     expect(convexWorkoutTemplateId(null)).toBeNull();
     expect(convexWorkoutTemplateId(undefined)).toBeNull();
     expect(convexWorkoutTemplateId("")).toBeNull();
+  });
+});
+
+describe("isLocalTemplateRouteId", () => {
+  it("recognizes phone SQLite template ids", () => {
+    expect(isLocalTemplateRouteId("b47188d2-2f58-4e7d-ad2f-1ae2273ac285")).toBe(
+      true,
+    );
+  });
+
+  it("rejects Convex document ids", () => {
+    expect(isLocalTemplateRouteId("jd7abc123")).toBe(false);
+  });
+});
+
+describe("convexWorkoutTemplateIdForQuery", () => {
+  it("maps a local route id through the synced remote id", () => {
+    expect(
+      convexWorkoutTemplateIdForQuery("b47188d2-2f58-4e7d-ad2f-1ae2273ac285", {
+        remoteId: "jd7abc123",
+      }),
+    ).toBe("jd7abc123");
+  });
+
+  it("waits for SQLite before querying with a local route id", () => {
+    expect(
+      convexWorkoutTemplateIdForQuery(
+        "b47188d2-2f58-4e7d-ad2f-1ae2273ac285",
+        undefined,
+      ),
+    ).toBeNull();
+  });
+
+  it("skips unsynced-only templates", () => {
+    expect(
+      convexWorkoutTemplateIdForQuery("b47188d2-2f58-4e7d-ad2f-1ae2273ac285", {
+        remoteId: localTemplateRemoteId("b47188d2-2f58-4e7d-ad2f-1ae2273ac285"),
+      }),
+    ).toBeNull();
   });
 });
 
