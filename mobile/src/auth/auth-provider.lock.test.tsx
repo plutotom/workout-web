@@ -220,7 +220,10 @@ describe("locked-device auth guards", () => {
     expect(mocks.storage.get("workout.workos.session.v1")).toBe(
       "stored-session",
     );
-    expect(mocks.deleted).toEqual([]);
+    expect(mocks.storage.get("workout.workos.user.v1")).toBe(
+      JSON.stringify(user),
+    );
+    expect(mocks.storage.get("workout.local-mode.v1")).toBe("1");
   });
 
   it("still signs out on a confirmed 401 after an unlocked persist", async () => {
