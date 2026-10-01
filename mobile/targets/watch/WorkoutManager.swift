@@ -173,7 +173,8 @@ final class WorkoutManager: NSObject, ObservableObject {
   }
 
   private func requestEnd(discard: Bool) {
-    discardOnEnd = discard
+    // An End arriving while Discard waits for HealthKit must not turn it into a save.
+    discardOnEnd = discardOnEnd || discard
     guard let session else {
       if discard { notifyEnded(healthUuid: "") }
       status = "idle"
@@ -193,25 +194,37 @@ final class WorkoutManager: NSObject, ObservableObject {
     guard session != nil || builder != nil else { return }
     isClosing = true
     if discardOnEnd {
-      builder?.discardWorkout()
-      notifyEnded(healthUuid: "")
-      clear()
-      discardOnEnd = false
+      discardBuilder()
       return
     }
     finishBuilder(endDate: date)
   }
 
+  private func discardBuilder() {
+    builder?.discardWorkout()
+    notifyEnded(healthUuid: "")
+    clear()
+    discardOnEnd = false
+  }
+
   private func finishBuilder(endDate: Date) {
     builder?.endCollection(withEnd: endDate) { [weak self] _, _ in
-      self?.builder?.finishWorkout { workout, _ in
-        DispatchQueue.main.async {
-          guard let self else { return }
-          self.notifyEnded(healthUuid: workout?.uuid.uuidString ?? "")
-          self.status = "ended"
-          self.mirrorState()
-          self.session = nil
-          self.builder = nil
+      DispatchQueue.main.async {
+        guard let self else { return }
+        // Discard may arrive after `.ended` while endCollection is still pending.
+        // Serialize this decision with requestEnd before committing the builder.
+        if self.discardOnEnd {
+          self.discardBuilder()
+          return
+        }
+        self.builder?.finishWorkout { workout, _ in
+          DispatchQueue.main.async {
+            self.notifyEnded(healthUuid: workout?.uuid.uuidString ?? "")
+            self.status = "ended"
+            self.mirrorState()
+            self.session = nil
+            self.builder = nil
+          }
         }
       }
     }
