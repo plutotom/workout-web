@@ -13,6 +13,7 @@ import {
 import {
   watchLaunchErrorMessage,
   watchStartBlockedReason,
+  reduceWatchSessionStatus,
   type WatchCompanionStatus,
   type WatchSessionStatus,
 } from "@/health/watch-session";
@@ -35,17 +36,14 @@ export function WatchCompanionCard({
 
   useEffect(() => {
     return subscribeWatchEvents((event) => {
-      if (event.type === "state") {
-        if (event.sessionId && event.sessionId !== sessionId) return;
-        setWatchStatus(event.status);
-      }
       if (event.type === "metrics") {
         setHeartRate(event.heartRate);
         setEnergyKcal(event.activeEnergyKcal);
+        return;
       }
-      if (event.type === "ended" && event.sessionId === sessionId) {
-        setWatchStatus("ended");
-      }
+      setWatchStatus((current) =>
+        reduceWatchSessionStatus(current, event, sessionId),
+      );
     });
   }, [sessionId]);
 

@@ -292,7 +292,8 @@ function LocalDataState({ children }: { children: ReactNode }) {
       // Persist first so an invalid note or storage failure leaves a resumable workout.
       if (noteBody !== undefined)
         await finishLocalNoteWorkout(db, sessionId, noteBody);
-      await endWatchWorkout().catch(() => undefined);
+      // Watch I/O must not hold Finish on screen if the companion hangs.
+      void endWatchWorkout().catch(() => undefined);
       if (noteBody === undefined) await finishLocalWorkout(db, sessionId);
       if (noteBody !== undefined) {
         // Completion is already durable. Stored UUIDs and export intent retry in
@@ -379,7 +380,7 @@ function LocalDataState({ children }: { children: ReactNode }) {
       finish: (sessionId) => run(() => finishTracked(sessionId)),
       abandon: (sessionId) =>
         run(async () => {
-          await discardWatchWorkout().catch(() => undefined);
+          void discardWatchWorkout().catch(() => undefined);
           await abandonLocalWorkout(db, sessionId);
         }),
       deleteSession: (sessionId) =>

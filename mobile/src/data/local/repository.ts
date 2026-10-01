@@ -1271,7 +1271,11 @@ export async function abandonLocalWorkout(
   db: SQLiteDatabase,
   sessionId: string,
 ) {
-  await requireEditableSession(db, sessionId);
+  const session = await db.getFirstAsync<{ status: string }>(
+    "SELECT status FROM local_sessions WHERE id = ?",
+    sessionId,
+  );
+  if (!session || session.status !== "in_progress") return;
   const now = Date.now();
   await db.runAsync(
     `UPDATE local_sessions

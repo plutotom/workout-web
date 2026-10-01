@@ -47,6 +47,19 @@ export function shouldSkipPhoneHealthExport(input: {
   return input.watchRecorded || Boolean(input.watchHealthUuid);
 }
 
+/** Keep a finished/discarded Watch session from flipping back to idle. */
+export function reduceWatchSessionStatus(
+  current: WatchSessionStatus,
+  event: WatchEvent,
+  sessionId: string,
+): WatchSessionStatus {
+  if (event.type === "ended" && event.sessionId === sessionId) return "ended";
+  if (event.type !== "state") return current;
+  if (event.sessionId && event.sessionId !== sessionId) return current;
+  if (current === "ended") return current;
+  return event.status;
+}
+
 export function watchStartBlockedReason(status: WatchCompanionStatus) {
   if (!status.supported || !status.paired) return null;
   if (!status.installed) {

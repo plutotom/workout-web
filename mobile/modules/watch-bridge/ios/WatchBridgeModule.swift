@@ -34,15 +34,17 @@ public class WatchBridgeModule: Module {
       }
     }
 
+    // Do not `.runOnQueue(.main)`: Finish/Discard is confirmed from a UIAlert,
+    // and waiting on main while UIKit dismisses that alert deadlocks the JS
+    // thread. The first tap then only reaches the Watch; a second tap is
+    // needed to abandon the phone session. WCSession is thread-safe.
     AsyncFunction("endWatchWorkout") {
       WatchPhoneSession.shared.send(["type": "end"])
     }
-    .runOnQueue(.main)
 
     AsyncFunction("discardWatchWorkout") {
       WatchPhoneSession.shared.send(["type": "discard"])
     }
-    .runOnQueue(.main)
   }
 }
 

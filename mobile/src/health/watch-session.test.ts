@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   parseWatchEvent,
+  reduceWatchSessionStatus,
   shouldSkipPhoneHealthExport,
   watchHealthUuidKey,
   watchLaunchErrorMessage,
@@ -73,6 +74,39 @@ describe("parseWatchEvent", () => {
   it("ignores unknown payloads", () => {
     expect(parseWatchEvent(null)).toBeNull();
     expect(parseWatchEvent({ type: "nope" })).toBeNull();
+  });
+});
+
+describe("reduceWatchSessionStatus", () => {
+  it("keeps ended after a later idle mirror so Discard cannot look live again", () => {
+    const ended = parseWatchEvent({
+      type: "ended",
+      sessionId: "session-1",
+      healthUuid: "",
+    });
+    const idle = parseWatchEvent({
+      type: "state",
+      sessionId: "session-1",
+      status: "idle",
+      reachable: true,
+    });
+    expect(ended && idle).toBeTruthy();
+    if (!ended || !idle) return;
+    const afterEnd = reduceWatchSessionStatus("recording", ended, "session-1");
+    expect(afterEnd).toBe("ended");
+    expect(reduceWatchSessionStatus(afterEnd, idle, "session-1")).toBe("ended");
+  });
+
+  it("ignores state events from a different session", () => {
+    const other = parseWatchEvent({
+      type: "state",
+      sessionId: "other",
+      status: "recording",
+      reachable: true,
+    });
+    expect(other).toBeTruthy();
+    if (!other) return;
+    expect(reduceWatchSessionStatus("idle", other, "session-1")).toBe("idle");
   });
 });
 
