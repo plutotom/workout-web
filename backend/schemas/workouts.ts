@@ -48,6 +48,11 @@ export const aiUndoBatchValidator = v.object({
   removed: v.array(aiUndoExerciseValidator),
 });
 
+export const sessionInputModeValidator = v.union(
+  v.literal("list"),
+  v.literal("note"),
+);
+
 export const workoutTables = {
   workoutSessions: defineTable({
     userId: v.id("users"),
@@ -72,6 +77,9 @@ export const workoutTables = {
     placeId: v.optional(v.id("places")),
     placeName: v.optional(v.string()),
     sessionKind: v.optional(sessionKindValidator),
+    inputMode: v.optional(sessionInputModeValidator),
+    noteBody: v.optional(v.string()),
+    noteUnit: v.optional(v.union(v.literal("lb"), v.literal("kg"))),
     externalProvider: v.optional(externalProviderValidator),
     externalId: v.optional(v.string()),
     activityType: v.optional(v.string()),

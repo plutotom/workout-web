@@ -2,7 +2,11 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { computeWeekStreak, estimate1RM, startOfWeekMonday } from "./insights";
 import { getNotesBySlugs } from "./exercise_notes";
-import { normalizeSessionKind } from "./health_sessions";
+import {
+  normalizeSessionKind,
+  sessionCountsTowardGoals,
+} from "./health_sessions";
+import { normalizeSessionInputMode } from "../../src/lib/note-workouts";
 import {
   exerciseMatchesMachine,
   findStarredPlace,
@@ -1062,6 +1066,8 @@ export async function getWorkout(
   return {
     _id: session._id,
     status: session.status,
+    clientId: session.clientId ?? null,
+    clientUpdatedAt: session.clientUpdatedAt ?? null,
     templateId: session.templateId ?? null,
     templateName: sessionDisplayName(template, session.templateName),
     startedAt: session.startedAt,
@@ -1070,9 +1076,16 @@ export async function getWorkout(
     placeName: session.placeName ?? place?.name ?? null,
     placeStarred: place?.starred ?? true,
     sessionKind: normalizeSessionKind(session.sessionKind),
+    inputMode: normalizeSessionInputMode(session.inputMode),
+    noteBody: session.noteBody ?? null,
+    noteUnit: session.noteUnit ?? null,
     countsTowardGoals: session.countsTowardGoals !== false,
     sourceName: session.sourceName ?? null,
     activityType: session.activityType ?? null,
+    externalProvider: session.externalProvider ?? null,
+    externalId: session.externalId ?? null,
+    sourceBundleId: session.sourceBundleId ?? null,
+    importedAt: session.importedAt ?? null,
     durationSeconds: session.durationSeconds ?? null,
     energyKcal: session.energyKcal ?? null,
     distanceMeters: session.distanceMeters ?? null,
@@ -1228,10 +1241,13 @@ export async function getWorkoutRecap(
   for (const s of completedSessions) {
     const ts = s.completedAt ?? s.startedAt;
     if (ts > completedAt) continue;
-    const counts =
-      s.sessionKind === "health_summary"
-        ? s.countsTowardGoals !== false
-        : await sessionHasLoggedWork(ctx, s._id);
+    const counts = sessionCountsTowardGoals({
+      sessionKind: normalizeSessionKind(s.sessionKind),
+      countsTowardGoals: s.countsTowardGoals,
+      inputMode: s.inputMode,
+      noteBody: s.noteBody,
+      hasLoggedWork: await sessionHasLoggedWork(ctx, s._id),
+    });
     if (counts) meaningfulAts.push(ts);
   }
   const weekStart = startOfWeekMonday(completedAt);

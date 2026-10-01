@@ -5,23 +5,26 @@ import { useLocalActiveWorkout, useLocalData } from "@/data/local/provider";
 
 export function useStartWorkout() {
   const active = useLocalActiveWorkout();
-  const { startBlank, startFromTemplate } = useLocalData();
+  const { startBlank, startFromTemplate, startNote } = useLocalData();
 
   async function launch(
     templateId?: string,
     abandonExisting = false,
     placeId?: string | null,
+    note = false,
   ) {
-    const sessionId = templateId
-      ? await startFromTemplate(templateId, abandonExisting, placeId)
-      : await startBlank(abandonExisting, placeId);
+    const sessionId = note
+      ? await startNote(abandonExisting, placeId)
+      : templateId
+        ? await startFromTemplate(templateId, abandonExisting, placeId)
+        : await startBlank(abandonExisting, placeId);
     router.push({
       pathname: "/workout/[sessionId]",
       params: { sessionId },
     });
   }
 
-  function begin(templateId?: string, placeId?: string | null) {
+  function begin(templateId?: string, placeId?: string | null, note = false) {
     if (active) {
       Alert.alert(
         "Workout already in progress",
@@ -40,16 +43,22 @@ export function useStartWorkout() {
             text: "Start new",
             style: "destructive",
             onPress: () =>
-              void launch(templateId, true, placeId).catch(showStartError),
+              void launch(templateId, true, placeId, note).catch(
+                showStartError,
+              ),
           },
         ],
       );
       return;
     }
-    void launch(templateId, false, placeId).catch(showStartError);
+    void launch(templateId, false, placeId, note).catch(showStartError);
   }
 
-  return { active, begin };
+  return {
+    active,
+    begin,
+    beginNote: (placeId?: string | null) => begin(undefined, placeId, true),
+  };
 }
 
 function showStartError(error: unknown) {

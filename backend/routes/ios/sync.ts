@@ -1,5 +1,7 @@
 import { v } from "convex/values";
 
+import { assertWorkoutNoteLength } from "../../../src/lib/note-workouts";
+
 import type { Id } from "../../_generated/dataModel";
 import { mutation, type MutationCtx } from "../../_generated/server";
 import { requireUser } from "../../lib/auth";
@@ -23,6 +25,7 @@ import { muscleGroupValidator } from "../../schemas/exercises";
 import {
   healthSegmentValidator,
   sessionKindValidator,
+  sessionInputModeValidator,
   sessionStatusValidator,
 } from "../../schemas/workouts";
 
@@ -48,7 +51,7 @@ const exerciseSnapshotValidator = v.object({
   sets: v.array(setSnapshotValidator),
 });
 
-const sessionSnapshotValidator = v.object({
+export const sessionSnapshotValidator = v.object({
   clientId: v.string(),
   remoteTemplateId: v.union(v.id("workoutTemplates"), v.null()),
   templateName: v.string(),
@@ -59,6 +62,9 @@ const sessionSnapshotValidator = v.object({
   placeId: v.optional(v.union(v.id("places"), v.null())),
   placeName: v.optional(v.union(v.string(), v.null())),
   sessionKind: v.optional(sessionKindValidator),
+  inputMode: v.optional(sessionInputModeValidator),
+  noteBody: v.optional(v.union(v.string(), v.null())),
+  noteUnit: v.optional(v.union(v.literal("lb"), v.literal("kg"), v.null())),
   countsTowardGoals: v.optional(v.boolean()),
   externalProvider: v.optional(v.union(v.literal("apple_health"), v.null())),
   externalId: v.optional(v.union(v.string(), v.null())),
@@ -408,6 +414,8 @@ export const pushSession = mutation({
       };
     }
 
+    assertWorkoutNoteLength(args.session.noteBody);
+
     if (args.session.exercises.length > MAX_EXERCISES) {
       throw new Error(
         `A session can contain at most ${MAX_EXERCISES} exercises`,
@@ -477,6 +485,22 @@ export const pushSession = mutation({
       }
     }
 
+    // A second phone can edit a completed note offline before learning about
+    // its late Watch/Health attachment. The newer text revision must not erase
+    // that saved link. A different incoming UUID still represents a new link.
+    const savedHealth =
+      existing?.status === "completed" &&
+      existing.sessionKind === "tracked" &&
+      existing.inputMode === "note" &&
+      args.session.status === "completed" &&
+      args.session.sessionKind === "tracked" &&
+      args.session.inputMode === "note" &&
+      existing.externalId &&
+      (!args.session.externalId ||
+        args.session.externalId === existing.externalId)
+        ? existing
+        : null;
+
     const sessionFields = {
       clientId: args.session.clientId,
       clientUpdatedAt: args.session.updatedAt,
@@ -486,22 +510,29 @@ export const pushSession = mutation({
       completedAt: args.session.completedAt ?? undefined,
       templateId: args.session.remoteTemplateId ?? undefined,
       sessionKind: args.session.sessionKind ?? "tracked",
+      inputMode: args.session.inputMode ?? "list",
+      noteBody: args.session.noteBody ?? undefined,
+      noteUnit: args.session.noteUnit ?? undefined,
       countsTowardGoals: args.session.countsTowardGoals ?? true,
-      externalProvider: args.session.externalProvider ?? undefined,
-      externalId: args.session.externalId ?? undefined,
-      activityType: args.session.activityType ?? undefined,
-      sourceName: args.session.sourceName ?? undefined,
-      sourceBundleId: args.session.sourceBundleId ?? undefined,
-      durationSeconds: args.session.durationSeconds ?? undefined,
-      energyKcal: args.session.energyKcal ?? undefined,
-      distanceMeters: args.session.distanceMeters ?? undefined,
-      importedAt: args.session.importedAt ?? undefined,
+      externalProvider:
+        args.session.externalProvider ?? savedHealth?.externalProvider,
+      externalId: args.session.externalId ?? savedHealth?.externalId,
+      activityType: args.session.activityType ?? savedHealth?.activityType,
+      sourceName: args.session.sourceName ?? savedHealth?.sourceName,
+      sourceBundleId:
+        args.session.sourceBundleId ?? savedHealth?.sourceBundleId,
+      durationSeconds:
+        args.session.durationSeconds ?? savedHealth?.durationSeconds,
+      energyKcal: args.session.energyKcal ?? savedHealth?.energyKcal,
+      distanceMeters:
+        args.session.distanceMeters ?? savedHealth?.distanceMeters,
+      importedAt: args.session.importedAt ?? savedHealth?.importedAt,
       placeId: args.session.placeId ?? undefined,
       placeName: args.session.placeName ?? undefined,
       healthSegments:
         args.session.healthSegments && args.session.healthSegments.length > 0
           ? args.session.healthSegments
-          : undefined,
+          : savedHealth?.healthSegments,
     };
     const sessionId =
       existing?._id ??

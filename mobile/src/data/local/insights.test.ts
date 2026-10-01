@@ -25,6 +25,66 @@ function session(
 describe("getLocalOverview health summaries", () => {
   const now = Date.parse("2026-08-22T18:00:00.000Z");
 
+  it("credits note attendance and carries exact text without lift statistics", () => {
+    const note = session({
+      sessionId: "note",
+      remoteId: "remote-note",
+      sessionKind: "tracked",
+      inputMode: "note",
+      noteBody: "  Pull up, 10, 9, 9\n",
+      noteUnit: "lb",
+      templateName: "Note workout",
+      completedAt: now,
+    });
+    const overview = getLocalOverview([note], 7, now);
+    expect(overview.stats).toMatchObject({
+      workoutCount: 1,
+      weekStreak: 1,
+      totalVolume: 0,
+    });
+    expect(overview.setsBySlug).toEqual([]);
+    expect(overview.topLifts).toEqual([]);
+    expect(overview.recentSessions[0]).toMatchObject({
+      inputMode: "note",
+      noteBody: note.noteBody,
+      noteUnit: "lb",
+      exercises: [],
+    });
+    const recap = getLocalWorkoutRecap([note], "remote-note");
+    expect(recap?.session.noteBody).toBe(note.noteBody);
+    expect(recap?.totals).toMatchObject({
+      volume: 0,
+      completedSets: 0,
+      exerciseCount: 0,
+    });
+    expect(recap?.standout).toBeNull();
+    expect(recap?.progressionStory).toBeNull();
+    expect(recap?.consistency.sessionsThisWeek).toBe(1);
+    expect(recap?.consistency.daysWorked.filter(Boolean)).toHaveLength(1);
+    const edited = { ...note, noteBody: "Bench 10@150" };
+    expect(getLocalOverview([edited], 7, now).stats.workoutCount).toBe(1);
+  });
+
+  it("does not infer attendance from blank notes or notes on list mode", () => {
+    const notes = [
+      session({
+        sessionId: "blank",
+        sessionKind: "tracked",
+        completedAt: now,
+        inputMode: "note",
+        noteBody: "\n \t",
+      }),
+      session({
+        sessionId: "list",
+        sessionKind: "tracked",
+        completedAt: now,
+        inputMode: "list",
+        noteBody: "Bench 10@150",
+      }),
+    ];
+    expect(getLocalOverview(notes, 7, now).stats.workoutCount).toBe(0);
+  });
+
   it("counts a manually imported Health workout toward the weekly goal", () => {
     const overview = getLocalOverview(
       [

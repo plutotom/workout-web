@@ -1,4 +1,8 @@
 import type { SQLiteDatabase } from "expo-sqlite";
+import {
+  normalizeSessionInputMode,
+  type NoteUnit,
+} from "@shared/note-workouts";
 
 import {
   getLocalPreferences,
@@ -116,6 +120,9 @@ type SessionRow = {
   template_name: string;
   status: LocalSessionStatus;
   session_kind: LocalSessionKind | null;
+  input_mode: string | null;
+  note_body: string | null;
+  note_unit: NoteUnit | null;
   started_at: number;
   completed_at: number | null;
   updated_at: number;
@@ -221,7 +228,8 @@ export async function createLocalBackup(
             status, session_kind, started_at, completed_at, updated_at,
             counts_toward_goals, external_provider, external_id, activity_type,
             source_name, source_bundle_id, duration_seconds, energy_kcal,
-            distance_meters, imported_at, place_id, place_name
+            distance_meters, imported_at, place_id, place_name,
+            input_mode, note_body, note_unit
        FROM local_sessions
       ORDER BY started_at`,
   );
@@ -309,6 +317,9 @@ export async function createLocalBackup(
       status: row.status,
       sessionKind:
         row.session_kind === "health_summary" ? "health_summary" : "tracked",
+      inputMode: normalizeSessionInputMode(row.input_mode),
+      noteBody: row.note_body ?? null,
+      noteUnit: row.note_unit ?? null,
       startedAt: row.started_at,
       completedAt: row.completed_at,
       updatedAt: row.updated_at,
@@ -438,6 +449,10 @@ export async function restoreLocalBackup(
   db: SQLiteDatabase,
   snapshot: WorkoutBackupSnapshot,
 ): Promise<LocalRestoreResult> {
+  const validated = validateBackup(snapshot);
+  if (!validated.ok) throw new Error(validated.error);
+  snapshot = validated.snapshot;
+
   const addedTemplateIds: string[] = [];
   const addedSessionIds: string[] = [];
   const addedCustomIds: string[] = [];
@@ -629,14 +644,15 @@ export async function restoreLocalBackup(
            status, session_kind, started_at, completed_at, updated_at,
            counts_toward_goals, external_provider, external_id, activity_type,
            source_name, source_bundle_id, duration_seconds, energy_kcal,
-           distance_meters, imported_at, place_id, place_name
+           distance_meters, imported_at, place_id, place_name,
+           input_mode, note_body, note_unit
          ) VALUES (
            ?, ?,
            COALESCE(
              (SELECT id FROM local_templates WHERE id = ?),
              (SELECT id FROM local_templates WHERE remote_id = ?)
            ),
-           ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+           ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
          )`,
         session.id,
         session.remoteId ?? null,
@@ -661,6 +677,9 @@ export async function restoreLocalBackup(
         session.importedAt ?? null,
         session.placeId ?? null,
         session.placeName ?? null,
+        normalizeSessionInputMode(session.inputMode),
+        session.noteBody ?? null,
+        session.noteUnit ?? null,
       );
       if (result.changes === 0) {
         skipped++;

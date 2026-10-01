@@ -1,4 +1,5 @@
 import type { Id } from "@backend/dataModel";
+import type { NoteUnit, SessionInputMode } from "@shared/note-workouts";
 
 export type LocalId = string;
 export type LocalSessionStatus = "in_progress" | "completed" | "abandoned";
@@ -47,6 +48,9 @@ export type LocalWorkoutSession = {
   remoteTemplateId: string | null;
   status: LocalSessionStatus;
   sessionKind: LocalSessionKind;
+  inputMode?: SessionInputMode;
+  noteBody?: string | null;
+  noteUnit?: NoteUnit | null;
   templateId: LocalId | null;
   templateName: string;
   startedAt: number;
@@ -326,6 +330,9 @@ export type SessionSyncSnapshot = {
   templateName: string;
   status: LocalSessionStatus;
   sessionKind: LocalSessionKind;
+  inputMode?: SessionInputMode;
+  noteBody?: string | null;
+  noteUnit?: NoteUnit | null;
   startedAt: number;
   completedAt: number | null;
   updatedAt: number;

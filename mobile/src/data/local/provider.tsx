@@ -23,9 +23,11 @@ import {
   abandonLocalWorkout,
   addLocalExercise,
   addLocalSet,
+  adoptRemoteNoteWorkout,
   applyIosBootstrap,
   archiveLocalCustomExercise,
   attachExportedHealthUuid,
+  attachStoredWatchHealthUuid,
   completeCustomExerciseSync,
   completeMachineSync,
   completePlaceSync,
@@ -39,6 +41,7 @@ import {
   deleteLocalTemplate,
   deleteLocalWorkout,
   finishLocalWorkout,
+  finishLocalNoteWorkout,
   getHealthAuthRequested,
   getHealthAutoImportPrefs,
   getHealthExportEnabled,
@@ -82,11 +85,14 @@ import {
   setLocalSessionMachine,
   setLocalSessionPlace,
   startLocalBlankWorkout,
+  startLocalNoteWorkout,
   startLocalTemplateWorkout,
   syncLocalTemplateFromSession,
   updateLocalSet,
+  updateLocalWorkoutNote,
   type HealthSummaryImport,
   type LocalOverlapSession,
+  type RemoteCompletedNoteWorkout,
 } from "@/data/local/repository";
 import { discardWatchWorkout, endWatchWorkout } from "@/health/watch-bridge";
 import { shouldSkipPhoneHealthExport } from "@/health/watch-session";
@@ -143,6 +149,19 @@ type LocalDataContextValue = {
   startBlank: (
     abandonExisting?: boolean,
     placeId?: string | null,
+  ) => Promise<string>;
+  startNote: (
+    abandonExisting?: boolean,
+    placeId?: string | null,
+  ) => Promise<string>;
+  saveWorkoutNote: (
+    sessionId: string,
+    text: string,
+    expectedStatus?: "in_progress" | "completed",
+  ) => Promise<void>;
+  finishNote: (sessionId: string, currentText: string) => Promise<void>;
+  adoptRemoteNoteWorkout: (
+    remote: RemoteCompletedNoteWorkout,
   ) => Promise<string>;
   startFromTemplate: (
     templateId: string,
@@ -267,12 +286,47 @@ function LocalDataState({ children }: { children: ReactNode }) {
     [refresh],
   );
 
+  // Both input modes end Watch recording and use the same Health deduplication.
+  const finishTracked = useCallback(
+    async (sessionId: string, noteBody?: string) => {
+      // Persist first so an invalid note or storage failure leaves a resumable workout.
+      if (noteBody !== undefined)
+        await finishLocalNoteWorkout(db, sessionId, noteBody);
+      // Watch I/O must not hold Finish on screen if the companion hangs.
+      void endWatchWorkout().catch(() => undefined);
+      if (noteBody === undefined) await finishLocalWorkout(db, sessionId);
+      if (noteBody !== undefined) {
+        // Completion is already durable. Stored UUIDs and export intent retry in
+        // the coordinator; a follow-up failure must not keep Finish on screen.
+        await attachStoredWatchHealthUuid(db, sessionId).catch(() => undefined);
+        return;
+      }
+      const watchHealthUuid = await consumeWatchHealthUuid(db, sessionId);
+      const watchRecorded = await wasWatchRecorded(db, sessionId);
+      if (shouldSkipPhoneHealthExport({ watchRecorded, watchHealthUuid })) {
+        if (watchHealthUuid)
+          await attachExportedHealthUuid(db, sessionId, watchHealthUuid);
+        return;
+      }
+      await queueHealthExportIfEnabled(db, sessionId);
+    },
+    [db],
+  );
+
   const value = useMemo<LocalDataContextValue>(
     () => ({
       revision,
       refresh,
       startBlank: (abandonExisting, placeId) =>
         run(() => startLocalBlankWorkout(db, abandonExisting, placeId)),
+      startNote: (abandonExisting, placeId) =>
+        run(() => startLocalNoteWorkout(db, abandonExisting, placeId)),
+      saveWorkoutNote: (sessionId, text, expectedStatus) =>
+        run(() => updateLocalWorkoutNote(db, sessionId, text, expectedStatus)),
+      finishNote: (sessionId, currentText) =>
+        run(() => finishTracked(sessionId, currentText)),
+      adoptRemoteNoteWorkout: (remote) =>
+        adoptRemoteNoteWorkout(db, remote, refresh),
       startFromTemplate: (templateId, abandonExisting, placeId) =>
         run(() =>
           startLocalTemplateWorkout(db, templateId, abandonExisting, placeId),
@@ -323,27 +377,7 @@ function LocalDataState({ children }: { children: ReactNode }) {
       createBackup: () => createLocalBackup(db),
       restoreBackup: (snapshot) => run(() => restoreLocalBackup(db, snapshot)),
       noteBackupSaved: () => run(() => markBackupSaved(db)),
-      finish: (sessionId) =>
-        run(async () => {
-          // Watch I/O is fire-and-forget so a hung companion cannot block
-          // Finish/Discard on the phone.
-          void endWatchWorkout().catch(() => undefined);
-          await finishLocalWorkout(db, sessionId);
-          const watchHealthUuid = await consumeWatchHealthUuid(db, sessionId);
-          const watchRecorded = await wasWatchRecorded(db, sessionId);
-          if (
-            shouldSkipPhoneHealthExport({
-              watchRecorded,
-              watchHealthUuid,
-            })
-          ) {
-            if (watchHealthUuid) {
-              await attachExportedHealthUuid(db, sessionId, watchHealthUuid);
-            }
-            return;
-          }
-          await queueHealthExportIfEnabled(db, sessionId);
-        }),
+      finish: (sessionId) => run(() => finishTracked(sessionId)),
       abandon: (sessionId) =>
         run(async () => {
           void discardWatchWorkout().catch(() => undefined);
@@ -366,7 +400,7 @@ function LocalDataState({ children }: { children: ReactNode }) {
         run(() => writeLocalNotificationPreferences(db, preferences)),
       applyBootstrap: (payload) => run(() => applyIosBootstrap(db, payload)),
     }),
-    [db, refresh, revision, run],
+    [db, finishTracked, refresh, revision, run],
   );
 
   return (
