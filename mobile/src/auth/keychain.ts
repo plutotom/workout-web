@@ -1,8 +1,22 @@
 import * as SecureStore from "expo-secure-store";
 
+// Legacy items remain intact until the complete replacement has been saved.
 export const SESSION_KEY = "workout.workos.session.v1";
 export const USER_KEY = "workout.workos.user.v1";
 export const LOCAL_MODE_KEY = "workout.local-mode.v1";
+export const AUTH_STATE_KEY = "workout.auth.v2";
+
+export type StoredAuthKeys = {
+  session: string | null;
+  userJson: string | null;
+  localMode: boolean;
+};
+
+export const SIGNED_OUT_AUTH_KEYS: StoredAuthKeys = {
+  session: null,
+  userJson: null,
+  localMode: false,
+};
 
 const STORE_OPTIONS = {
   keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY,
@@ -22,63 +36,70 @@ export function isKeychainLockedError(error: unknown) {
   );
 }
 
-async function rewriteItem(key: string, value: string) {
-  try {
-    await SecureStore.deleteItemAsync(key);
-  } catch (error) {
-    if (isKeychainLockedError(error)) throw error;
+export async function persistStoredAuthKeys(input: StoredAuthKeys) {
+  // SecureStore updates this item in place. Session, profile and local mode
+  // change together; no delete-before-write gap on migration or rotation.
+  await SecureStore.setItemAsync(
+    AUTH_STATE_KEY,
+    JSON.stringify(input),
+    STORE_OPTIONS,
+  );
+  const cleanup = await Promise.allSettled(
+    [SESSION_KEY, USER_KEY, LOCAL_MODE_KEY].map((key) =>
+      SecureStore.deleteItemAsync(key),
+    ),
+  );
+  if (cleanup.some((result) => result.status === "rejected")) {
+    console.warn("[auth] legacy Keychain cleanup will retry on the next save");
   }
-  await SecureStore.setItemAsync(key, value, STORE_OPTIONS);
 }
 
 export async function persistAuthKeys(input: {
   session: string;
   userJson: string;
 }) {
-  await rewriteItem(SESSION_KEY, input.session);
-  await rewriteItem(USER_KEY, input.userJson);
-  await rewriteItem(LOCAL_MODE_KEY, "1");
-}
-
-export async function persistLocalModeKey() {
-  await rewriteItem(LOCAL_MODE_KEY, "1");
+  await persistStoredAuthKeys({ ...input, localMode: true });
 }
 
 export async function readAuthKeys() {
+  const value = await SecureStore.getItemAsync(AUTH_STATE_KEY);
+  if (value !== null) {
+    const parsed: unknown = JSON.parse(value);
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      !("session" in parsed) ||
+      !("userJson" in parsed) ||
+      !("localMode" in parsed) ||
+      (parsed.session !== null && typeof parsed.session !== "string") ||
+      (parsed.userJson !== null && typeof parsed.userJson !== "string") ||
+      typeof parsed.localMode !== "boolean"
+    )
+      throw new Error("Invalid auth Keychain state");
+    return {
+      session: parsed.session,
+      userJson: parsed.userJson,
+      localMode: parsed.localMode,
+      needsMigration: false,
+    };
+  }
   const [session, userJson, localMode] = await Promise.all([
     SecureStore.getItemAsync(SESSION_KEY),
     SecureStore.getItemAsync(USER_KEY),
     SecureStore.getItemAsync(LOCAL_MODE_KEY),
   ]);
-  const stored = {
+  // Reading is side-effect free. The provider serializes migration with
+  // refreshes and sign-out and queues failed copies for foreground retry.
+  return {
     session,
     userJson,
     localMode: localMode === "1",
+    needsMigration: session !== null || userJson !== null || localMode !== null,
   };
-  // Existing WHEN_UNLOCKED items keep that class until delete + rewrite.
-  try {
-    if (session && userJson) {
-      await persistAuthKeys({ session, userJson });
-    } else if (stored.localMode) {
-      await persistLocalModeKey();
-    }
-  } catch (error) {
-    if (!isKeychainLockedError(error)) {
-      console.warn("[auth] keychain accessibility migrate failed", error);
-    }
-  }
-  return stored;
 }
 
 export async function deleteAuthKeys() {
-  const results = await Promise.allSettled([
-    SecureStore.deleteItemAsync(SESSION_KEY),
-    SecureStore.deleteItemAsync(USER_KEY),
-    SecureStore.deleteItemAsync(LOCAL_MODE_KEY),
-  ]);
-  for (const result of results) {
-    if (result.status === "rejected" && isKeychainLockedError(result.reason)) {
-      throw result.reason;
-    }
-  }
+  // Keep an authoritative signed-out snapshot. Failed legacy cleanup must
+  // never make an old account reappear on the next launch.
+  await persistStoredAuthKeys(SIGNED_OUT_AUTH_KEYS);
 }

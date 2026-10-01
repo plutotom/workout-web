@@ -3,6 +3,7 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MobileAccountProvider } from "./account-provider";
+import { AUTH_STATE_KEY } from "./keychain";
 import {
   AuthProvider,
   useAuthCredentials,
@@ -46,6 +47,9 @@ const appState = vi.hoisted(() => {
 const mocks = vi.hoisted(() => ({
   storage: new Map<string, string>(),
   locked: false,
+  beforeWrite: null as null | ((key: string) => Promise<void>),
+  beforeRead: null as null | (() => Promise<void>),
+  openAuthSession: vi.fn(),
   deleted: [] as string[],
   fetch: vi.fn(),
   auth: { isAuthenticated: false, isLoading: false, isRefreshing: false },
@@ -57,10 +61,12 @@ vi.mock("expo-secure-store", () => ({
   AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY: 2,
   WHEN_UNLOCKED_THIS_DEVICE_ONLY: 1,
   getItemAsync: async (key: string) => {
+    if (mocks.beforeRead) await mocks.beforeRead();
     if (mocks.locked) throw lockedError();
     return mocks.storage.get(key) ?? null;
   },
   setItemAsync: async (key: string, value: string) => {
+    if (mocks.beforeWrite) await mocks.beforeWrite(key);
     if (mocks.locked) throw lockedError();
     mocks.storage.set(key, value);
   },
@@ -75,7 +81,7 @@ vi.mock("react-native", () => ({
 }));
 vi.mock("expo-web-browser", () => ({
   maybeCompleteAuthSession: vi.fn(),
-  openAuthSessionAsync: vi.fn(),
+  openAuthSessionAsync: mocks.openAuthSession,
 }));
 vi.mock("@backend/api", () => ({
   api: {
@@ -112,6 +118,17 @@ function Probe() {
   return null;
 }
 
+function persisted() {
+  const value = mocks.storage.get(AUTH_STATE_KEY);
+  return value
+    ? (JSON.parse(value) as {
+        session: string | null;
+        userJson: string | null;
+        localMode: boolean;
+      })
+    : null;
+}
+
 function tree() {
   return (
     <AuthProvider>
@@ -137,6 +154,12 @@ beforeEach(() => {
   mocks.storage.clear();
   mocks.deleted = [];
   mocks.locked = false;
+  mocks.beforeWrite = null;
+  mocks.beforeRead = null;
+  mocks.openAuthSession.mockReset().mockResolvedValue({
+    type: "success",
+    url: "workout://auth/callback?code=exchange-code",
+  });
   mocks.storage.set("workout.workos.session.v1", "stored-session");
   mocks.storage.set("workout.workos.user.v1", JSON.stringify(user));
   mocks.storage.set("workout.local-mode.v1", "1");
@@ -202,9 +225,7 @@ describe("locked-device auth guards", () => {
     });
     expect(token).toBe("token");
     expect(mocks.fetch).not.toHaveBeenCalled();
-    expect(mocks.storage.get("workout.workos.session.v1")).toBe(
-      "rotated-session",
-    );
+    expect(persisted()?.session).toBe("rotated-session");
   });
 
   it("does not wipe the session when token refresh returns 503", async () => {
@@ -217,13 +238,9 @@ describe("locked-device auth guards", () => {
     expect(auth.canUseApp).toBe(true);
     expect(auth.user?.id).toBe(user.id);
     expect(credentials.isAuthenticated).toBe(false);
-    expect(mocks.storage.get("workout.workos.session.v1")).toBe(
-      "stored-session",
-    );
-    expect(mocks.storage.get("workout.workos.user.v1")).toBe(
-      JSON.stringify(user),
-    );
-    expect(mocks.storage.get("workout.local-mode.v1")).toBe("1");
+    expect(persisted()?.session).toBe("stored-session");
+    expect(persisted()?.userJson).toBe(JSON.stringify(user));
+    expect(persisted()?.localMode).toBe(true);
   });
 
   it("still signs out on a confirmed 401 after an unlocked persist", async () => {
@@ -235,7 +252,7 @@ describe("locked-device auth guards", () => {
     await mount();
     expect(auth.user).toBeNull();
     expect(auth.canUseApp).toBe(false);
-    expect(mocks.storage.get("workout.workos.session.v1")).toBeUndefined();
+    expect(persisted()?.session).toBeNull();
   });
 
   it("shares a single in-flight refresh between hydrate and fetchAccessToken", async () => {
@@ -276,17 +293,200 @@ describe("locked-device auth guards", () => {
       token = await credentials.fetchAccessToken({ forceRefreshToken: true });
     });
     expect(token).toBe("token-2");
-    expect(mocks.storage.get("workout.workos.session.v1")).toBe(
-      "rotated-session",
-    );
+    expect(persisted()?.session).toBe("rotated-session");
 
     mocks.locked = false;
     await act(async () => {
       appState.emit("active");
     });
+    expect(persisted()?.session).toBe("second-rotation");
+    expect(auth.canUseApp).toBe(true);
+  });
+});
+
+describe("auth persistence regressions", () => {
+  it("keeps explicit sign-out final when refresh persistence is in flight", async () => {
+    await mount();
+    let releaseWrite!: () => void;
+    let signalWrite!: () => void;
+    const writeStarted = new Promise<void>((resolve) => {
+      signalWrite = resolve;
+    });
+    const writeBlocked = new Promise<void>((resolve) => {
+      releaseWrite = resolve;
+    });
+    mocks.beforeWrite = async (key) => {
+      if (key !== AUTH_STATE_KEY) return;
+      signalWrite();
+      await writeBlocked;
+    };
+    let refresh!: Promise<string | null>;
+    await act(async () => {
+      refresh = credentials.fetchAccessToken({ forceRefreshToken: true });
+      await writeStarted;
+    });
+    let signingOut!: Promise<void>;
+    await act(async () => {
+      signingOut = auth.signOut();
+    });
+    expect(auth.user).toBeNull();
+    await act(async () => {
+      releaseWrite();
+      await Promise.all([refresh, signingOut]);
+    });
+    expect(auth.user).toBeNull();
+    expect(credentials.isAuthenticated).toBe(false);
+    expect(persisted()?.session).toBeNull();
+  });
+
+  it("retains the durable session when migrate-on-read cannot rewrite it", async () => {
+    mocks.beforeWrite = async (key) => {
+      if (key === AUTH_STATE_KEY) throw new Error("Keychain write failed");
+    };
+    mocks.fetch.mockResolvedValue({
+      ok: false,
+      status: 503,
+      json: async () => ({ error: "Authentication unavailable" }),
+    });
+    await mount();
+    expect(auth.user?.id).toBe(user.id);
     expect(mocks.storage.get("workout.workos.session.v1")).toBe(
+      "stored-session",
+    );
+    expect(mocks.deleted).toEqual([]);
+    expect(mocks.fetch).not.toHaveBeenCalled();
+    mocks.beforeWrite = null;
+    await act(async () => {
+      appState.emit("active");
+    });
+    expect(persisted()?.session).toBe("stored-session");
+  });
+  it("ignores a late refresh 401 after a new sign-in, even with the same sealed session", async () => {
+    await mount();
+    let finishRefresh!: (value: unknown) => void;
+    mocks.fetch.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishRefresh = resolve;
+        }),
+    );
+    const refresh = credentials.fetchAccessToken({ forceRefreshToken: true });
+    await act(async () => {
+      await auth.signOut();
+      await auth.signIn();
+    });
+    expect(auth.user?.id).toBe(user.id);
+    await act(async () => {
+      finishRefresh({
+        ok: false,
+        status: 401,
+        json: async () => ({ error: "Session expired" }),
+      });
+      await refresh;
+    });
+    expect(auth.user?.id).toBe(user.id);
+    expect(persisted()?.session).toBe("rotated-session");
+  });
+
+  it("does not let delayed startup hydration restore a signed-out user", async () => {
+    let releaseRead!: () => void;
+    const readBlocked = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    mocks.beforeRead = () => readBlocked;
+    await mount();
+    let signingOut!: Promise<void>;
+    await act(async () => {
+      signingOut = auth.signOut();
+    });
+    expect(auth.user).toBeNull();
+    await act(async () => {
+      releaseRead();
+      await signingOut;
+    });
+    expect(auth.canUseApp).toBe(false);
+    expect(persisted()?.session).toBeNull();
+    expect(mocks.fetch).not.toHaveBeenCalled();
+  });
+
+  it("keeps a new sign-in when an earlier locked sign-out was queued", async () => {
+    await mount();
+    mocks.locked = true;
+    await act(async () => {
+      await auth.signOut();
+    });
+    expect(auth.user).toBeNull();
+    mocks.locked = false;
+    await act(async () => {
+      await auth.signIn();
+      appState.emit("active");
+    });
+    expect(auth.user?.id).toBe(user.id);
+    expect(persisted()?.session).toBe("rotated-session");
+    expect(credentials.isAuthenticated).toBe(true);
+  });
+
+  it("queues rotated tokens after a non-lock storage failure and prevents another rotation", async () => {
+    await mount();
+    mocks.beforeWrite = async () => {
+      throw new Error("Keychain write failed");
+    };
+    mocks.fetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        ...tokenResponse,
+        session: "second-rotation",
+        accessToken: "token-2",
+      }),
+    });
+    await act(async () => {
+      await credentials.fetchAccessToken({ forceRefreshToken: true });
+    });
+    expect(persisted()?.session).toBe("rotated-session");
+    mocks.fetch.mockClear();
+    await act(async () => {
+      await credentials.fetchAccessToken({ forceRefreshToken: true });
+    });
+    expect(mocks.fetch).not.toHaveBeenCalled();
+    mocks.beforeWrite = null;
+    await act(async () => {
+      appState.emit("active");
+    });
+    expect(JSON.parse(mocks.fetch.mock.calls[0][1].body).session).toBe(
       "second-rotation",
     );
+    expect(persisted()?.session).toBe("second-rotation");
+  });
+
+  it("refreshes a token deferred in the background when the app becomes active", async () => {
+    await mount();
+    mocks.fetch.mockClear();
+    appState.currentState = "background";
+    await act(async () => {
+      await credentials.fetchAccessToken({ forceRefreshToken: true });
+    });
+    expect(mocks.fetch).not.toHaveBeenCalled();
+    await act(async () => {
+      appState.emit("active");
+    });
+    expect(mocks.fetch).toHaveBeenCalledOnce();
+    expect(JSON.parse(mocks.fetch.mock.calls[0][1].body).forceRefresh).toBe(
+      true,
+    );
+    expect(auth.loading).toBe(false);
     expect(auth.canUseApp).toBe(true);
+  });
+
+  it("restores the migrated account offline on a cold launch", async () => {
+    await mount();
+    await act(async () => {
+      renderer.unmount();
+    });
+    mocks.fetch.mockRejectedValue(new Error("Airplane mode"));
+    await mount();
+    expect(auth.user?.id).toBe(user.id);
+    expect(auth.canUseApp).toBe(true);
+    expect(credentials.isAuthenticated).toBe(false);
+    expect(persisted()?.session).toBe("rotated-session");
   });
 });

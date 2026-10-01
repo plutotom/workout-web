@@ -16,8 +16,10 @@ function errorStatus(error: unknown) {
 }
 
 function errorCode(error: unknown) {
-  if (typeof error === "object" && error !== null && "code" in error) {
-    const code = (error as { code: unknown }).code;
+  if (typeof error === "object" && error !== null) {
+    // WorkOS OAuth exceptions expose `error`; other SDK exceptions use `code`.
+    const record = error as { code?: unknown; error?: unknown };
+    const code = record.error ?? record.code;
     if (typeof code === "string") return code.toLowerCase();
   }
   return "";
@@ -30,7 +32,6 @@ function errorCode(error: unknown) {
  */
 export function mobileSessionErrorStatus(error: unknown): 401 | 503 {
   const status = errorStatus(error);
-  if (status === 400 || status === 401 || status === 403) return 401;
   if (status === 408 || status === 429 || (status !== null && status >= 500)) {
     return 503;
   }
@@ -41,10 +42,16 @@ export function mobileSessionErrorStatus(error: unknown): 401 | 503 {
     code === "invalid_refresh_token" ||
     code === "invalid_session" ||
     code === "unseal" ||
-    code.includes("expired")
+    code === "session_expired" ||
+    code === "session_revoked" ||
+    code === "user_session_ended"
   ) {
     return 401;
   }
+
+  // A structured rejection of the server's client/configuration is not a
+  // rejection of the athlete's refresh session. Unknown codes fail retryably.
+  if (code) return 503;
 
   const text = errorText(error).toLowerCase();
   if (

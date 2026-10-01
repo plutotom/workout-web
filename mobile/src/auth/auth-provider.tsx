@@ -13,10 +13,10 @@ import { AppState } from "react-native";
 import { requirePublicConfig } from "../lib/config";
 import { MobileAccountContext } from "./account-context";
 import {
-  deleteAuthKeys,
   isKeychainLockedError,
-  persistAuthKeys,
-  persistLocalModeKey,
+  persistStoredAuthKeys,
+  SIGNED_OUT_AUTH_KEYS,
+  type StoredAuthKeys,
   readAuthKeys,
 } from "./keychain";
 
@@ -103,10 +103,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const sessionRef = useRef<string | null>(null);
   const accessTokenRef = useRef<string | null>(null);
   const refreshInFlight = useRef<Promise<string | null> | null>(null);
-  const pendingPersist = useRef<TokenResponse | null>(null);
-  const pendingClear = useRef(false);
+  const pendingPersist = useRef<{
+    keys: StoredAuthKeys;
+    generation: number;
+  } | null>(null);
   const keychainLocked = useRef(false);
   const hydrated = useRef(false);
+  const generation = useRef(0);
+  const storageQueue = useRef<Promise<unknown>>(Promise.resolve());
+  const refreshDeferred = useRef(false);
+  const hydrateInFlight = useRef<Promise<void> | null>(null);
+  const mounted = useRef(true);
+
+  const enqueueStorage = useCallback(<T,>(operation: () => Promise<T>) => {
+    const task = storageQueue.current.then(operation);
+    storageQueue.current = task.catch(() => undefined);
+    return task;
+  }, []);
 
   const commitMemory = useCallback((result: TokenResponse) => {
     sessionRef.current = result.session;
@@ -116,54 +129,79 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setLocalMode(true);
   }, []);
 
-  const persistOrQueue = useCallback(async (result: TokenResponse) => {
-    try {
-      await persistAuthKeys({
-        session: result.session,
-        userJson: JSON.stringify(result.user),
+  const persistOrQueue = useCallback(
+    async (keys: StoredAuthKeys, expectedGeneration: number) => {
+      if (generation.current !== expectedGeneration) return false;
+      pendingPersist.current = { keys, generation: expectedGeneration };
+      return enqueueStorage(async () => {
+        if (generation.current !== expectedGeneration) return false;
+        try {
+          await persistStoredAuthKeys(keys);
+          if (generation.current !== expectedGeneration) return false;
+          pendingPersist.current = null;
+          keychainLocked.current = false;
+        } catch (error) {
+          if (generation.current !== expectedGeneration) return false;
+          keychainLocked.current = isKeychainLockedError(error);
+          if (!keychainLocked.current) {
+            console.warn("[auth] Keychain save failed; retrying in foreground");
+          }
+          // WorkOS may already have rotated the refresh token. Retain its
+          // replacement for all storage failures, not just device locks.
+        }
+        return true;
       });
-      pendingPersist.current = null;
-      keychainLocked.current = false;
-    } catch (error) {
-      if (isKeychainLockedError(error)) {
-        keychainLocked.current = true;
-        pendingPersist.current = result;
-        return;
-      }
-      throw error;
-    }
-  }, []);
+    },
+    [enqueueStorage],
+  );
 
   const accept = useCallback(
-    async (result: TokenResponse) => {
-      await persistOrQueue(result);
+    async (result: TokenResponse, expectedGeneration: number) => {
+      const accepted = await persistOrQueue(
+        {
+          session: result.session,
+          userJson: JSON.stringify(result.user),
+          localMode: true,
+        },
+        expectedGeneration,
+      );
+      // Sign-out invalidates the generation while a native write is pending.
+      // Its queued signed-out snapshot runs after any already-started write.
+      if (
+        !accepted ||
+        !mounted.current ||
+        generation.current !== expectedGeneration
+      ) {
+        return accessTokenRef.current;
+      }
       commitMemory(result);
       return result.accessToken;
     },
     [commitMemory, persistOrQueue],
   );
 
-  const clear = useCallback(async (expectedSession?: string) => {
-    if (expectedSession && sessionRef.current !== expectedSession) return;
-    sessionRef.current = null;
-    accessTokenRef.current = null;
-    pendingPersist.current = null;
-    setHasAccessToken(false);
-    setUser(null);
-    setLocalMode(false);
-    try {
-      await deleteAuthKeys();
-      pendingClear.current = false;
-      keychainLocked.current = false;
-    } catch (error) {
-      if (isKeychainLockedError(error)) {
-        keychainLocked.current = true;
-        pendingClear.current = true;
+  const clear = useCallback(
+    async (expectedSession?: string, expectedGeneration?: number) => {
+      if (expectedSession && sessionRef.current !== expectedSession) return;
+      if (
+        expectedGeneration !== undefined &&
+        generation.current !== expectedGeneration
+      )
         return;
-      }
-      throw error;
-    }
-  }, []);
+      const nextGeneration = ++generation.current;
+      sessionRef.current = null;
+      accessTokenRef.current = null;
+      refreshInFlight.current = null;
+      refreshDeferred.current = false;
+      hydrated.current = true;
+      setHasAccessToken(false);
+      setUser(null);
+      setLocalMode(false);
+      setLoading(false);
+      await persistOrQueue(SIGNED_OUT_AUTH_KEYS, nextGeneration);
+    },
+    [persistOrQueue],
+  );
 
   const fetchAccessToken = useCallback(
     async (options: boolean | { forceRefreshToken?: boolean } = false) => {
@@ -174,13 +212,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const activeSession = sessionRef.current;
       const cachedToken = accessTokenRef.current;
       if (!activeSession) return cachedToken;
-      const persistBlocked = !canPersistSecrets() || keychainLocked.current;
-      // Convex reconnects often force-refresh. Rotating a WorkOS refresh token
-      // while Keychain cannot persist it leaves the next cold start with a dead
-      // sealed session.
-      if (forceRefresh && persistBlocked) return cachedToken;
+      const persistBlocked =
+        !canPersistSecrets() ||
+        keychainLocked.current ||
+        pendingPersist.current !== null;
+      if (persistBlocked && (forceRefresh || !cachedToken)) {
+        refreshDeferred.current = true;
+        return cachedToken;
+      }
       if (cachedToken && !forceRefresh) return cachedToken;
       if (refreshInFlight.current) return refreshInFlight.current;
+      const expectedGeneration = generation.current;
+      refreshDeferred.current = false;
 
       const refresh = (async () => {
         try {
@@ -188,19 +231,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             session: activeSession,
             forceRefresh,
           });
-          // A sign-out or newer refresh superseded this response.
-          if (sessionRef.current !== activeSession)
+          if (
+            generation.current !== expectedGeneration ||
+            sessionRef.current !== activeSession
+          )
             return accessTokenRef.current;
-          return await accept(result);
+          return await accept(result, expectedGeneration);
         } catch (error) {
-          if (isKeychainLockedError(error)) {
-            keychainLocked.current = true;
-            return accessTokenRef.current;
-          }
-          // WorkOS refresh tokens rotate. Only clear when this exact session is
-          // still current; a stale concurrent failure must not erase a newer
-          // successful refresh. Network/5xx failures remain retryable.
-          if (invalidSession(error)) await clear(activeSession);
+          if (invalidSession(error))
+            await clear(activeSession, expectedGeneration);
           return accessTokenRef.current;
         }
       })();
@@ -215,73 +254,94 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const hydrate = useCallback(async () => {
-    try {
-      const stored = await readAuthKeys();
-      keychainLocked.current = false;
-      hydrated.current = true;
-      if (stored.localMode) setLocalMode(true);
-      if (!stored.session) {
-        setLoading(false);
-        return;
-      }
-      sessionRef.current = stored.session;
-      if (stored.userJson) {
-        try {
-          setUser(JSON.parse(stored.userJson) as MobileUser);
-        } catch {
-          // Leave the session; a later persist rewrites the profile blob.
+    if (hydrateInFlight.current) return hydrateInFlight.current;
+    const expectedGeneration = generation.current;
+    const task = (async () => {
+      try {
+        const stored = await enqueueStorage(readAuthKeys);
+        if (!mounted.current || generation.current !== expectedGeneration)
+          return;
+        keychainLocked.current = false;
+        hydrated.current = true;
+        if (stored.localMode) setLocalMode(true);
+        sessionRef.current = stored.session;
+        if (stored.session && stored.userJson) {
+          try {
+            setUser(JSON.parse(stored.userJson) as MobileUser);
+          } catch {
+            // A successful refresh replaces the cached profile.
+          }
         }
+        setLoading(false);
+        if (stored.needsMigration) {
+          await persistOrQueue(
+            {
+              session: stored.session,
+              userJson: stored.userJson,
+              localMode: stored.localMode,
+            },
+            expectedGeneration,
+          );
+        }
+        if (generation.current === expectedGeneration && stored.session)
+          await fetchAccessToken();
+      } catch (error) {
+        if (generation.current !== expectedGeneration) return;
+        if (isKeychainLockedError(error)) {
+          keychainLocked.current = true;
+          return;
+        }
+        console.warn("[auth] Keychain read failed; retrying in foreground");
+        setLoading(false);
       }
-      setLoading(false);
-      await fetchAccessToken();
-    } catch (error) {
-      if (isKeychainLockedError(error)) {
-        keychainLocked.current = true;
-        if (sessionRef.current || accessTokenRef.current) setLoading(false);
-        return;
-      }
-      hydrated.current = true;
-      if (invalidSession(error)) await clear();
-      setLoading(false);
+    })();
+    hydrateInFlight.current = task;
+    try {
+      await task;
+    } finally {
+      if (hydrateInFlight.current === task) hydrateInFlight.current = null;
     }
-  }, [clear, fetchAccessToken]);
+  }, [enqueueStorage, fetchAccessToken, persistOrQueue]);
 
   const flushPendingKeychain = useCallback(async () => {
-    if (pendingClear.current) {
-      await clear();
-      return;
-    }
     const queued = pendingPersist.current;
-    if (!queued) return;
-    await persistOrQueue(queued);
-  }, [clear, persistOrQueue]);
+    if (queued) await persistOrQueue(queued.keys, queued.generation);
+  }, [persistOrQueue]);
 
   useEffect(() => {
+    mounted.current = true;
     let active = true;
-    void (async () => {
-      if (!active) return;
-      await hydrate();
-    })();
+    void hydrate();
     const sub = AppState.addEventListener("change", (state) => {
       if (state !== "active") return;
       void (async () => {
-        try {
-          await flushPendingKeychain();
-        } catch (error) {
-          if (!isKeychainLockedError(error)) {
-            console.warn("[auth] keychain flush failed", error);
+        await flushPendingKeychain();
+        if (!active) return;
+        if (!hydrated.current) {
+          await hydrate();
+        } else if (refreshDeferred.current || !accessTokenRef.current) {
+          // Reinstall the Convex auth adapter after a background token refusal
+          // as well as retrying the WorkOS refresh itself.
+          setLoading(true);
+          try {
+            await fetchAccessToken({
+              forceRefreshToken: refreshDeferred.current,
+            });
+          } finally {
+            if (active) setLoading(false);
           }
         }
-        if (active && !hydrated.current) await hydrate();
       })();
     });
     return () => {
       active = false;
+      mounted.current = false;
       sub.remove();
     };
-  }, [flushPendingKeychain, hydrate]);
+  }, [fetchAccessToken, flushPendingKeychain, hydrate]);
 
   const signIn = useCallback(async () => {
+    const startedGeneration = generation.current;
     const { webUrl } = requirePublicConfig();
     const callback = "workout://auth/callback";
     const start = new URL(`${webUrl}/api/mobile-auth/start`);
@@ -296,40 +356,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (result.type !== "success") return;
     const code = new URL(result.url).searchParams.get("code");
     if (!code) throw new Error("WorkOS did not return a mobile exchange code");
-    await accept(await postToken("/api/mobile-auth/exchange", { code }));
+    const tokens = await postToken("/api/mobile-auth/exchange", { code });
+    if (generation.current !== startedGeneration) return;
+    const nextGeneration = ++generation.current;
+    refreshInFlight.current = null;
+    await accept(tokens, nextGeneration);
+    if (generation.current !== nextGeneration) return;
     setLoading(false);
     hydrated.current = true;
   }, [accept]);
 
   const signOut = useCallback(async () => {
-    hydrated.current = true;
     await clear();
   }, [clear]);
 
   const reconnect = useCallback(async () => {
     setLoading(true);
     try {
+      await flushPendingKeychain();
       await fetchAccessToken({ forceRefreshToken: true });
     } finally {
       setLoading(false);
     }
-  }, [fetchAccessToken]);
+  }, [fetchAccessToken, flushPendingKeychain]);
 
   const continueOffline = useCallback(async () => {
+    const nextGeneration = ++generation.current;
     setLocalMode(true);
     hydrated.current = true;
     setLoading(false);
-    try {
-      await persistLocalModeKey();
-      keychainLocked.current = false;
-    } catch (error) {
-      if (isKeychainLockedError(error)) {
-        keychainLocked.current = true;
-        return;
-      }
-      throw error;
-    }
-  }, []);
+    await persistOrQueue(
+      {
+        session: sessionRef.current,
+        userJson: user ? JSON.stringify(user) : null,
+        localMode: true,
+      },
+      nextGeneration,
+    );
+  }, [persistOrQueue, user]);
 
   const value = useMemo(
     () => ({
