@@ -1,4 +1,3 @@
-import * as SecureStore from "expo-secure-store";
 import * as WebBrowser from "expo-web-browser";
 import {
   createContext,
@@ -9,15 +8,19 @@ import {
   useRef,
   useState,
 } from "react";
+import { AppState } from "react-native";
 
 import { requirePublicConfig } from "../lib/config";
 import { MobileAccountContext } from "./account-context";
+import {
+  deleteAuthKeys,
+  isKeychainLockedError,
+  persistAuthKeys,
+  persistLocalModeKey,
+  readAuthKeys,
+} from "./keychain";
 
 WebBrowser.maybeCompleteAuthSession();
-
-const SESSION_KEY = "workout.workos.session.v1";
-const USER_KEY = "workout.workos.user.v1";
-const LOCAL_MODE_KEY = "workout.local-mode.v1";
 
 type MobileUser = {
   id: string;
@@ -63,6 +66,10 @@ function invalidSession(error: unknown) {
   return error instanceof AuthRequestError && error.status === 401;
 }
 
+function canPersistSecrets() {
+  return AppState.currentState === "active";
+}
+
 async function postToken(path: string, body: unknown): Promise<TokenResponse> {
   const { webUrl } = requirePublicConfig();
   const controller = new AbortController();
@@ -96,76 +103,67 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const sessionRef = useRef<string | null>(null);
   const accessTokenRef = useRef<string | null>(null);
   const refreshInFlight = useRef<Promise<string | null> | null>(null);
+  const pendingPersist = useRef<TokenResponse | null>(null);
+  const pendingClear = useRef(false);
+  const keychainLocked = useRef(false);
+  const hydrated = useRef(false);
 
-  const accept = useCallback(async (result: TokenResponse) => {
+  const commitMemory = useCallback((result: TokenResponse) => {
     sessionRef.current = result.session;
     accessTokenRef.current = result.accessToken;
     setHasAccessToken(true);
     setUser(result.user);
     setLocalMode(true);
-    await Promise.all([
-      SecureStore.setItemAsync(SESSION_KEY, result.session, {
-        keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
-      }),
-      SecureStore.setItemAsync(USER_KEY, JSON.stringify(result.user), {
-        keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
-      }),
-      SecureStore.setItemAsync(LOCAL_MODE_KEY, "1", {
-        keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
-      }),
-    ]);
-    return result.accessToken;
   }, []);
+
+  const persistOrQueue = useCallback(async (result: TokenResponse) => {
+    try {
+      await persistAuthKeys({
+        session: result.session,
+        userJson: JSON.stringify(result.user),
+      });
+      pendingPersist.current = null;
+      keychainLocked.current = false;
+    } catch (error) {
+      if (isKeychainLockedError(error)) {
+        keychainLocked.current = true;
+        pendingPersist.current = result;
+        return;
+      }
+      throw error;
+    }
+  }, []);
+
+  const accept = useCallback(
+    async (result: TokenResponse) => {
+      await persistOrQueue(result);
+      commitMemory(result);
+      return result.accessToken;
+    },
+    [commitMemory, persistOrQueue],
+  );
 
   const clear = useCallback(async (expectedSession?: string) => {
     if (expectedSession && sessionRef.current !== expectedSession) return;
     sessionRef.current = null;
     accessTokenRef.current = null;
+    pendingPersist.current = null;
     setHasAccessToken(false);
     setUser(null);
     setLocalMode(false);
-    await Promise.all([
-      SecureStore.deleteItemAsync(SESSION_KEY),
-      SecureStore.deleteItemAsync(USER_KEY),
-      SecureStore.deleteItemAsync(LOCAL_MODE_KEY),
-    ]);
-  }, []);
-
-  useEffect(() => {
-    let active = true;
-    void (async () => {
-      try {
-        const [stored, cachedUser, storedLocalMode] = await Promise.all([
-          SecureStore.getItemAsync(SESSION_KEY),
-          SecureStore.getItemAsync(USER_KEY),
-          SecureStore.getItemAsync(LOCAL_MODE_KEY),
-        ]);
-        if (!active) return;
-        if (storedLocalMode === "1") setLocalMode(true);
-        if (!stored) return;
-        sessionRef.current = stored;
-        if (cachedUser) {
-          try {
-            setUser(JSON.parse(cachedUser) as MobileUser);
-            setLoading(false);
-          } catch {
-            await SecureStore.deleteItemAsync(USER_KEY);
-          }
-        }
-        const result = await postToken("/api/mobile-auth/token", {
-          session: stored,
-        });
-        if (active) await accept(result);
-      } catch (error) {
-        if (active && invalidSession(error)) await clear();
-      } finally {
-        if (active) setLoading(false);
+    try {
+      await deleteAuthKeys();
+      pendingClear.current = false;
+      keychainLocked.current = false;
+    } catch (error) {
+      if (isKeychainLockedError(error)) {
+        keychainLocked.current = true;
+        pendingClear.current = true;
+        return;
       }
-    })();
-    return () => {
-      active = false;
-    };
-  }, [accept, clear]);
+      throw error;
+    }
+  }, []);
 
   const fetchAccessToken = useCallback(
     async (options: boolean | { forceRefreshToken?: boolean } = false) => {
@@ -176,6 +174,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const activeSession = sessionRef.current;
       const cachedToken = accessTokenRef.current;
       if (!activeSession) return cachedToken;
+      const persistBlocked = !canPersistSecrets() || keychainLocked.current;
+      // Convex reconnects often force-refresh. Rotating a WorkOS refresh token
+      // while Keychain cannot persist it leaves the next cold start with a dead
+      // sealed session.
+      if (forceRefresh && persistBlocked) return cachedToken;
       if (cachedToken && !forceRefresh) return cachedToken;
       if (refreshInFlight.current) return refreshInFlight.current;
 
@@ -190,6 +193,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             return accessTokenRef.current;
           return await accept(result);
         } catch (error) {
+          if (isKeychainLockedError(error)) {
+            keychainLocked.current = true;
+            return accessTokenRef.current;
+          }
           // WorkOS refresh tokens rotate. Only clear when this exact session is
           // still current; a stale concurrent failure must not erase a newer
           // successful refresh. Network/5xx failures remain retryable.
@@ -207,6 +214,73 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [accept, clear],
   );
 
+  const hydrate = useCallback(async () => {
+    try {
+      const stored = await readAuthKeys();
+      keychainLocked.current = false;
+      hydrated.current = true;
+      if (stored.localMode) setLocalMode(true);
+      if (!stored.session) {
+        setLoading(false);
+        return;
+      }
+      sessionRef.current = stored.session;
+      if (stored.userJson) {
+        try {
+          setUser(JSON.parse(stored.userJson) as MobileUser);
+        } catch {
+          // Leave the session; a later persist rewrites the profile blob.
+        }
+      }
+      setLoading(false);
+      await fetchAccessToken();
+    } catch (error) {
+      if (isKeychainLockedError(error)) {
+        keychainLocked.current = true;
+        if (sessionRef.current || accessTokenRef.current) setLoading(false);
+        return;
+      }
+      hydrated.current = true;
+      if (invalidSession(error)) await clear();
+      setLoading(false);
+    }
+  }, [clear, fetchAccessToken]);
+
+  const flushPendingKeychain = useCallback(async () => {
+    if (pendingClear.current) {
+      await clear();
+      return;
+    }
+    const queued = pendingPersist.current;
+    if (!queued) return;
+    await persistOrQueue(queued);
+  }, [clear, persistOrQueue]);
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      if (!active) return;
+      await hydrate();
+    })();
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state !== "active") return;
+      void (async () => {
+        try {
+          await flushPendingKeychain();
+        } catch (error) {
+          if (!isKeychainLockedError(error)) {
+            console.warn("[auth] keychain flush failed", error);
+          }
+        }
+        if (active && !hydrated.current) await hydrate();
+      })();
+    });
+    return () => {
+      active = false;
+      sub.remove();
+    };
+  }, [flushPendingKeychain, hydrate]);
+
   const signIn = useCallback(async () => {
     const { webUrl } = requirePublicConfig();
     const callback = "workout://auth/callback";
@@ -223,9 +297,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const code = new URL(result.url).searchParams.get("code");
     if (!code) throw new Error("WorkOS did not return a mobile exchange code");
     await accept(await postToken("/api/mobile-auth/exchange", { code }));
+    setLoading(false);
+    hydrated.current = true;
   }, [accept]);
 
   const signOut = useCallback(async () => {
+    hydrated.current = true;
     await clear();
   }, [clear]);
 
@@ -240,9 +317,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const continueOffline = useCallback(async () => {
     setLocalMode(true);
-    await SecureStore.setItemAsync(LOCAL_MODE_KEY, "1", {
-      keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
-    });
+    hydrated.current = true;
+    setLoading(false);
+    try {
+      await persistLocalModeKey();
+      keychainLocked.current = false;
+    } catch (error) {
+      if (isKeychainLockedError(error)) {
+        keychainLocked.current = true;
+        return;
+      }
+      throw error;
+    }
   }, []);
 
   const value = useMemo(

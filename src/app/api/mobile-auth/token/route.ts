@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { accessForMobileSession } from "@/lib/mobile-auth-session";
 import { mobileAuthEnabled, mobileAuthHeaders } from "@/lib/mobile-auth";
+import { mobileSessionErrorStatus } from "@/lib/mobile-session-error";
 
 export const runtime = "nodejs";
 
@@ -33,10 +34,17 @@ export async function POST(request: Request) {
       { headers: mobileAuthHeaders },
     );
   } catch (error) {
+    const status = mobileSessionErrorStatus(error);
+    if (status === 401) {
+      return Response.json(
+        { error: "Session expired" },
+        { status: 401, headers: mobileAuthHeaders },
+      );
+    }
     console.error("Mobile session refresh failed", error);
     return Response.json(
-      { error: "Session expired" },
-      { status: 401, headers: mobileAuthHeaders },
+      { error: "Authentication unavailable" },
+      { status: 503, headers: mobileAuthHeaders },
     );
   }
 }

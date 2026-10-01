@@ -10,6 +10,10 @@ import {
 } from "@/data/local/repository";
 import { getHealthAdapter } from "@/health";
 
+function isForeground() {
+  return AppState.currentState === "active";
+}
+
 /**
  * Saves finished in-app workouts to Apple Health when export is enabled.
  * Failures stay local and retry on the next revision or foreground.
@@ -21,6 +25,7 @@ export function HealthExportCoordinator() {
   const rerun = useRef(false);
 
   const drain = useCallback(async () => {
+    if (!isForeground()) return;
     if (draining.current) {
       rerun.current = true;
       return;
@@ -50,6 +55,8 @@ export function HealthExportCoordinator() {
         }
         if (attached) refresh();
       } while (rerun.current);
+    } catch {
+      // Keychain/auth/Nitro failures stay local. Drain again in the foreground.
     } finally {
       draining.current = false;
     }
