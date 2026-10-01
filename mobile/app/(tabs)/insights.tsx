@@ -111,15 +111,19 @@ function SessionRow({
     completedAt: number;
     durationMs: number;
     volume: number;
+    inputMode?: "list" | "note";
+    noteBody?: string | null;
     exercises: { slug: string; completedCount: number }[];
   };
 }) {
   const catalog = useCatalog();
-  const summary =
-    session.exercises
-      .filter((item) => item.completedCount > 0)
-      .map((item) => `${catalog.short(item.slug)} ${item.completedCount}`)
-      .join(" · ") || "No completed sets";
+  const isNote = session.inputMode === "note";
+  const summary = isNote
+    ? session.noteBody || "Note workout"
+    : session.exercises
+        .filter((item) => item.completedCount > 0)
+        .map((item) => `${catalog.short(item.slug)} ${item.completedCount}`)
+        .join(" · ") || "No completed sets";
   return (
     <Pressable
       onPress={() =>
@@ -142,9 +146,11 @@ function SessionRow({
               {Math.max(1, Math.round(session.durationMs / 60_000))} min
             </Text>
           </View>
-          <Text style={{ color: colors.text, fontWeight: "700" }}>
-            {volume(session.volume)}
-          </Text>
+          {isNote ? null : (
+            <Text style={{ color: colors.text, fontWeight: "700" }}>
+              {volume(session.volume)}
+            </Text>
+          )}
           <ChevronRight color={colors.faint} size={17} />
         </View>
         <Text style={{ color: colors.dim, fontSize: 11 }} numberOfLines={2}>

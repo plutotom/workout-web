@@ -44,6 +44,9 @@ import {
 } from "@/components/ui";
 import { PlateModal } from "@/components/workout/plate-modal";
 import { RestBar } from "@/components/workout/rest-bar";
+import { NoteWorkoutBody } from "@/components/workout/note-workout-body";
+import { NoteWorkoutEditor } from "@/components/workout/note-workout-editor";
+import { useNoteWorkoutRefresh } from "@/components/workout/use-note-workout-refresh";
 import {
   MachinePickerModal,
   PlaceChip,
@@ -86,6 +89,10 @@ type PastWorkout = {
   templateName: string;
   startedAt: number;
   completedAt?: number;
+  inputMode?: "list" | "note";
+  noteBody?: string | null;
+  noteUnit?: "lb" | "kg" | null;
+  placeName?: string | null;
   sessionKind?: "tracked" | "health_summary";
   sourceName?: string | null;
   activityType?: string | null;
@@ -109,17 +116,32 @@ type PastWorkout = {
 export function WorkoutScreen({ sessionId }: { sessionId: string }) {
   useKeepAwake();
   const session = useLocalWorkout(sessionId);
+  const { adoptRemoteNoteWorkout } = useLocalData();
   const user = useLocalPreferences();
   const { isAuthenticated } = useMobileAuth();
-  // Workouts logged on the web never land in SQLite — the bootstrap only
-  // carries templates, notes and preferences — so a local miss falls back to
-  // the server rather than bouncing the user to the dashboard.
+  const remoteSessionId =
+    session === null
+      ? sessionId
+      : session?.status === "completed" && session.inputMode === "note"
+        ? session.remoteId
+        : null;
+  // A local miss falls back to the server. Completed notes also subscribe by
+  // remote identity so an edit from another phone can refresh this local copy.
   const remote = useQuery(
     api.routes.workouts.queries.get,
-    session === null && isAuthenticated
-      ? { sessionId: sessionId as Id<"workoutSessions"> }
+    remoteSessionId && isAuthenticated
+      ? { sessionId: remoteSessionId as Id<"workoutSessions"> }
       : "skip",
   );
+  useNoteWorkoutRefresh(session, remote);
+
+  async function prepareNoteEdit() {
+    if (remote?.status === "completed" && remote.inputMode === "note") {
+      return adoptRemoteNoteWorkout(remote);
+    }
+    if (session) return session._id;
+    throw new Error("Your workout is still loading. Try again in a moment.");
+  }
 
   if (session === undefined || user === undefined)
     return <FullScreenLoader label="Loading workout…" />;
@@ -128,9 +150,15 @@ export function WorkoutScreen({ sessionId }: { sessionId: string }) {
       return <Redirect href="/dashboard" />;
     if (remote === undefined)
       return <FullScreenLoader label="Loading workout…" />;
-    // Remote-only sessions are read-only here: editing and deleting both go
-    // through the local store, which has never seen them.
-    return <CompletedWorkout session={remote} canDelete={false} />;
+    // Structured remote-only sessions stay read-only. Explicit note editing
+    // adopts its identity into the local store before opening the editor.
+    return (
+      <CompletedWorkout
+        session={remote}
+        canDelete={false}
+        prepareNoteEdit={prepareNoteEdit}
+      />
+    );
   }
   // The controller stays mounted across the finish transition: its post-finish
   // prompts open once the session is already `completed`, and unmounting here
@@ -139,7 +167,18 @@ export function WorkoutScreen({ sessionId }: { sessionId: string }) {
     <>
       <WorkoutFinishController />
       {session.status !== "in_progress" ? (
-        <CompletedWorkout session={session} canDelete />
+        <CompletedWorkout
+          session={session}
+          canDelete
+          prepareNoteEdit={prepareNoteEdit}
+        />
+      ) : session.inputMode === "note" ? (
+        <NoteWorkoutEditor
+          key={session._id}
+          session={session}
+          subtitle={<ElapsedSubtitle startedAt={session.startedAt} />}
+          placeControls={<SessionPlaceControls session={session} />}
+        />
       ) : user.activeWorkoutMode === "focus" ? (
         <FocusWorkout session={session} user={user} />
       ) : (
@@ -1388,9 +1427,11 @@ function CompletedSetRow({
 function CompletedWorkout({
   session,
   canDelete,
+  prepareNoteEdit,
 }: {
   session: PastWorkout;
   canDelete: boolean;
+  prepareNoteEdit?: () => Promise<string>;
 }) {
   const catalog = useCatalog();
   const { deleteSession } = useLocalData();
@@ -1423,7 +1464,8 @@ function CompletedWorkout({
   const isCompleted = session.status === "completed";
   const unit = user?.unit ?? "lb";
   const isHealthSummary = session.sessionKind === "health_summary";
-  const canShareOnSocial = isCompleted && !isHealthSummary;
+  const isNote = session.inputMode === "note";
+  const canShareOnSocial = isCompleted && !isHealthSummary && !isNote;
   const remoteId = useQuery(
     api.routes.social.queries.syncedSession,
     isAuthenticated && canShareOnSocial ? { localId: session._id } : "skip",
@@ -1532,35 +1574,49 @@ function CompletedWorkout({
               )}
             </Text>
             <Text style={{ color: colors.dim, fontSize: 11, marginTop: 2 }}>
-              {isHealthSummary
-                ? healthFacts || "Imported from Apple Health"
-                : `${doneSets}/${totalSets} sets · ${formatWeight(volume, unit)} moved`}
+              {isNote
+                ? [
+                    formatHealthDistance(distanceMeters, unit),
+                    formatHealthEnergy(energyKcal),
+                  ]
+                    .filter(Boolean)
+                    .join(" · ") || "Note workout"
+                : isHealthSummary
+                  ? healthFacts || "Imported from Apple Health"
+                  : `${doneSets}/${totalSets} sets · ${formatWeight(volume, unit)} moved`}
             </Text>
           </View>
         </View>
-        <View
-          style={{
-            height: 6,
-            borderRadius: 3,
-            overflow: "hidden",
-            backgroundColor: colors.surface2,
-          }}
-        >
+        {isNote ? null : (
           <View
             style={{
-              height: "100%",
+              height: 6,
               borderRadius: 3,
-              backgroundColor: colors.success,
-              width: `${
-                isHealthSummary
-                  ? 100
-                  : totalSets
-                    ? (doneSets / totalSets) * 100
-                    : 0
-              }%`,
+              overflow: "hidden",
+              backgroundColor: colors.surface2,
             }}
-          />
-        </View>
+          >
+            <View
+              style={{
+                height: "100%",
+                borderRadius: 3,
+                backgroundColor: colors.success,
+                width: `${
+                  isHealthSummary
+                    ? 100
+                    : totalSets
+                      ? (doneSets / totalSets) * 100
+                      : 0
+                }%`,
+              }}
+            />
+          </View>
+        )}
+        {isNote && session.placeName ? (
+          <Text style={{ color: colors.dim, fontSize: 12 }}>
+            {session.placeName}
+          </Text>
+        ) : null}
         {isHealthSummary ? (
           <Text style={{ color: colors.dim, fontSize: 12, lineHeight: 18 }}>
             Imported from Apple Health. This copy does not include lifts, sets,
@@ -1569,7 +1625,15 @@ function CompletedWorkout({
         ) : null}
       </Card>
 
-      {isHealthSummary ? (
+      {isNote ? (
+        <NoteWorkoutBody
+          sessionId={session._id}
+          noteBody={session.noteBody}
+          noteUnit={session.noteUnit}
+          prepareEdit={prepareNoteEdit}
+          canEdit={isCompleted}
+        />
+      ) : isHealthSummary ? (
         <Card>
           <Text
             style={{

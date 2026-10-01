@@ -7,6 +7,7 @@ import {
   attachExportedHealthUuid,
   getHealthExportEnabled,
   listPendingHealthExports,
+  recoverStoredWatchHealthUuids,
 } from "@/data/local/repository";
 import { getHealthAdapter } from "@/health";
 
@@ -29,6 +30,7 @@ export function HealthExportCoordinator() {
     try {
       do {
         rerun.current = false;
+        if (await recoverStoredWatchHealthUuids(db)) refresh();
         if (!(await getHealthExportEnabled(db))) return;
         const adapter = getHealthAdapter();
         if (!(await adapter.isAvailable())) return;

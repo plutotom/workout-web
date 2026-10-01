@@ -152,5 +152,5 @@ function companionCopy({
   if (watchStatus === "disconnected") {
     return "Watch disconnected. Recording can continue on the Watch.";
   }
-  return "Start Watch recording for this lift. Phone still owns sets.";
+  return "Start Watch recording for this workout.";
 }

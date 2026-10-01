@@ -253,3 +253,45 @@ describe("web Export all ↔ iOS backup", () => {
     ]);
   });
 });
+
+describe("note session backups", () => {
+  it("round-trips exact whitespace, mode, unit, and empty exercise arrays", () => {
+    const snapshot = currentBackup();
+    snapshot.sessions[0] = {
+      ...snapshot.sessions[0]!,
+      inputMode: "note",
+      noteUnit: "kg",
+      noteBody: " \tPull up, 10, 9, 9\n\n",
+      exercises: [],
+    };
+    const result = parseBackup(serializeBackup(snapshot));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.snapshot.sessions[0]).toEqual(snapshot.sessions[0]);
+  });
+
+  it.each(["lb", "kg"] as const)(
+    "accepts the length boundary with %s context",
+    (noteUnit) => {
+      const snapshot = currentBackup();
+      Object.assign(snapshot.sessions[0]!, {
+        inputMode: "note",
+        noteUnit,
+        noteBody: "n".repeat(20_000),
+        exercises: [],
+      });
+      expect(parseBackup(serializeBackup(snapshot)).ok).toBe(true);
+    },
+  );
+
+  it.each([
+    ["oversized text", { noteBody: "n".repeat(20_001) }],
+    ["non-string text", { noteBody: 150 }],
+    ["unknown mode", { inputMode: "unknown" }],
+    ["unknown unit", { noteUnit: "stone" }],
+  ])("rejects %s without silently dropping note data", (_label, fields) => {
+    const snapshot = currentBackup();
+    Object.assign(snapshot.sessions[0]!, fields);
+    expect(parseBackup(serializeBackup(snapshot)).ok).toBe(false);
+  });
+});

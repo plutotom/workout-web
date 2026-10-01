@@ -4,7 +4,7 @@ import type { SQLiteDatabase } from "expo-sqlite";
 // release was built from main. Keep mobile database versions monotonic across
 // release branches: installing a newer app preserves this database, so a
 // later bundle must never lower the maximum supported version.
-const DATABASE_VERSION = 7;
+const DATABASE_VERSION = 8;
 
 export async function migrateLocalDatabase(db: SQLiteDatabase) {
   await db.execAsync("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
@@ -244,6 +244,14 @@ export async function migrateLocalDatabase(db: SQLiteDatabase) {
         );
 
         PRAGMA user_version = 7;
+      `);
+    }
+    if (currentVersion < 8) {
+      await db.execAsync(`
+        ALTER TABLE local_sessions ADD COLUMN input_mode TEXT NOT NULL DEFAULT 'list';
+        ALTER TABLE local_sessions ADD COLUMN note_body TEXT;
+        ALTER TABLE local_sessions ADD COLUMN note_unit TEXT;
+        PRAGMA user_version = 8;
       `);
     }
   });

@@ -20,6 +20,7 @@ import { captureRef } from "react-native-view-shot";
 import { useMobileAuth } from "@/auth/auth-provider";
 import { buildMuscleSegments, MuscleBand } from "@/components/charts";
 import { Button, Card, EmptyState, Screen } from "@/components/ui";
+import { NoteWorkoutRecap } from "@/components/workout/note-workout-recap";
 import type {
   RecapProgressionStory,
   WorkoutRecap,
@@ -445,6 +446,10 @@ function useWorkoutRecap(sessionId: string) {
       templateName: remote.session.templateName,
       startedAt: remote.session.startedAt,
       completedAt: remote.session.completedAt ?? remote.session.startedAt,
+      inputMode: remote.session.inputMode,
+      noteBody: remote.session.noteBody,
+      noteUnit: remote.session.noteUnit,
+      placeName: remote.session.placeName,
       sessionKind:
         remote.session.sessionKind === "health_summary"
           ? "health_summary"
@@ -546,6 +551,10 @@ export default function WorkoutRecapScreen() {
     unit,
   );
   const healthEnergy = formatHealthEnergy(recap.session.energyKcal);
+
+  if (recap.session.inputMode === "note") {
+    return <NoteWorkoutRecap sessionId={sessionId} recap={recap} unit={unit} />;
+  }
 
   const healthBeats: Array<{
     kicker: string;

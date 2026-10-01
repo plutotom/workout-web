@@ -8,6 +8,7 @@ import { query } from "../../_generated/server";
 import { getUser } from "../../lib/auth";
 import { muscleGroupValidator } from "../../schemas/exercises";
 import { activeWorkoutModeValidator, unitValidator } from "../../schemas/users";
+import { sessionInputModeValidator } from "../../schemas/workouts";
 
 const MAX_TEMPLATES = 100;
 const MAX_TEMPLATE_EXERCISES = 50;
@@ -111,6 +112,9 @@ const sessionValidator = v.object({
     v.literal("abandoned"),
   ),
   sessionKind: v.union(v.literal("tracked"), v.literal("health_summary")),
+  inputMode: v.optional(sessionInputModeValidator),
+  noteBody: v.optional(nullableString),
+  noteUnit: v.optional(v.union(unitValidator, v.null())),
   startedAt: v.number(),
   completedAt: nullableNumber,
   updatedAt: v.number(),
@@ -273,6 +277,9 @@ export const sessionsPage = query({
           templateName: session.templateName?.trim() || "Quick start",
           status: session.status,
           sessionKind: session.sessionKind ?? "tracked",
+          inputMode: session.inputMode ?? "list",
+          noteBody: session.noteBody ?? null,
+          noteUnit: session.noteUnit ?? null,
           startedAt: session.startedAt,
           completedAt: session.completedAt ?? null,
           updatedAt:

@@ -46,6 +46,7 @@ type WeekSession = {
   volume: number;
   summary: string;
   isHealthSummary: boolean;
+  isNote: boolean;
   segments: MuscleSegment[];
 };
 
@@ -231,13 +232,16 @@ export default function WeekStoryScreen() {
       durationMs: s.durationMs,
       volume: s.volume,
       isHealthSummary: s.sessionKind === "health_summary",
+      isNote: s.inputMode === "note",
       summary:
-        formatHealthHistoryLine(s) ??
-        (s.exercises
-          .filter((ex) => ex.completedCount > 0)
-          .map((ex) => `${catalog.short(ex.slug)} ${ex.completedCount}`)
-          .join(" · ") ||
-          "No sets checked off"),
+        s.inputMode === "note"
+          ? s.noteBody || "Note workout"
+          : (formatHealthHistoryLine(s) ??
+            (s.exercises
+              .filter((ex) => ex.completedCount > 0)
+              .map((ex) => `${catalog.short(ex.slug)} ${ex.completedCount}`)
+              .join(" · ") ||
+              "No sets checked off")),
       segments: buildMuscleSegments(
         s.exercises.map((ex) => ({
           slug: ex.slug,
@@ -602,7 +606,7 @@ export default function WeekStoryScreen() {
                                     }}
                                   >
                                     {formatDuration(session.durationMs)}
-                                    {session.isHealthSummary
+                                    {session.isHealthSummary || session.isNote
                                       ? null
                                       : ` · ${volume(session.volume)}`}
                                   </Text>
@@ -619,7 +623,8 @@ export default function WeekStoryScreen() {
                               >
                                 {session.summary}
                               </Text>
-                              {session.isHealthSummary ? null : (
+                              {session.isHealthSummary ||
+                              session.isNote ? null : (
                                 <MuscleBand segments={session.segments} />
                               )}
                             </Card>
