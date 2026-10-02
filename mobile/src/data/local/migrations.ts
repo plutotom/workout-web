@@ -1,10 +1,9 @@
 import type { SQLiteDatabase } from "expo-sqlite";
 
-// Version 6 shipped through the staging build before the exercise-library
-// release was built from main. Keep mobile database versions monotonic across
-// release branches: installing a newer app preserves this database, so a
-// later bundle must never lower the maximum supported version.
-const DATABASE_VERSION = 7;
+// Version 8 was installed by the note-workouts branch. Keep the same
+// additive schema across branches: switching bundles preserves the phone
+// database, including stored notes and in-progress workouts.
+const DATABASE_VERSION = 8;
 
 export async function migrateLocalDatabase(db: SQLiteDatabase) {
   await db.execAsync("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
@@ -244,6 +243,14 @@ export async function migrateLocalDatabase(db: SQLiteDatabase) {
         );
 
         PRAGMA user_version = 7;
+      `);
+    }
+    if (currentVersion < 8) {
+      await db.execAsync(`
+        ALTER TABLE local_sessions ADD COLUMN input_mode TEXT NOT NULL DEFAULT 'list';
+        ALTER TABLE local_sessions ADD COLUMN note_body TEXT;
+        ALTER TABLE local_sessions ADD COLUMN note_unit TEXT;
+        PRAGMA user_version = 8;
       `);
     }
   });

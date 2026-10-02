@@ -28,8 +28,8 @@ function databaseAtVersion(version: number) {
 }
 
 describe("migrateLocalDatabase", () => {
-  it("accepts an existing version 7 database", async () => {
-    const fixture = databaseAtVersion(7);
+  it("accepts an existing version 8 database", async () => {
+    const fixture = databaseAtVersion(8);
 
     await expect(migrateLocalDatabase(fixture.db)).resolves.toBeUndefined();
 
@@ -45,7 +45,7 @@ describe("migrateLocalDatabase", () => {
     await migrateLocalDatabase(fixture.db);
 
     expect(fixture.transactionCount).toBe(1);
-    expect(fixture.executedSql).toHaveLength(3);
+    expect(fixture.executedSql).toHaveLength(4);
     expect(fixture.executedSql[1]).toContain(
       "ALTER TABLE local_sessions ADD COLUMN health_segments_json TEXT;",
     );
@@ -62,7 +62,7 @@ describe("migrateLocalDatabase", () => {
     await migrateLocalDatabase(fixture.db);
 
     expect(fixture.transactionCount).toBe(1);
-    expect(fixture.executedSql).toHaveLength(2);
+    expect(fixture.executedSql).toHaveLength(3);
     expect(fixture.executedSql[1]).toContain(
       "ALTER TABLE local_sessions ADD COLUMN place_id TEXT;",
     );
@@ -70,11 +70,24 @@ describe("migrateLocalDatabase", () => {
     expect(fixture.executedSql[1]).toContain("PRAGMA user_version = 7;");
   });
 
+  it("upgrades version 7 with optional note storage and list defaults", async () => {
+    const fixture = databaseAtVersion(7);
+    await migrateLocalDatabase(fixture.db);
+    expect(fixture.transactionCount).toBe(1);
+    expect(fixture.executedSql).toHaveLength(2);
+    expect(fixture.executedSql[1]).toContain(
+      "input_mode TEXT NOT NULL DEFAULT 'list'",
+    );
+    expect(fixture.executedSql[1]).toContain("note_body TEXT");
+    expect(fixture.executedSql[1]).toContain("note_unit TEXT");
+    expect(fixture.executedSql[1]).toContain("PRAGMA user_version = 8;");
+  });
+
   it("still rejects databases newer than the supported schema", async () => {
-    const fixture = databaseAtVersion(8);
+    const fixture = databaseAtVersion(9);
 
     await expect(migrateLocalDatabase(fixture.db)).rejects.toThrow(
-      "Workout database version 8 is newer than this app supports",
+      "Workout database version 9 is newer than this app supports",
     );
   });
 });
