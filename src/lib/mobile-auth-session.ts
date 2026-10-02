@@ -10,7 +10,26 @@ function cookiePassword() {
 }
 
 export async function readMobileSession(value: string) {
-  return unsealData<Session>(value, { password: cookiePassword() });
+  const session = await unsealData<Session>(value, {
+    password: cookiePassword(),
+  });
+  // iron-session returns an empty object for invalid/expired seals. Reject it
+  // locally rather than sending an absent refresh token to WorkOS.
+  if (
+    !session ||
+    typeof session.accessToken !== "string" ||
+    !session.accessToken ||
+    typeof session.refreshToken !== "string" ||
+    !session.refreshToken ||
+    !session.user ||
+    typeof session.user.id !== "string" ||
+    typeof session.user.email !== "string"
+  ) {
+    throw Object.assign(new Error("Invalid mobile session"), {
+      code: "invalid_session",
+    });
+  }
+  return session;
 }
 
 export async function sealMobileSession(session: Session) {

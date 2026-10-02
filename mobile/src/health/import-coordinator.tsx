@@ -28,6 +28,10 @@ import type {
   HealthWorkoutSummary,
 } from "@/health/types";
 
+function isForeground() {
+  return AppState.currentState === "active";
+}
+
 const PAGES_PER_DRAIN = 10;
 
 function prefsKey(prefs: HealthAutoImportPrefs | undefined) {
@@ -51,12 +55,15 @@ export function HealthImportCoordinator() {
   const filterKey = prefsKey(prefs);
   const prefsReady = prefs !== undefined;
   const autoImportEnabled = prefs?.enabled === true;
+  const notifyAutoImport =
+    localPreferences?.appleHealthImportNotificationsEnabled === true;
 
   useEffect(() => {
     prefsRef.current = prefs;
   }, [prefs]);
 
   const drain = useCallback(async () => {
+    if (!isForeground()) return;
     if (draining.current) {
       rerun.current = true;
       return;
@@ -121,17 +128,16 @@ export function HealthImportCoordinator() {
         const notify = importedNow.filter((workout) =>
           shouldNotifyAutoImport(workout),
         );
-        if (
-          localPreferences?.appleHealthImportNotificationsEnabled &&
-          notify.length > 0
-        ) {
+        if (notifyAutoImport && notify.length > 0) {
           await notifyAutoImportedWorkouts(notify);
         }
       } while (rerun.current);
+    } catch {
+      // Keychain/auth/Nitro failures stay local. Drain again in the foreground.
     } finally {
       draining.current = false;
     }
-  }, [db, localPreferences?.appleHealthImportNotificationsEnabled, refresh]);
+  }, [db, notifyAutoImport, refresh]);
 
   useEffect(() => {
     if (!prefsReady) return;

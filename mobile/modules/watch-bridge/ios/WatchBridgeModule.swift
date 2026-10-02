@@ -8,9 +8,13 @@ public class WatchBridgeModule: Module {
     Events("onWatchEvent")
 
     OnCreate {
-      WatchPhoneSession.shared.activate { payload in
-        self.sendEvent("onWatchEvent", payload)
+      WatchPhoneSession.shared.activate { [weak self] payload in
+        self?.sendEvent("onWatchEvent", payload)
       }
+    }
+
+    OnDestroy {
+      WatchPhoneSession.shared.clearEventSink()
     }
 
     Function("getStatus") { () -> [String: Any] in
@@ -59,6 +63,10 @@ final class WatchPhoneSession: NSObject, WCSessionDelegate {
     let session = WCSession.default
     session.delegate = self
     session.activate()
+  }
+
+  func clearEventSink() {
+    onEvent = nil
   }
 
   func status() -> [String: Any] {
@@ -185,7 +193,8 @@ final class WatchPhoneSession: NSObject, WCSessionDelegate {
 
   private func emit(_ payload: [String: Any]) {
     DispatchQueue.main.async {
-      self.onEvent?(payload)
+      guard let onEvent = self.onEvent else { return }
+      onEvent(payload)
     }
   }
 }

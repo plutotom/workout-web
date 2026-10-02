@@ -23,11 +23,18 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("expo-secure-store", () => ({
+  AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY: 2,
   WHEN_UNLOCKED_THIS_DEVICE_ONLY: 1,
   getItemAsync: async (key: string) => mocks.storage.get(key) ?? null,
   setItemAsync: async (key: string, value: string) =>
     mocks.storage.set(key, value),
   deleteItemAsync: async (key: string) => mocks.storage.delete(key),
+}));
+vi.mock("react-native", () => ({
+  AppState: {
+    currentState: "active",
+    addEventListener: () => ({ remove: () => {} }),
+  },
 }));
 vi.mock("expo-web-browser", () => ({
   maybeCompleteAuthSession: vi.fn(),
