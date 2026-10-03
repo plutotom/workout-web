@@ -8,6 +8,9 @@ import { Alert, Pressable, Text, View } from "react-native";
 import { CowboyHatIcon } from "@/components/cowboy-hat-icon";
 import { Button, Card } from "@/components/ui";
 import { colors } from "@/theme";
+import { optimisticLike } from "@/lib/social-optimistic";
+import { measureMobileAsync } from "@/lib/performance-timing";
+import { useCommitTiming } from "@/lib/use-performance-timing";
 
 type Post = {
   id: Id<"activityPosts">;
@@ -32,8 +35,11 @@ export function SocialPost({
   post: Post;
   detail?: boolean;
 }) {
-  const like = useMutation(api.routes.social.mutations.toggleLike);
+  const like = useMutation(
+    api.routes.social.mutations.toggleLike,
+  ).withOptimisticUpdate(optimisticLike);
   const copy = useMutation(api.routes.social.mutations.copyWorkout);
+  const measureLikeCommit = useCommitTiming("social.like.ui_commit");
   const open = () => {
     if (detail) return;
     router.push({
@@ -92,11 +98,12 @@ export function SocialPost({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={post.liked ? "Remove yee haw" : "Give a yee haw"}
-          onPress={() =>
-            void like({ postId: post.id }).catch((e) =>
-              Alert.alert("Couldn't yee haw", String(e)),
-            )
-          }
+          onPress={() => {
+            measureLikeCommit();
+            void measureMobileAsync("social.like.confirmation", () =>
+              like({ postId: post.id }),
+            ).catch((e) => Alert.alert("Couldn't yee haw", String(e)));
+          }}
           style={{ flexDirection: "row", gap: 6, alignItems: "center" }}
         >
           <CowboyHatIcon

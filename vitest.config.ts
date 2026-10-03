@@ -1,5 +1,5 @@
 import path from "node:path";
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 export default defineConfig({
   resolve: {
@@ -7,5 +7,25 @@ export default defineConfig({
       "@": path.resolve(import.meta.dirname, "src"),
       "@shared": path.resolve(import.meta.dirname, "src/lib"),
     },
+  },
+  test: {
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: "web",
+          exclude: [...configDefaults.exclude, "mobile/**", "**/.worktrees/**"],
+        },
+      },
+      {
+        extends: true,
+        resolve: {
+          alias: {
+            "@": path.resolve(import.meta.dirname, "mobile/src"),
+          },
+        },
+        test: { name: "mobile", include: ["mobile/**/*.test.{ts,tsx}"] },
+      },
+    ],
   },
 });

@@ -143,6 +143,16 @@ afterEach(async () => {
 });
 
 describe("mobile account connection", () => {
+  it("settles into offline mode only after confirming there is no saved session", async () => {
+    mocks.storage.clear();
+    mocks.storage.set("workout.local-mode.v1", "1");
+    await mount();
+    expect(auth.accountStatus).toBe("offline");
+    expect(auth.isAuthenticated).toBe(false);
+    expect(auth.canUseApp).toBe(true);
+    expect(credentials.isResolvingSession).toBe(false);
+    expect(mocks.fetch).not.toHaveBeenCalled();
+  });
   it("bootstraps an existing unverified account before enabling cloud writes, once per connection", async () => {
     const bootstrap = deferredBootstrap();
     mocks.auth.isAuthenticated = true;
@@ -284,12 +294,15 @@ describe("mobile account connection", () => {
     expect(credentials.user?.id).toBe(user.id);
     expect(credentials.isAuthenticated).toBe(false);
     expect(auth.canUseApp).toBe(true);
+    expect(auth.accountStatus).toBe("connecting");
+    expect(credentials.isResolvingSession).toBe(true);
     expect(mocks.cloudWrite).not.toHaveBeenCalled();
 
     await act(async () =>
       resolveRefresh({ ok: true, json: async () => tokenResponse }),
     );
     expect(credentials.isAuthenticated).toBe(true);
+    expect(credentials.isResolvingSession).toBe(false);
     expect(auth.isAuthenticated).toBe(false);
     expect(mocks.bootstrap).not.toHaveBeenCalled();
 

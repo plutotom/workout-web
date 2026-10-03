@@ -5,22 +5,48 @@ import { router, useLocalSearchParams } from "expo-router";
 import { Alert, Text, View } from "react-native";
 
 import { SocialPost } from "@/components/social-post";
-import { Button, EmptyState, PageHeader, Screen } from "@/components/ui";
+import {
+  Button,
+  EmptyState,
+  FullScreenLoader,
+  PageHeader,
+  Screen,
+} from "@/components/ui";
+import { useMobileAuth } from "@/auth/auth-provider";
+import { optimisticFollow } from "@/lib/social-optimistic";
+import { measureMobileAsync } from "@/lib/performance-timing";
+import { useCommitTiming, useLoadTiming } from "@/lib/use-performance-timing";
 import { colors } from "@/theme";
 
 export default function ProfileScreen() {
   const { userId } = useLocalSearchParams<{ userId: string }>();
   const id = userId as Id<"users">;
-  const profile = useQuery(api.routes.social.queries.profile, { userId: id });
-  const posts = useQuery(api.routes.social.queries.profilePosts, {
-    userId: id,
-  });
-  const follow = useMutation(api.routes.social.mutations.toggleFollow);
+  const { isAuthenticated, accountStatus } = useMobileAuth();
+  const profile = useQuery(
+    api.routes.social.queries.profile,
+    isAuthenticated ? { userId: id } : "skip",
+  );
+  const posts = useQuery(
+    api.routes.social.queries.profilePosts,
+    isAuthenticated ? { userId: id } : "skip",
+  );
+  const follow = useMutation(
+    api.routes.social.mutations.toggleFollow,
+  ).withOptimisticUpdate(optimisticFollow);
+  const measureFollowCommit = useCommitTiming("social.follow.ui_commit");
+  useLoadTiming("social.profile", isAuthenticated, profile !== undefined, id);
+  useLoadTiming("social.posts", isAuthenticated, posts !== undefined, id);
+  if (
+    accountStatus === "connecting" ||
+    (isAuthenticated && profile === undefined)
+  ) {
+    return <FullScreenLoader label="Loading profile…" />;
+  }
   return (
     <Screen>
       <PageHeader back title="Profile" />
       {!profile ? (
-        profile === null ? (
+        profile === null || !isAuthenticated ? (
           <EmptyState
             title="Profile unavailable"
             description="This athlete could not be found."
@@ -57,11 +83,14 @@ export default function ProfileScreen() {
             <Button
               label={profile.isFollowing ? "Following" : "Follow"}
               variant={profile.isFollowing ? "outline" : "primary"}
-              onPress={() =>
-                void follow({ userId: id }).catch((e) =>
+              onPress={() => {
+                measureFollowCommit();
+                void measureMobileAsync("social.follow.confirmation", () =>
+                  follow({ userId: id }),
+                ).catch((e) =>
                   Alert.alert("Couldn't update follow", String(e)),
-                )
-              }
+                );
+              }}
             />
           )}
           <Text

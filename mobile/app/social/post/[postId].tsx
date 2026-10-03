@@ -3,23 +3,75 @@ import type { Id } from "@backend/dataModel";
 import { useMutation, useQuery } from "convex/react";
 import { router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
-import { Alert, Pressable, Text, TextInput, View } from "react-native";
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 
 import { SocialPost } from "@/components/social-post";
-import { Button, EmptyState, PageHeader, Screen } from "@/components/ui";
+import {
+  Button,
+  EmptyState,
+  FullScreenLoader,
+  PageHeader,
+  Screen,
+} from "@/components/ui";
+import { useMobileAuth } from "@/auth/auth-provider";
+import {
+  optimisticComment,
+  optimisticRemoveComment,
+} from "@/lib/social-optimistic";
 import { colors } from "@/theme";
+import { measureMobileAsync } from "@/lib/performance-timing";
+import { useCommitTiming, useLoadTiming } from "@/lib/use-performance-timing";
 
 export default function PostScreen() {
   const { postId } = useLocalSearchParams<{ postId: string }>();
   const id = postId as Id<"activityPosts">;
-  const post = useQuery(api.routes.social.queries.post, { postId: id });
-  const comments = useQuery(api.routes.social.queries.comments, { postId: id });
-  const me = useQuery(api.routes.social.queries.me);
-  const add = useMutation(api.routes.social.mutations.addComment);
-  const remove = useMutation(api.routes.social.mutations.removeComment);
+  const { isAuthenticated, accountStatus } = useMobileAuth();
+  const result = useQuery(
+    api.routes.social.queries.post,
+    isAuthenticated ? { postId: id } : "skip",
+  );
+  const feed = useQuery(
+    api.routes.social.queries.feed,
+    isAuthenticated ? {} : "skip",
+  );
+  // Feed rows already contain the full post preview: show it during navigation.
+  const post =
+    result === undefined && isAuthenticated
+      ? feed?.find((row) => row.id === id)
+      : result;
+  const comments = useQuery(
+    api.routes.social.queries.comments,
+    isAuthenticated ? { postId: id } : "skip",
+  );
+  const me = useQuery(
+    api.routes.social.queries.me,
+    isAuthenticated ? {} : "skip",
+  );
+  const add = useMutation(
+    api.routes.social.mutations.addComment,
+  ).withOptimisticUpdate(optimisticComment);
+  const remove = useMutation(
+    api.routes.social.mutations.removeComment,
+  ).withOptimisticUpdate(optimisticRemoveComment);
   const removePost = useMutation(api.routes.social.mutations.removePost);
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
+  const measureCommentCommit = useCommitTiming("social.comment.ui_commit");
+  useLoadTiming("social.post", isAuthenticated, result !== undefined, id);
+  useLoadTiming("social.comments", isAuthenticated, comments !== undefined, id);
+  if (
+    accountStatus === "connecting" ||
+    (isAuthenticated && post === undefined)
+  ) {
+    return <FullScreenLoader label="Loading workout…" />;
+  }
   return (
     <Screen>
       <PageHeader
@@ -54,7 +106,7 @@ export default function PostScreen() {
           ) : undefined
         }
       />
-      {post === null ? (
+      {post === null || !isAuthenticated ? (
         <EmptyState
           title="Post unavailable"
           description="It may have been deleted."
@@ -73,10 +125,17 @@ export default function PostScreen() {
           >
             Comments
           </Text>
+          {comments === undefined ? (
+            <ActivityIndicator
+              color={colors.text}
+              accessibilityLabel="Loading comments"
+            />
+          ) : null}
           {comments?.map((c) => (
             <Pressable
               key={c.id}
               onLongPress={() => {
+                if (c.id.startsWith("optimistic:")) return;
                 if (c.userId === me?.id || post.userId === me?.id)
                   Alert.alert("Remove comment?", "This cannot be undone.", [
                     { text: "Cancel" },
@@ -106,6 +165,11 @@ export default function PostScreen() {
                 {c.name}
               </Text>
               <Text style={{ color: colors.text }}>{c.text}</Text>
+              {c.id.startsWith("optimistic:") ? (
+                <Text style={{ color: colors.dim, fontSize: 12 }}>
+                  Sending…
+                </Text>
+              ) : null}
             </Pressable>
           ))}
           <View style={{ gap: 10, marginTop: 16 }}>
@@ -127,13 +191,21 @@ export default function PostScreen() {
             />
             <Button
               label={sending ? "Posting…" : "Post comment"}
-              disabled={!message.trim() || sending}
+              disabled={
+                !message.trim() || sending || !me || comments === undefined
+              }
               onPress={async () => {
+                if (sending || !message.trim()) return;
+                const text = message;
+                measureCommentCommit();
                 setSending(true);
+                setMessage("");
                 try {
-                  await add({ postId: id, text: message });
-                  setMessage("");
+                  await measureMobileAsync("social.comment.confirmation", () =>
+                    add({ postId: id, text }),
+                  );
                 } catch (e) {
+                  setMessage((current) => current || text);
                   Alert.alert("Couldn't comment", String(e));
                 } finally {
                   setSending(false);

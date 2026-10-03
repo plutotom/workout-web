@@ -57,7 +57,9 @@ const restOptions = [
 ] as const;
 
 export default function SettingsScreen() {
-  const { isAuthenticated } = useMobileAuth();
+  const { isAuthenticated, accountStatus } = useMobileAuth();
+  if (accountStatus === "connecting")
+    return <FullScreenLoader label="Loading settings…" />;
   if (!isAuthenticated) return <OfflineSettingsScreen />;
   return <AuthenticatedSettingsScreen />;
 }

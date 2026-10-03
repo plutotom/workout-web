@@ -2,16 +2,31 @@ import { api } from "@backend/api";
 import { useMutation, useQuery } from "convex/react";
 import { router } from "expo-router";
 import { Bell, Search, UserRound } from "lucide-react-native";
-import { useEffect, useState } from "react";
-import { Modal, Pressable, Text, View } from "react-native";
+import { useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  Modal,
+  Pressable,
+  Text,
+  View,
+} from "react-native";
 
 import { SocialPost } from "@/components/social-post";
-import { Button, EmptyState, PageHeader, Screen } from "@/components/ui";
+import {
+  Button,
+  EmptyState,
+  FullScreenLoader,
+  PageHeader,
+  Screen,
+} from "@/components/ui";
 import { useMobileAuth } from "@/auth/auth-provider";
+import { optimisticReadNotifications } from "@/lib/social-optimistic";
 import { colors } from "@/theme";
 
 export default function SocialScreen() {
-  const { isAuthenticated } = useMobileAuth();
+  const { isAuthenticated, accountStatus, retryAccountConnection } =
+    useMobileAuth();
   const feed = useQuery(
     api.routes.social.queries.feed,
     isAuthenticated ? {} : "skip",
@@ -26,15 +41,15 @@ export default function SocialScreen() {
   );
   const markRead = useMutation(
     api.routes.social.mutations.markNotificationsRead,
-  );
+  ).withOptimisticUpdate(optimisticReadNotifications);
   const [open, setOpen] = useState(false);
-  useEffect(() => {
-    if (open && notifications?.some((n) => !n.read)) {
-      void markRead().catch((error) => {
-        console.warn("[social] couldn't mark notifications read", error);
-      });
-    }
-  }, [open, notifications, markRead]);
+
+  if (
+    accountStatus === "connecting" ||
+    (isAuthenticated && (feed === undefined || me === undefined))
+  ) {
+    return <FullScreenLoader label="Loading social…" />;
+  }
 
   return (
     <Screen>
@@ -64,7 +79,15 @@ export default function SocialScreen() {
               </Pressable>
               <Pressable
                 accessibilityLabel="Notifications"
-                onPress={() => setOpen(true)}
+                onPress={() => {
+                  setOpen(true);
+                  void markRead().catch((error) => {
+                    console.warn(
+                      "[social] couldn't mark notifications read",
+                      error,
+                    );
+                  });
+                }}
               >
                 <Bell color={colors.text} size={23} />
                 {notifications?.some((n) => !n.read) ? (
@@ -85,7 +108,25 @@ export default function SocialScreen() {
           ) : undefined
         }
       />
-      {!isAuthenticated ? (
+      {accountStatus === "error" ? (
+        <EmptyState
+          title="Account unavailable"
+          description="Couldn't connect your account. Try again when you're online."
+          action={
+            <Button
+              label="Reconnect"
+              onPress={() =>
+                void retryAccountConnection().catch(() =>
+                  Alert.alert(
+                    "Couldn't reconnect",
+                    "Please try again when you're online.",
+                  ),
+                )
+              }
+            />
+          }
+        />
+      ) : !isAuthenticated ? (
         <EmptyState
           title="Train with others"
           description="Sign in to follow athletes, share workouts, and save their routines."
@@ -135,6 +176,12 @@ export default function SocialScreen() {
               />
             }
           />
+          {notifications === undefined ? (
+            <ActivityIndicator
+              color={colors.text}
+              accessibilityLabel="Loading notifications"
+            />
+          ) : null}
           {notifications?.length === 0 ? (
             <Text style={{ color: colors.dim }}>
               Follows, yee haws, and comments will appear here.

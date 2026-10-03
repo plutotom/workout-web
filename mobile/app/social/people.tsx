@@ -5,11 +5,11 @@ import { useEffect, useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 
 import { useMobileAuth } from "@/auth/auth-provider";
-import { Button, PageHeader, Screen } from "@/components/ui";
+import { Button, FullScreenLoader, PageHeader, Screen } from "@/components/ui";
 import { colors } from "@/theme";
 
 export default function PeopleScreen() {
-  const { isAuthenticated } = useMobileAuth();
+  const { isAuthenticated, accountStatus } = useMobileAuth();
   const [search, setSearch] = useState("");
   const ensureDiscoverable = useMutation(
     api.routes.social.mutations.ensureDiscoverable,
@@ -31,6 +31,8 @@ export default function PeopleScreen() {
     isAuthenticated ? {} : "skip",
   );
   const showSuggestions = search.trim().length === 0;
+  if (accountStatus === "connecting")
+    return <FullScreenLoader label="Loading athletes…" />;
   return (
     <Screen>
       <PageHeader

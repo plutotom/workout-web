@@ -11,6 +11,7 @@ import {
 import { AppState } from "react-native";
 
 import { requirePublicConfig } from "../lib/config";
+import { measureMobileAsync } from "../lib/performance-timing";
 import { MobileAccountContext } from "./account-context";
 import {
   isKeychainLockedError,
@@ -39,6 +40,7 @@ type AuthContextValue = {
   loading: boolean;
   isLoading: boolean;
   isAuthenticated: boolean;
+  isResolvingSession: boolean;
   canUseApp: boolean;
   user: MobileUser | null;
   signIn: () => Promise<void>;
@@ -100,6 +102,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<MobileUser | null>(null);
   const [localMode, setLocalMode] = useState(false);
   const [hasAccessToken, setHasAccessToken] = useState(false);
+  const [isResolvingSession, setIsResolvingSession] = useState(false);
   const sessionRef = useRef<string | null>(null);
   const accessTokenRef = useRef<string | null>(null);
   const refreshInFlight = useRef<Promise<string | null> | null>(null);
@@ -192,6 +195,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       sessionRef.current = null;
       accessTokenRef.current = null;
       refreshInFlight.current = null;
+      setIsResolvingSession(false);
       refreshDeferred.current = false;
       hydrated.current = true;
       setHasAccessToken(false);
@@ -224,13 +228,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (refreshInFlight.current) return refreshInFlight.current;
       const expectedGeneration = generation.current;
       refreshDeferred.current = false;
+      setIsResolvingSession(true);
 
       const refresh = (async () => {
         try {
-          const result = await postToken("/api/mobile-auth/token", {
-            session: activeSession,
-            forceRefresh,
-          });
+          const result = await measureMobileAsync("auth.token", () =>
+            postToken("/api/mobile-auth/token", {
+              session: activeSession,
+              forceRefresh,
+            }),
+          );
           if (
             generation.current !== expectedGeneration ||
             sessionRef.current !== activeSession
@@ -247,7 +254,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         return await refresh;
       } finally {
-        if (refreshInFlight.current === refresh) refreshInFlight.current = null;
+        if (refreshInFlight.current === refresh) {
+          refreshInFlight.current = null;
+          setIsResolvingSession(false);
+        }
       }
     },
     [accept, clear],
@@ -258,7 +268,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const expectedGeneration = generation.current;
     const task = (async () => {
       try {
-        const stored = await enqueueStorage(readAuthKeys);
+        const stored = await measureMobileAsync("auth.storage", () =>
+          enqueueStorage(readAuthKeys),
+        );
         if (!mounted.current || generation.current !== expectedGeneration)
           return;
         keychainLocked.current = false;
@@ -272,7 +284,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             // A successful refresh replaces the cached profile.
           }
         }
-        setLoading(false);
         if (stored.needsMigration) {
           await persistOrQueue(
             {
@@ -283,6 +294,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             expectedGeneration,
           );
         }
+        // Keep auth unresolved through migration; token resolution starts in
+        // the same turn so cloud screens never see a transient signed-out state.
+        setLoading(false);
         if (generation.current === expectedGeneration && stored.session)
           await fetchAccessToken();
       } catch (error) {
@@ -356,10 +370,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (result.type !== "success") return;
     const code = new URL(result.url).searchParams.get("code");
     if (!code) throw new Error("WorkOS did not return a mobile exchange code");
-    const tokens = await postToken("/api/mobile-auth/exchange", { code });
+    const tokens = await measureMobileAsync("auth.exchange", () =>
+      postToken("/api/mobile-auth/exchange", { code }),
+    );
     if (generation.current !== startedGeneration) return;
     const nextGeneration = ++generation.current;
     refreshInFlight.current = null;
+    setIsResolvingSession(false);
     await accept(tokens, nextGeneration);
     if (generation.current !== nextGeneration) return;
     setLoading(false);
@@ -400,6 +417,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       loading,
       isLoading: loading,
       isAuthenticated: Boolean(user) && hasAccessToken,
+      isResolvingSession,
       canUseApp: localMode || Boolean(user),
       user,
       signIn,
@@ -412,6 +430,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       continueOffline,
       fetchAccessToken,
       hasAccessToken,
+      isResolvingSession,
       loading,
       localMode,
       reconnect,

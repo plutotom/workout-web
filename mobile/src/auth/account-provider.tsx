@@ -7,6 +7,8 @@ import {
   type MobileAccountStatus,
 } from "./account-context";
 import { useAuthCredentials } from "./auth-provider";
+import { measureMobileAsync } from "../lib/performance-timing";
+import { useLoadTiming } from "../lib/use-performance-timing";
 
 const CONNECTION_TIMEOUT_MS = 15_000;
 
@@ -49,7 +51,7 @@ export function MobileAccountProvider({ children }: { children: ReactNode }) {
     if (!bootstrapKey) return;
     let active = true;
     // Existing rows also need verified email updates and profile migrations.
-    void getOrCreate({})
+    void measureMobileAsync("auth.bootstrap", () => getOrCreate({}))
       .then(() => {
         if (active) setBootstrap({ key: bootstrapKey, complete: true });
       })
@@ -83,12 +85,33 @@ export function MobileAccountProvider({ children }: { children: ReactNode }) {
   else if (failure === connectionKey) status = "error";
   else if (
     credentials.loading ||
+    credentials.isResolvingSession ||
     auth.isLoading ||
     auth.isRefreshing ||
     authenticated
   )
     status = "connecting";
   else status = credentials.user ? "error" : "offline";
+
+  useLoadTiming(
+    "auth.convex",
+    credentials.isAuthenticated && !credentials.loading,
+    auth.isAuthenticated && !auth.isRefreshing,
+    connectionKey,
+  );
+  useLoadTiming(
+    "auth.account",
+    credentials.loading || Boolean(userId),
+    status === "ready" || status === "error",
+    connectionKey,
+    status === "error" ? "failure" : "success",
+  );
+  useLoadTiming(
+    "auth.user",
+    authenticated,
+    account !== undefined,
+    connectionKey,
+  );
 
   return (
     <MobileAccountContext.Provider value={{ status, retry }}>
