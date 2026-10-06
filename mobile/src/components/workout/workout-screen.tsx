@@ -31,6 +31,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useMobileAuth } from "@/auth/auth-provider";
+import { openSocialPost } from "@/lib/social-navigation";
 import { AiPromptModal } from "@/components/ai-prompt-modal";
 import { ExercisePicker } from "@/components/exercise-picker";
 import { KeyboardStickyFooter } from "@/components/keyboard-sticky-footer";
@@ -1724,12 +1725,7 @@ function CompletedWorkout({
             label="Shared on social"
             variant="outline"
             icon={Check}
-            onPress={() =>
-              router.push({
-                pathname: "/social/post/[postId]",
-                params: { postId: sharedPostId },
-              })
-            }
+            onPress={() => openSocialPost(sharedPostId)}
           />
         ) : (
           <Button

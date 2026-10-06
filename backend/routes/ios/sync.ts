@@ -344,10 +344,18 @@ export const pushTemplate = mutation({
       : null;
     const existing =
       receiptTemplateId !== null ? await ctx.db.get(receiptTemplateId) : null;
-    const remoteTemplateId =
-      existing && existing.userId === user._id
-        ? existing._id
-        : args.template.remoteId;
+    if (receiptTemplateId) {
+      if (existing && existing.userId !== user._id) {
+        throw new Error("Template not found");
+      }
+      // Acknowledge this exact operation even if its template was later
+      // edited or deleted. Replaying writes would invalidate subscriptions.
+      return {
+        remoteTemplateId: receiptTemplateId,
+        serverTime: receipt!.appliedAt,
+      };
+    }
+    const remoteTemplateId = args.template.remoteId;
 
     if (remoteTemplateId) {
       await updateTemplateLib(ctx, user._id, {

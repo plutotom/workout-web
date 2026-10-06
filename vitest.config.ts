@@ -24,7 +24,7 @@ export default defineConfig({
             "@": path.resolve(import.meta.dirname, "mobile/src"),
           },
         },
-        test: { name: "mobile", include: ["mobile/**/*.test.{ts,tsx}"] },
+        test: { name: "mobile", include: ["mobile/**/*.test.{js,ts,tsx}"] },
       },
     ],
   },

@@ -55,6 +55,10 @@ import {
   seedLocalSetRows,
 } from "@/data/local/places";
 import { setRowsForNewExercise } from "@/data/local/exercise-sets";
+import {
+  adoptTemplateIdentity,
+  templateHasPendingEdit,
+} from "./template-sync-storage";
 import { sessionMatchesPlace } from "@shared/place-memory";
 import {
   convertWeight,
@@ -1138,9 +1142,11 @@ export async function saveLocalTemplate(
         JSON.stringify(exercise.sets),
       );
     }
+    // Cloud refreshes and older upload acknowledgments must see the new edit
+    // and its pending operation together. A failed queue write rolls back both.
+    await queueTemplateSnapshot(txn, templateId, now);
   });
 
-  await queueTemplateSnapshot(db, templateId, now);
   return templateId;
 }
 
@@ -1633,22 +1639,15 @@ export async function completeTemplateSync(
   // Sessions attached to a template that had not reached Convex yet carry no
   // remote template id, because `pushSession` only accepts a real Convex id.
   // Now that one exists, adopt it and re-upload so the link lands server-side.
-  const relinked = remoteTemplateId
-    ? await db.getAllAsync<{ id: string }>(
-        `SELECT id FROM local_sessions
-          WHERE template_id = ? AND remote_template_id IS NOT ?`,
-        templateId,
-        remoteTemplateId,
-      )
-    : [];
   const now = Date.now();
 
   await db.withExclusiveTransactionAsync(async (txn) => {
     if (remoteTemplateId) {
-      await txn.runAsync(
-        "UPDATE local_templates SET remote_id = ? WHERE id = ?",
-        remoteTemplateId,
+      await adoptTemplateIdentity(txn, templateId, remoteTemplateId);
+      const relinked = await txn.getAllAsync<{ id: string }>(
+        "SELECT id FROM local_sessions WHERE template_id = ? AND remote_template_id IS NOT ?",
         templateId,
+        remoteTemplateId,
       );
       await txn.runAsync(
         `UPDATE local_sessions
@@ -1659,14 +1658,15 @@ export async function completeTemplateSync(
         templateId,
         remoteTemplateId,
       );
+      // Link updates and their follow-up uploads must commit together. An
+      // app exit between them must leave the original template upload queued.
+      for (const row of relinked) await queueSessionSnapshot(txn, row.id, now);
     }
     await txn.runAsync(
       "DELETE FROM local_sync_outbox WHERE operation_id = ?",
       operationId,
     );
   });
-
-  for (const row of relinked) await queueSessionSnapshot(db, row.id, now);
 }
 
 export async function deleteLocalTemplate(
@@ -2140,6 +2140,7 @@ export async function applyIosBootstrap(
         template.remoteId,
       );
       const localId = existing?.id ?? template.remoteId;
+      if (existing && (await templateHasPendingEdit(txn, localId))) continue;
       await txn.runAsync(
         `INSERT INTO local_templates (id, remote_id, name, updated_at, last_place_id)
          VALUES (?, ?, ?, ?, ?)

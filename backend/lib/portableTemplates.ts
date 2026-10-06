@@ -264,13 +264,28 @@ export async function importBundle(
     );
   }
 
-  const user = await ctx.db.get(userId);
+  const hasCustomExercises =
+    bundle.customExercises.length > 0 ||
+    bundle.templates.some((template) =>
+      template.exercises.some((exercise) =>
+        exercise.slug.trim().startsWith(CUSTOM_SLUG_PREFIX),
+      ),
+    );
+  // These reads are independent. Standard-lift imports need no custom-library scans.
+  const [user, customsBefore, existingTemplates] = await Promise.all([
+    ctx.db.get(userId),
+    hasCustomExercises
+      ? ctx.db
+          .query("customExercises")
+          .withIndex("by_user", (q) => q.eq("userId", userId))
+          .collect()
+      : Promise.resolve([]),
+    ctx.db
+      .query("workoutTemplates")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect(),
+  ]);
   const targetUnit = user?.unit ?? "lb";
-
-  const customsBefore = await ctx.db
-    .query("customExercises")
-    .withIndex("by_user", (q) => q.eq("userId", userId))
-    .collect();
   const slugMap = await remapCustomExercises(
     ctx,
     userId,
@@ -278,10 +293,6 @@ export async function importBundle(
   );
   const orphanCache = new Map<string, string>();
 
-  const existingTemplates = await ctx.db
-    .query("workoutTemplates")
-    .withIndex("by_user", (q) => q.eq("userId", userId))
-    .collect();
   const takenNames = new Set(
     existingTemplates.map((t) => t.name.trim().toLowerCase()),
   );
@@ -353,10 +364,12 @@ export async function importBundle(
     }
   }
 
-  const customsAfter = await ctx.db
-    .query("customExercises")
-    .withIndex("by_user", (q) => q.eq("userId", userId))
-    .collect();
+  const customsAfter = hasCustomExercises
+    ? await ctx.db
+        .query("customExercises")
+        .withIndex("by_user", (q) => q.eq("userId", userId))
+        .collect()
+    : [];
 
   return {
     templateIds,

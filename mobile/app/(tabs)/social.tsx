@@ -23,6 +23,7 @@ import {
 import { useMobileAuth } from "@/auth/auth-provider";
 import { optimisticReadNotifications } from "@/lib/social-optimistic";
 import { colors } from "@/theme";
+import { openSocialPost } from "@/lib/social-navigation";
 
 export default function SocialScreen() {
   const { isAuthenticated, accountStatus, retryAccountConnection } =
@@ -192,11 +193,7 @@ export default function SocialScreen() {
               key={n.id}
               onPress={() => {
                 setOpen(false);
-                if (n.postId && n.kind !== "follow")
-                  router.push({
-                    pathname: "/social/post/[postId]",
-                    params: { postId: n.postId },
-                  });
+                if (n.postId && n.kind !== "follow") openSocialPost(n.postId);
                 else
                   router.push({
                     pathname: "/social/profile/[userId]",

@@ -1,7 +1,148 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import type { Id } from "../_generated/dataModel";
+import type { MutationCtx } from "../_generated/server";
 
 import { convertWeight as sharedConvertWeight } from "../../src/lib/workout-export";
-import { convertWeight, uniqueName } from "./portableTemplates";
+import {
+  convertWeight,
+  importBundle,
+  uniqueName,
+  type PortableBundle,
+} from "./portableTemplates";
+
+function importHarness() {
+  const rows: Record<string, Record<string, unknown>[]> = {
+    users: [{ _id: "user_1", unit: "lb" }],
+    workoutTemplates: [
+      { _id: "old_template", userId: "user_1", name: "Leg day" },
+    ],
+    customExercises: [],
+    templateExercises: [],
+    exerciseNotes: [],
+  };
+  let sequence = 0;
+  const query = vi.fn((table: string) => {
+    const filters: [string, unknown][] = [];
+    const result = () =>
+      rows[table].filter((row) =>
+        filters.every(([key, value]) => row[key] === value),
+      );
+    const builder = {
+      eq(key: string, value: unknown) {
+        filters.push([key, value]);
+        return builder;
+      },
+    };
+    return {
+      withIndex: (_index: string, filter: (q: typeof builder) => unknown) => {
+        filter(builder);
+        return {
+          collect: async () => [...result()],
+          take: async (count: number) => result().slice(0, count),
+          unique: async () => result()[0] ?? null,
+        };
+      },
+    };
+  });
+  const db = {
+    query,
+    get: async (id: string) =>
+      Object.values(rows)
+        .flat()
+        .find((row) => row._id === id) ?? null,
+    insert: async (table: string, row: Record<string, unknown>) => {
+      const id = `${table}_${++sequence}`;
+      rows[table].push({ ...row, _id: id });
+      return id;
+    },
+    patch: async (id: string, patch: Record<string, unknown>) => {
+      const row = Object.values(rows)
+        .flat()
+        .find((row) => row._id === id)!;
+      Object.assign(row, patch);
+    },
+  };
+  return { ctx: { db } as unknown as MutationCtx, rows, query };
+}
+
+function bundle(slug = "squat"): PortableBundle {
+  return {
+    format: "workout.export",
+    version: 1,
+    exportedAt: 0,
+    unit: "kg",
+    templates: [
+      {
+        name: "Leg day",
+        exercises: [{ slug, name: "Squat", sets: [{ weight: 100, reps: 5 }] }],
+      },
+    ],
+    customExercises: [],
+  };
+}
+
+describe("portable import database work", () => {
+  it("skips custom-library scans for standard lifts while preserving names and unit conversion", async () => {
+    const h = importHarness();
+    const result = await importBundle(
+      h.ctx,
+      "user_1" as Id<"users">,
+      bundle(),
+      { includeNotes: false },
+    );
+    expect(
+      h.query.mock.calls.filter(([table]) => table === "customExercises"),
+    ).toHaveLength(0);
+    expect(result.names).toEqual(["Leg day (2)"]);
+    expect(result.customExercisesCreated).toBe(0);
+    expect(h.rows.workoutTemplates[0].name).toBe("Leg day");
+    expect(h.rows.templateExercises[0].sets).toEqual([
+      { weight: 220, reps: 5 },
+    ]);
+  });
+
+  it("still creates and remaps custom lifts with accurate import counts", async () => {
+    const h = importHarness();
+    const incoming = bundle("custom:sender_lift");
+    incoming.customExercises = [
+      {
+        slug: "custom:sender_lift",
+        name: "Squat",
+        category: "legs",
+        usesBar: true,
+      },
+    ];
+    const result = await importBundle(
+      h.ctx,
+      "user_1" as Id<"users">,
+      incoming,
+      { includeNotes: false },
+    );
+    expect(result.customExercisesCreated).toBe(1);
+    expect(h.rows.templateExercises[0].exerciseSlug).toBe(
+      `custom:${h.rows.customExercises[0]._id}`,
+    );
+    const again = await importBundle(h.ctx, "user_1" as Id<"users">, incoming, {
+      includeNotes: false,
+    });
+    expect(again.customExercisesCreated).toBe(0);
+    expect(h.rows.customExercises).toHaveLength(1);
+  });
+
+  it("still recreates orphan custom lifts when older bundles omit their definitions", async () => {
+    const h = importHarness();
+    const result = await importBundle(
+      h.ctx,
+      "user_1" as Id<"users">,
+      bundle("custom:orphan"),
+      { includeNotes: false },
+    );
+    expect(result.customExercisesCreated).toBe(1);
+    expect(h.rows.templateExercises[0].exerciseSlug).toBe(
+      `custom:${h.rows.customExercises[0]._id}`,
+    );
+  });
+});
 
 describe("convertWeight", () => {
   it("matches the shared client helper — web and iOS must convert the same way", () => {

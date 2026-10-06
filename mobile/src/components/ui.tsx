@@ -152,12 +152,14 @@ export function PageHeader({
   eyebrow,
   subtitle,
   back = false,
+  onBack,
   action,
 }: {
   title: string;
   eyebrow?: string;
   subtitle?: ReactNode;
   back?: boolean;
+  onBack?: () => void;
   action?: ReactNode;
 }) {
   return (
@@ -166,7 +168,7 @@ export function PageHeader({
         <Pressable
           accessibilityLabel="Go back"
           hitSlop={10}
-          onPress={() => router.back()}
+          onPress={onBack ?? (() => router.back())}
           style={({ pressed }) => [styles.back, pressed && styles.pressed]}
         >
           <ChevronLeft size={23} color={colors.text} />

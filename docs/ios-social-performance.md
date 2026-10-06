@@ -41,3 +41,31 @@ The social post screen may display its cached feed preview before `social.post`
 finishes. That measurement intentionally tracks the actual detail subscription.
 Do not expand caching or change the account verification policy until a device
 trace identifies the expensive stage.
+
+## Publishing a workout
+
+Sharing uses the existing authenticated React client. On tap, the composer shows
+a local pending preview and progress indicator immediately; this preview has no
+post ID or interaction controls. It is not a successful publication. Only a
+settled mutation opens the canonical post. Convex retains responsibility for
+authentication recovery, automatic retries, and query consistency. See
+[Convex retries](https://docs.convex.dev/client/react/overview#retries).
+
+`social.share.ui_commit` measures the tap to the React commit showing the pending
+preview. `social.share.confirmation` measures the live mutation through promise
+settlement, including retries and query synchronization. Compare these with the
+destination's `social.post` timing. A fast preview with slow confirmation warrants
+separate network, auth, backend mutation, and subscribed-query profiling; it does
+not establish which stage is slow. Development timings measure React commits,
+not presented frames. Use Xcode Instruments for a release-build comparison,
+since release builds do not emit these console diagnostics.
+
+On a real iPhone, record tap → pending preview → visible published post. Exercise
+Wi-Fi/cellular, interrupted connections, token expiry, background/resume, leaving
+during publishing, server rejection/retry, and web-logged workouts. A connection
+interruption should retain the pending preview while the live client retries.
+A rejected mutation should restore the caption and retry button. A late response
+should neither reopen a post nor show an alert on another screen. After success,
+verify both header Back and the iOS swipe gesture return to Social in one step.
+No before/after device latency measurements have yet been collected; this change
+improves immediate feedback without claiming faster server execution.

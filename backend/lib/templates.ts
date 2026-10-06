@@ -195,17 +195,35 @@ export async function updateTemplate(
   if (!template || template.userId !== userId)
     throw new Error("Template not found");
 
-  await ctx.db.patch(templateId, {
-    name: normalizeTemplateName(name),
-    updatedAt: Date.now(),
-  });
-
+  const normalizedName = normalizeTemplateName(name);
+  const normalized = normalizeExercises(exercises);
   const existing = await ctx.db
     .query("templateExercises")
     .withIndex("by_template", (q) => q.eq("templateId", templateId))
     .collect();
+  existing.sort((a, b) => a.orderIndex - b.orderIndex);
+  const unchanged =
+    template.name === normalizedName &&
+    existing.length === normalized.length &&
+    existing.every((exercise, index) => {
+      const incoming = normalized[index];
+      return (
+        exercise.exerciseSlug === incoming.slug &&
+        exercise.orderIndex === index &&
+        exercise.sets.length === incoming.sets.length &&
+        exercise.sets.every(
+          (set, setIndex) =>
+            set.weight === incoming.sets[setIndex].weight &&
+            set.reps === incoming.sets[setIndex].reps,
+        )
+      );
+    });
+  if (unchanged) return;
+  await ctx.db.patch(templateId, {
+    name: normalizedName,
+    updatedAt: Date.now(),
+  });
   await Promise.all(existing.map((e) => ctx.db.delete(e._id)));
-  const normalized = normalizeExercises(exercises);
   await Promise.all(
     normalized.map((e, i) =>
       ctx.db.insert("templateExercises", {

@@ -1,7 +1,7 @@
 import { api } from "@backend/api";
 import type { Id } from "@backend/dataModel";
 import { useMutation, useQuery } from "convex/react";
-import { router, useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import {
   ActivityIndicator,
@@ -13,13 +13,7 @@ import {
 } from "react-native";
 
 import { SocialPost } from "@/components/social-post";
-import {
-  Button,
-  EmptyState,
-  FullScreenLoader,
-  PageHeader,
-  Screen,
-} from "@/components/ui";
+import { Button, EmptyState, PageHeader, Screen } from "@/components/ui";
 import { useMobileAuth } from "@/auth/auth-provider";
 import {
   optimisticComment,
@@ -28,9 +22,14 @@ import {
 import { colors } from "@/theme";
 import { measureMobileAsync } from "@/lib/performance-timing";
 import { useCommitTiming, useLoadTiming } from "@/lib/use-performance-timing";
+import { leaveSocialPost } from "@/lib/social-navigation";
 
 export default function PostScreen() {
-  const { postId } = useLocalSearchParams<{ postId: string }>();
+  const { postId, fromShare } = useLocalSearchParams<{
+    postId: string;
+    fromShare?: string;
+  }>();
+  const goBack = () => leaveSocialPost(fromShare === "1");
   const id = postId as Id<"activityPosts">;
   const { isAuthenticated, accountStatus } = useMobileAuth();
   const result = useQuery(
@@ -70,12 +69,22 @@ export default function PostScreen() {
     accountStatus === "connecting" ||
     (isAuthenticated && post === undefined)
   ) {
-    return <FullScreenLoader label="Loading workout…" />;
+    return (
+      <Screen>
+        <PageHeader back onBack={goBack} title="Workout" />
+        <ActivityIndicator
+          color={colors.text}
+          accessibilityLabel="Loading workout"
+        />
+        <Text style={{ color: colors.dim }}>Loading workout…</Text>
+      </Screen>
+    );
   }
   return (
     <Screen>
       <PageHeader
         back
+        onBack={goBack}
         title="Workout"
         action={
           post && post.userId === me?.id ? (
@@ -94,7 +103,7 @@ export default function PostScreen() {
                       style: "destructive",
                       onPress: () =>
                         void removePost({ postId: id })
-                          .then(() => router.back())
+                          .then(goBack)
                           .catch((e) =>
                             Alert.alert("Couldn't delete", String(e)),
                           ),
