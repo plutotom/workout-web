@@ -1,3 +1,9 @@
+import {
+  normalizeSessionInputMode,
+  type NoteUnit,
+  type SessionInputMode,
+} from "../../src/lib/note-workouts";
+
 import type { Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import {
@@ -95,6 +101,9 @@ export type LoadedSession = {
   startedAt: number;
   completedAt: number;
   sessionKind: "tracked" | "health_summary";
+  inputMode: SessionInputMode;
+  noteBody: string | null;
+  noteUnit: NoteUnit | null;
   countsTowardGoals: boolean;
   durationSeconds: number | null;
   energyKcal: number | null;
@@ -159,6 +168,9 @@ async function loadCompletedSessions(
           startedAt: s.startedAt,
           completedAt: s.completedAt ?? s.startedAt,
           sessionKind: normalizeSessionKind(s.sessionKind),
+          inputMode: normalizeSessionInputMode(s.inputMode),
+          noteBody: s.noteBody ?? null,
+          noteUnit: s.noteUnit ?? null,
           countsTowardGoals: s.countsTowardGoals !== false,
           durationSeconds: s.durationSeconds ?? null,
           energyKcal: s.energyKcal ?? null,
@@ -174,6 +186,8 @@ async function loadCompletedSessions(
       sessionKind: session.sessionKind,
       countsTowardGoals: session.countsTowardGoals,
       hasLoggedWork: sessionHasLoggedWork(session),
+      inputMode: session.inputMode,
+      noteBody: session.noteBody,
     }),
   );
 }
@@ -300,6 +314,9 @@ export type InsightsSessionSummary = {
   durationMs: number;
   volume: number;
   sessionKind: "tracked" | "health_summary";
+  inputMode: SessionInputMode;
+  noteBody: string | null;
+  noteUnit: NoteUnit | null;
   sourceName: string | null;
   activityType: string | null;
   distanceMeters: number | null;
@@ -324,6 +341,9 @@ function formatSessionSummary(session: LoadedSession): InsightsSessionSummary {
     durationMs,
     volume: sessionVolume(session),
     sessionKind: session.sessionKind,
+    inputMode: session.inputMode,
+    noteBody: session.noteBody,
+    noteUnit: session.noteUnit,
     sourceName: session.sourceName,
     activityType: session.activityType,
     distanceMeters: session.distanceMeters,

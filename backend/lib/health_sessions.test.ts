@@ -14,6 +14,56 @@ describe("normalizeSessionKind", () => {
 });
 
 describe("sessionCountsTowardGoals", () => {
+  it("counts nonblank note text once without exercise or weight data", () => {
+    expect(
+      sessionCountsTowardGoals({
+        sessionKind: "tracked",
+        inputMode: "note",
+        noteBody: "Pull up, 10, 9, 9",
+        hasLoggedWork: false,
+      }),
+    ).toBe(true);
+    expect(
+      sessionCountsTowardGoals({
+        sessionKind: "tracked",
+        inputMode: "note",
+        noteBody: "edited note",
+        hasLoggedWork: true,
+      }),
+    ).toBe(true);
+  });
+
+  it.each([undefined, null, "", " \n\t"])(
+    "does not count empty note %s",
+    (noteBody) => {
+      expect(
+        sessionCountsTowardGoals({
+          inputMode: "note",
+          noteBody,
+          hasLoggedWork: false,
+        }),
+      ).toBe(false);
+    },
+  );
+
+  it("keeps list text and excluded Health summaries from granting attendance", () => {
+    expect(
+      sessionCountsTowardGoals({
+        inputMode: "list",
+        noteBody: "text",
+        hasLoggedWork: false,
+      }),
+    ).toBe(false);
+    expect(
+      sessionCountsTowardGoals({
+        sessionKind: "health_summary",
+        countsTowardGoals: false,
+        inputMode: "note",
+        noteBody: "text",
+        hasLoggedWork: false,
+      }),
+    ).toBe(false);
+  });
   it("counts a detailed app workout with logged sets", () => {
     expect(
       sessionCountsTowardGoals({

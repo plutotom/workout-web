@@ -79,6 +79,11 @@ vi.mock("expo-secure-store", () => ({
 vi.mock("react-native", () => ({
   AppState: appState,
 }));
+vi.mock("expo-crypto", () => ({
+  randomUUID: () => "11111111-1111-4111-8111-111111111111",
+  digestStringAsync: async () => "a".repeat(64),
+  CryptoDigestAlgorithm: { SHA256: "SHA-256" },
+}));
 vi.mock("expo-web-browser", () => ({
   maybeCompleteAuthSession: vi.fn(),
   openAuthSessionAsync: mocks.openAuthSession,
@@ -99,6 +104,9 @@ vi.mock("convex/react", () => ({
 
 const user = { id: "user_1", email: "athlete@example.com" };
 const tokenResponse = {
+  get expiresAt() {
+    return Date.now() + 300_000;
+  },
   session: "rotated-session",
   accessToken: "token",
   user,
@@ -247,11 +255,11 @@ describe("locked-device auth guards", () => {
     mocks.fetch.mockResolvedValue({
       ok: false,
       status: 401,
-      json: async () => ({ error: "Session expired" }),
+      json: async () => ({ error: "Session expired", code: "session_expired" }),
     });
     await mount();
     expect(auth.user).toBeNull();
-    expect(auth.canUseApp).toBe(false);
+    expect(auth.canUseApp).toBe(true);
     expect(persisted()?.session).toBeNull();
   });
 
@@ -283,6 +291,7 @@ describe("locked-device auth guards", () => {
       json: async () => ({
         session: "second-rotation",
         accessToken: "token-2",
+        expiresAt: Date.now() + 300_000,
         user,
       }),
     });
@@ -380,7 +389,10 @@ describe("auth persistence regressions", () => {
       finishRefresh({
         ok: false,
         status: 401,
-        json: async () => ({ error: "Session expired" }),
+        json: async () => ({
+          error: "Session expired",
+          code: "session_expired",
+        }),
       });
       await refresh;
     });
@@ -488,5 +500,41 @@ describe("auth persistence regressions", () => {
     expect(auth.canUseApp).toBe(true);
     expect(credentials.isAuthenticated).toBe(false);
     expect(persisted()?.session).toBe("rotated-session");
+  });
+});
+
+describe("persistent popup login", () => {
+  it("binds the popup exchange to this app and omits browser cookies", async () => {
+    await mount();
+    await act(async () => {
+      await auth.signIn();
+    });
+    const [start, callback, options] = mocks.openAuthSession.mock.calls[0];
+    expect(new URL(start).searchParams.get("challenge")).toBe("a".repeat(64));
+    expect(callback).toBe("workout://auth/callback");
+    expect(options).toEqual({ preferEphemeralSession: false });
+    const exchange = mocks.fetch.mock.calls.find(([url]) =>
+      String(url).endsWith("/exchange"),
+    );
+    expect(JSON.parse(exchange![1].body)).toMatchObject({
+      code: "exchange-code",
+      verifier: expect.stringMatching(/^[0-9a-f]{64}$/),
+    });
+    expect(exchange![1].credentials).toBe("omit");
+  });
+  it("recovers a migrated saved account after reopening offline", async () => {
+    await mount();
+    await act(async () => renderer.unmount());
+    mocks.fetch.mockRejectedValue(new Error("Airplane mode"));
+    await mount();
+    expect(auth.user?.id).toBe(user.id);
+    expect(credentials.isAuthenticated).toBe(false);
+    mocks.fetch.mockResolvedValue({
+      ok: true,
+      json: async () => tokenResponse,
+    });
+    await act(async () => appState.emit("active"));
+    expect(credentials.isAuthenticated).toBe(true);
+    expect(mocks.openAuthSession).not.toHaveBeenCalled();
   });
 });

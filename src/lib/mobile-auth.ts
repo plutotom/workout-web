@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 
 import { sealData, unsealData } from "iron-session";
 import type { Session } from "@workos-inc/authkit-nextjs";
@@ -14,6 +14,7 @@ type MobileAuthExchangeTicket = {
   session: string;
   code: string;
   exp: number;
+  challenge?: string;
   // Legacy tickets included these fields. Keep them optional so an in-flight
   // exchange created before deployment can still be redeemed.
   accessToken?: string;
@@ -87,6 +88,7 @@ export function mobileAuthCodeFingerprint(code: string) {
 export async function sealMobileAuthExchange(
   code: string,
   value: MobileAuthSession,
+  challenge?: string,
 ) {
   // Keep the browser cookie compact. The sealed session already contains the
   // access token and user, so duplicating them here can exceed the 4 KB cookie
@@ -95,6 +97,7 @@ export async function sealMobileAuthExchange(
     session: value.session,
     code,
     exp: Date.now() + EXCHANGE_TTL_MS,
+    challenge,
   };
   return sealData(ticket, { password: cookiePassword(), ttl: 0 });
 }
@@ -114,8 +117,9 @@ export async function unsealMobileAuthExchange(ticket: string) {
 export async function storeMobileAuthSession(
   code: string,
   value: MobileAuthSession,
+  challenge?: string,
 ) {
-  const ticket = await sealMobileAuthExchange(code, value);
+  const ticket = await sealMobileAuthExchange(code, value, challenge);
   const jar = await cookies();
   jar.set(EXCHANGE_COOKIE, ticket, {
     httpOnly: true,
@@ -148,9 +152,23 @@ export async function takeMobileAuthExchangeTicket(code: string) {
   return raw;
 }
 
-export async function redeemMobileAuthExchangeTicket(ticket: string) {
+export async function redeemMobileAuthExchangeTicket(
+  ticket: string,
+  verifier?: string,
+) {
   const value = await unsealMobileAuthExchange(ticket);
   if (!value) return null;
+  // The proof stays in the initiating app, never in the browser or deep link.
+  // Redemption is deliberately retryable if a network response is lost.
+  // Legacy apps have no challenge; keep their sign-in working during rollout.
+  if (verifier && !value.challenge) return null;
+  if (value.challenge) {
+    if (!verifier || !/^[A-Za-z0-9_-]{43,128}$/.test(verifier)) return null;
+    const expected = Buffer.from(value.challenge, "hex");
+    const actual = createHash("sha256").update(verifier).digest();
+    if (expected.length !== actual.length || !timingSafeEqual(expected, actual))
+      return null;
+  }
   if (value.accessToken && value.user) {
     return {
       session: value.session,

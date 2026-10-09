@@ -3,7 +3,7 @@ import { useSQLiteContext } from "expo-sqlite";
 
 import { useLocalData } from "@/data/local/provider";
 import {
-  attachExportedHealthUuid,
+  attachStoredWatchHealthUuid,
   markWatchRecorded,
   saveWatchHealthUuid,
 } from "@/data/local/repository";
@@ -32,11 +32,7 @@ export function WatchHealthCoordinator() {
         if (event.healthUuid) {
           await saveWatchHealthUuid(db, event.sessionId, event.healthUuid);
           try {
-            await attachExportedHealthUuid(
-              db,
-              event.sessionId,
-              event.healthUuid,
-            );
+            await attachStoredWatchHealthUuid(db, event.sessionId);
             refresh();
           } catch {
             // Still in progress — finish() attaches the stored UUID.

@@ -8,7 +8,13 @@ import {
 
 export const runtime = "nodejs";
 
-const bodySchema = z.object({ code: z.string().min(1) });
+const bodySchema = z.object({
+  code: z.string().min(1),
+  verifier: z
+    .string()
+    .regex(/^[A-Za-z0-9_-]{43,128}$/)
+    .optional(),
+});
 
 export async function POST(request: Request) {
   if (!mobileAuthEnabled()) {
@@ -24,7 +30,10 @@ export async function POST(request: Request) {
       { status: 400, headers: mobileAuthHeaders },
     );
   }
-  const result = await redeemMobileAuthExchangeTicket(parsed.data.code);
+  const result = await redeemMobileAuthExchangeTicket(
+    parsed.data.code,
+    parsed.data.verifier,
+  );
   if (!result) {
     return Response.json(
       { error: "The exchange code is invalid or expired" },

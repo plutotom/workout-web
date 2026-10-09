@@ -2,7 +2,9 @@ import { createRequire } from "node:module";
 import { describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ refresh: vi.fn() }));
-vi.mock("@/lib/mobile-auth-session", () => ({
+vi.mock("@workos-inc/authkit-nextjs", () => ({ getWorkOS: vi.fn() }));
+vi.mock("@/lib/mobile-auth-session", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/mobile-auth-session")>()),
   accessForMobileSession: mocks.refresh,
 }));
 vi.mock("@/lib/mobile-auth", () => ({
@@ -61,7 +63,10 @@ describe("mobile token route failures", () => {
       }),
     );
     expect(response.status).toBe(401);
-    expect(await response.json()).toEqual({ error: "Session expired" });
+    expect(await response.json()).toEqual({
+      error: "Session expired",
+      code: "session_expired",
+    });
     expect(response.headers.get("Cache-Control")).toBe("no-store");
   });
 });

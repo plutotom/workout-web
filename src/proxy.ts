@@ -36,6 +36,17 @@ export default async function proxy(
   request: NextRequest,
   event: NextFetchEvent,
 ) {
+  // These endpoints authenticate the native session themselves. Running browser
+  // cookie refresh here could rotate the same credential a second time.
+  if (
+    ["/api/mobile-auth/token", "/api/mobile-auth/exchange"].includes(
+      request.nextUrl.pathname,
+    )
+  ) {
+    const response = NextResponse.next();
+    response.headers.set("Cache-Control", "private, no-store");
+    return response;
+  }
   const result = await workosProxy(request, event);
   const response = result ?? NextResponse.next();
   response.headers.set("Cache-Control", "private, no-store");

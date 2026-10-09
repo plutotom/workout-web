@@ -19,6 +19,13 @@ export async function GET(request: Request) {
   }
   const code = newMobileAuthCode();
   const requestUrl = new URL(request.url);
+  const challenge = requestUrl.searchParams.get("challenge");
+  if (challenge !== null && !/^[a-f0-9]{64}$/.test(challenge)) {
+    return Response.json(
+      { error: "Invalid sign-in challenge" },
+      { status: 400, headers: mobileAuthHeaders },
+    );
+  }
   const origin = requestUrl.origin;
   const callbackOrigin = resolveMobileAuthCallbackOrigin(
     origin,
@@ -28,7 +35,7 @@ export async function GET(request: Request) {
   const authorizationUrl = await getSignInUrl({
     redirectUri: `${callbackOrigin}/callback`,
     returnTo,
-    state: `mobile:${code}`,
+    state: `mobile:${code}${challenge ? `:${challenge}` : ""}`,
   });
   const response = NextResponse.redirect(authorizationUrl);
   for (const [key, value] of Object.entries(mobileAuthHeaders))

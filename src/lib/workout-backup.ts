@@ -1,4 +1,11 @@
 import {
+  MAX_WORKOUT_NOTE_LENGTH,
+  normalizeSessionInputMode,
+  type NoteUnit,
+  type SessionInputMode,
+} from "./note-workouts";
+
+import {
   CODE_PREFIX,
   EXPORT_FORMAT,
   EXPORT_VERSION,
@@ -111,6 +118,9 @@ export type BackupSession = {
   templateName: string;
   status: BackupSessionStatus;
   sessionKind?: BackupSessionKind;
+  inputMode?: SessionInputMode;
+  noteBody?: string | null;
+  noteUnit?: NoteUnit | null;
   startedAt: number;
   completedAt: number | null;
   updatedAt: number;
@@ -383,6 +393,42 @@ export function validateBackup(value: unknown): BackupParseResult {
     if (typeof raw.id !== "string") continue;
     if (!SESSION_STATUSES.includes(raw.status as BackupSessionStatus)) continue;
 
+    if (
+      raw.inputMode !== undefined &&
+      raw.inputMode !== "list" &&
+      raw.inputMode !== "note"
+    ) {
+      return {
+        ok: false,
+        error: "That backup contains an invalid workout input mode",
+      };
+    }
+    if (raw.noteBody != null && typeof raw.noteBody !== "string") {
+      return {
+        ok: false,
+        error: "That backup contains invalid workout note text",
+      };
+    }
+    if (
+      typeof raw.noteBody === "string" &&
+      raw.noteBody.length > MAX_WORKOUT_NOTE_LENGTH
+    ) {
+      return {
+        ok: false,
+        error: `Workout note must be at most ${MAX_WORKOUT_NOTE_LENGTH} characters`,
+      };
+    }
+    if (
+      raw.noteUnit != null &&
+      raw.noteUnit !== "lb" &&
+      raw.noteUnit !== "kg"
+    ) {
+      return {
+        ok: false,
+        error: "That backup contains an invalid workout note unit",
+      };
+    }
+
     const rawExercises = Array.isArray(raw.exercises) ? raw.exercises : [];
     const exercises: BackupSessionExercise[] = [];
     for (const rawExercise of rawExercises.slice(
@@ -442,6 +488,10 @@ export function validateBackup(value: unknown): BackupParseResult {
       status: raw.status as BackupSessionStatus,
       sessionKind:
         raw.sessionKind === "health_summary" ? "health_summary" : "tracked",
+      inputMode: normalizeSessionInputMode(raw.inputMode as string | undefined),
+      noteBody: optionalString(raw.noteBody),
+      noteUnit:
+        raw.noteUnit === "lb" || raw.noteUnit === "kg" ? raw.noteUnit : null,
       startedAt: isFiniteNumber(raw.startedAt) ? raw.startedAt : 0,
       completedAt: isFiniteNumber(raw.completedAt) ? raw.completedAt : null,
       updatedAt: isFiniteNumber(raw.updatedAt) ? raw.updatedAt : 0,

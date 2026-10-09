@@ -1,5 +1,10 @@
 import { useSQLiteContext } from "expo-sqlite";
 import { useEffect, useMemo, useState } from "react";
+import {
+  remoteSessionSummariesToLocal,
+  type RemoteSessionSummary,
+} from "@/data/local/remote-session-summary";
+export { remoteSessionSummariesToLocal } from "@/data/local/remote-session-summary";
 
 import {
   getLocalExerciseHistory,
@@ -28,20 +33,6 @@ export type TemplateHistoryRow = {
 
 export type ExerciseHistoryResult = ReturnType<typeof getLocalExerciseHistory>;
 export type ExerciseRecordsResult = ReturnType<typeof getLocalExerciseRecords>;
-
-type RemoteSessionSummary = {
-  sessionId: string;
-  templateName: string;
-  completedAt: number;
-  durationMs: number;
-  volume: number;
-  sessionKind?: "tracked" | "health_summary";
-  sourceName?: string | null;
-  activityType?: string | null;
-  distanceMeters?: number | null;
-  energyKcal?: number | null;
-  exercises?: Array<{ slug: string; completedCount: number }>;
-};
 
 type RemoteTemplateHistoryRow = {
   _id: string;
@@ -121,68 +112,6 @@ function toTemplateHistoryRow(
         completedCount: exercise.sets.filter((set) => set.completed).length,
       })),
   };
-}
-
-/** Map Convex session history rows into local insights shape for merge/dedupe. */
-export function remoteSessionSummariesToLocal(
-  sessions: RemoteSessionSummary[],
-): LocalInsightsSession[] {
-  return sessions.map((session) => {
-    const exerciseStubs = (session.exercises ?? []).map((exercise) => ({
-      slug: exercise.slug,
-      sets: Array.from(
-        { length: Math.max(0, exercise.completedCount) },
-        (_, index) => ({
-          orderIndex: index,
-          weight: 0,
-          reps: 1,
-          completed: true,
-        }),
-      ),
-    }));
-    return {
-      sessionId: session.sessionId,
-      remoteId: session.sessionId,
-      templateId: null,
-      remoteTemplateId: null,
-      templateName: session.templateName,
-      startedAt: Math.max(0, session.completedAt - session.durationMs),
-      completedAt: session.completedAt,
-      sessionKind: session.sessionKind ?? "tracked",
-      countsTowardGoals: true,
-      placeId: null,
-      placeName: null,
-      health:
-        session.sessionKind === "health_summary"
-          ? {
-              provider: "apple_health",
-              externalId: session.sessionId,
-              activityType: session.activityType ?? "other",
-              sourceName: session.sourceName ?? null,
-              sourceBundleId: null,
-              durationSeconds: session.durationMs / 1000,
-              energyKcal: session.energyKcal ?? null,
-              distanceMeters: session.distanceMeters ?? null,
-              importedAt: session.completedAt,
-            }
-          : null,
-      // Synthetic set preserves volume for overview graphs; filtered from UI rows.
-      exercises: [
-        ...exerciseStubs,
-        {
-          slug: "__volume__",
-          sets: [
-            {
-              orderIndex: 0,
-              weight: session.volume,
-              reps: 1,
-              completed: true,
-            },
-          ],
-        },
-      ],
-    };
-  });
 }
 
 function remoteTemplateHistoryToLocal(

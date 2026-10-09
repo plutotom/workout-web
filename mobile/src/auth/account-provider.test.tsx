@@ -36,6 +36,11 @@ vi.mock("react-native", () => ({
     addEventListener: () => ({ remove: () => {} }),
   },
 }));
+vi.mock("expo-crypto", () => ({
+  randomUUID: () => "11111111-1111-4111-8111-111111111111",
+  digestStringAsync: async () => "a".repeat(64),
+  CryptoDigestAlgorithm: { SHA256: "SHA-256" },
+}));
 vi.mock("expo-web-browser", () => ({
   maybeCompleteAuthSession: vi.fn(),
   openAuthSessionAsync: mocks.openAuthSession,
@@ -56,6 +61,9 @@ vi.mock("convex/react", () => ({
 
 const user = { id: "user_1", email: "athlete@example.com" };
 const tokenResponse = {
+  get expiresAt() {
+    return Date.now() + 300_000;
+  },
   session: "rotated-session",
   accessToken: "token",
   user,

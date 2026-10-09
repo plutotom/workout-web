@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { sealData } from "iron-session";
+import { createHash } from "node:crypto";
 
 import {
   mobileAuthEnabled,
@@ -30,7 +31,7 @@ afterEach(() => {
 });
 
 describe("mobile auth exchange tickets", () => {
-  it("seals and redeems a one-time ticket", async () => {
+  it("keeps legacy app exchange tickets compatible during rollout", async () => {
     vi.stubEnv("WORKOS_COOKIE_PASSWORD", password);
     const payload = await testPayload();
     const ticket = await sealMobileAuthExchange(
@@ -40,6 +41,33 @@ describe("mobile auth exchange tickets", () => {
     const redeemed = await redeemMobileAuthExchangeTicket(ticket);
     expect(redeemed?.session).toBe(payload.session);
     expect(redeemed?.accessToken).toBe("access-token");
+    // A new client must never accept an unbound legacy ticket injected into
+    // the callback for its proof-bound sign-in attempt.
+    expect(
+      await redeemMobileAuthExchangeTicket(ticket, "a".repeat(64)),
+    ).toBeNull();
+  });
+
+  it("requires the initiating app's proof and permits a lost-response retry", async () => {
+    vi.stubEnv("WORKOS_COOKIE_PASSWORD", password);
+    const verifier = "a".repeat(64);
+    const challenge = createHash("sha256").update(verifier).digest("hex");
+    const payload = await testPayload();
+    const ticket = await sealMobileAuthExchange(
+      "bound-code",
+      payload,
+      challenge,
+    );
+    expect(await redeemMobileAuthExchangeTicket(ticket)).toBeNull();
+    expect(
+      await redeemMobileAuthExchangeTicket(ticket, "b".repeat(64)),
+    ).toBeNull();
+    expect(await redeemMobileAuthExchangeTicket(ticket, verifier)).toEqual(
+      payload,
+    );
+    expect(await redeemMobileAuthExchangeTicket(ticket, verifier)).toEqual(
+      payload,
+    );
   });
 
   it("expires tickets after five minutes", async () => {

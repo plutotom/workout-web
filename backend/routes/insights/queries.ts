@@ -8,6 +8,7 @@ import {
   getLifts,
   getOverview,
   getSessionHistory,
+  type InsightsSessionSummary,
 } from "../../lib/insights";
 
 export const insightsDaysValidator = v.union(
@@ -36,19 +37,7 @@ const emptyOverview = {
     trend: "up" | "flat" | "down";
     lastCompletedAt: number;
   }[],
-  recentSessions: [] as {
-    sessionId: string;
-    templateName: string;
-    completedAt: number;
-    durationMs: number;
-    volume: number;
-    sessionKind: "tracked" | "health_summary";
-    sourceName: string | null;
-    activityType: string | null;
-    distanceMeters: number | null;
-    energyKcal: number | null;
-    exercises: { slug: string; completedCount: number }[];
-  }[],
+  recentSessions: [] as InsightsSessionSummary[],
 };
 
 /** Aggregated insights for the overview tab (stats, volume, top lifts, recent sessions). */

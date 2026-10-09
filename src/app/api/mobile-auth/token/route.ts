@@ -1,8 +1,10 @@
 import { z } from "zod";
 
-import { accessForMobileSession } from "@/lib/mobile-auth-session";
+import {
+  accessForMobileSession,
+  isMobileSessionExpired,
+} from "@/lib/mobile-auth-session";
 import { mobileAuthEnabled, mobileAuthHeaders } from "@/lib/mobile-auth";
-import { mobileSessionErrorStatus } from "@/lib/mobile-session-error";
 
 export const runtime = "nodejs";
 
@@ -34,17 +36,26 @@ export async function POST(request: Request) {
       { headers: mobileAuthHeaders },
     );
   } catch (error) {
-    const status = mobileSessionErrorStatus(error);
-    if (status === 401) {
+    if (isMobileSessionExpired(error)) {
       return Response.json(
-        { error: "Session expired" },
+        { error: "Session expired", code: "session_expired" },
         { status: 401, headers: mobileAuthHeaders },
       );
     }
-    console.error("Mobile session refresh failed", error);
+    // SDK errors may contain request data. Log only diagnostic identifiers,
+    // never the sealed session, access token, or refresh token.
+    const failure = error as { status?: unknown; requestID?: unknown } | null;
+    console.error("Mobile session refresh temporarily unavailable", {
+      status: typeof failure?.status === "number" ? failure.status : undefined,
+      requestId:
+        typeof failure?.requestID === "string" ? failure.requestID : undefined,
+    });
     return Response.json(
-      { error: "Authentication unavailable" },
-      { status: 503, headers: mobileAuthHeaders },
+      {
+        error: "Account connection temporarily unavailable",
+        code: "retry_later",
+      },
+      { status: 503, headers: { ...mobileAuthHeaders, "Retry-After": "1" } },
     );
   }
 }
