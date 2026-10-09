@@ -1,40 +1,29 @@
+import * as SecureStore from "expo-secure-store";
 import * as WebBrowser from "expo-web-browser";
+import * as Crypto from "expo-crypto";
+import { AppState } from "react-native";
 import {
   createContext,
   useCallback,
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
-import { AppState } from "react-native";
 
 import { requirePublicConfig } from "../lib/config";
+import { readAuthKeys, persistStoredAuthKeys } from "./keychain";
 import { measureMobileAsync } from "../lib/performance-timing";
 import { MobileAccountContext } from "./account-context";
 import {
-  isKeychainLockedError,
-  persistStoredAuthKeys,
-  SIGNED_OUT_AUTH_KEYS,
-  type StoredAuthKeys,
-  readAuthKeys,
-} from "./keychain";
+  AuthRequestError,
+  MobileSessionController,
+  type MobileUser,
+  type TokenResponse,
+} from "./session-controller";
 
 WebBrowser.maybeCompleteAuthSession();
-
-type MobileUser = {
-  id: string;
-  email: string;
-  firstName?: string | null;
-  lastName?: string | null;
-};
-
-type TokenResponse = {
-  session: string;
-  accessToken: string;
-  user: MobileUser;
-};
 
 type AuthContextValue = {
   loading: boolean;
@@ -54,24 +43,6 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-class AuthRequestError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-  ) {
-    super(message);
-    this.name = "AuthRequestError";
-  }
-}
-
-function invalidSession(error: unknown) {
-  return error instanceof AuthRequestError && error.status === 401;
-}
-
-function canPersistSecrets() {
-  return AppState.currentState === "active";
-}
-
 async function postToken(path: string, body: unknown): Promise<TokenResponse> {
   const { webUrl } = requirePublicConfig();
   const controller = new AbortController();
@@ -82,363 +53,141 @@ async function postToken(path: string, body: unknown): Promise<TokenResponse> {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
       signal: controller.signal,
+      // The native session has its own credentials. Browser cookies must not
+      // start a second refresh of the same rotating WorkOS session.
+      credentials: "omit",
     });
-    const result = (await response.json()) as TokenResponse & {
-      error?: string;
-    };
-    if (!response.ok)
+    const result = await response.json().catch(() => null);
+    if (!response.ok) {
       throw new AuthRequestError(
-        result.error ?? "Authentication failed",
+        typeof result?.error === "string"
+          ? result.error
+          : "Authentication failed",
         response.status,
+        typeof result?.code === "string" ? result.code : undefined,
       );
-    return result;
+    }
+    if (
+      typeof result?.session !== "string" ||
+      !result.session ||
+      typeof result?.accessToken !== "string" ||
+      !result.accessToken ||
+      typeof result?.user?.id !== "string" ||
+      typeof result?.user?.email !== "string" ||
+      (result.expiresAt !== undefined &&
+        (typeof result.expiresAt !== "number" ||
+          !Number.isFinite(result.expiresAt)))
+    ) {
+      throw new Error("Invalid account connection response");
+    }
+    return result as TokenResponse;
   } finally {
     clearTimeout(timeout);
   }
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState<MobileUser | null>(null);
-  const [localMode, setLocalMode] = useState(false);
-  const [hasAccessToken, setHasAccessToken] = useState(false);
-  const [isResolvingSession, setIsResolvingSession] = useState(false);
-  const sessionRef = useRef<string | null>(null);
-  const accessTokenRef = useRef<string | null>(null);
-  const refreshInFlight = useRef<Promise<string | null> | null>(null);
-  const pendingPersist = useRef<{
-    keys: StoredAuthKeys;
-    generation: number;
-  } | null>(null);
-  const keychainLocked = useRef(false);
-  const hydrated = useRef(false);
-  const generation = useRef(0);
-  const storageQueue = useRef<Promise<unknown>>(Promise.resolve());
-  const refreshDeferred = useRef(false);
-  const hydrateInFlight = useRef<Promise<void> | null>(null);
-  const mounted = useRef(true);
-
-  const enqueueStorage = useCallback(<T,>(operation: () => Promise<T>) => {
-    const task = storageQueue.current.then(operation);
-    storageQueue.current = task.catch(() => undefined);
-    return task;
-  }, []);
-
-  const commitMemory = useCallback((result: TokenResponse) => {
-    sessionRef.current = result.session;
-    accessTokenRef.current = result.accessToken;
-    setHasAccessToken(true);
-    setUser(result.user);
-    setLocalMode(true);
-  }, []);
-
-  const persistOrQueue = useCallback(
-    async (keys: StoredAuthKeys, expectedGeneration: number) => {
-      if (generation.current !== expectedGeneration) return false;
-      pendingPersist.current = { keys, generation: expectedGeneration };
-      return enqueueStorage(async () => {
-        if (generation.current !== expectedGeneration) return false;
-        try {
-          await persistStoredAuthKeys(keys);
-          if (generation.current !== expectedGeneration) return false;
-          pendingPersist.current = null;
-          keychainLocked.current = false;
-        } catch (error) {
-          if (generation.current !== expectedGeneration) return false;
-          keychainLocked.current = isKeychainLockedError(error);
-          if (!keychainLocked.current) {
-            console.warn("[auth] Keychain save failed; retrying in foreground");
-          }
-          // WorkOS may already have rotated the refresh token. Retain its
-          // replacement for all storage failures, not just device locks.
-        }
-        return true;
-      });
-    },
-    [enqueueStorage],
-  );
-
-  const accept = useCallback(
-    async (result: TokenResponse, expectedGeneration: number) => {
-      const accepted = await persistOrQueue(
+  const [controller] = useState(
+    () =>
+      new MobileSessionController(
         {
-          session: result.session,
-          userJson: JSON.stringify(result.user),
-          localMode: true,
-        },
-        expectedGeneration,
-      );
-      // Sign-out invalidates the generation while a native write is pending.
-      // Its queued signed-out snapshot runs after any already-started write.
-      if (
-        !accepted ||
-        !mounted.current ||
-        generation.current !== expectedGeneration
-      ) {
-        return accessTokenRef.current;
-      }
-      commitMemory(result);
-      return result.accessToken;
-    },
-    [commitMemory, persistOrQueue],
-  );
-
-  const clear = useCallback(
-    async (expectedSession?: string, expectedGeneration?: number) => {
-      if (expectedSession && sessionRef.current !== expectedSession) return;
-      if (
-        expectedGeneration !== undefined &&
-        generation.current !== expectedGeneration
-      )
-        return;
-      const nextGeneration = ++generation.current;
-      sessionRef.current = null;
-      accessTokenRef.current = null;
-      refreshInFlight.current = null;
-      setIsResolvingSession(false);
-      refreshDeferred.current = false;
-      hydrated.current = true;
-      setHasAccessToken(false);
-      setUser(null);
-      setLocalMode(false);
-      setLoading(false);
-      await persistOrQueue(SIGNED_OUT_AUTH_KEYS, nextGeneration);
-    },
-    [persistOrQueue],
-  );
-
-  const fetchAccessToken = useCallback(
-    async (options: boolean | { forceRefreshToken?: boolean } = false) => {
-      const forceRefresh =
-        typeof options === "boolean"
-          ? options
-          : (options.forceRefreshToken ?? false);
-      const activeSession = sessionRef.current;
-      const cachedToken = accessTokenRef.current;
-      if (!activeSession) return cachedToken;
-      const persistBlocked =
-        !canPersistSecrets() ||
-        keychainLocked.current ||
-        pendingPersist.current !== null;
-      if (persistBlocked && (forceRefresh || !cachedToken)) {
-        refreshDeferred.current = true;
-        return cachedToken;
-      }
-      if (cachedToken && !forceRefresh) return cachedToken;
-      if (refreshInFlight.current) return refreshInFlight.current;
-      const expectedGeneration = generation.current;
-      refreshDeferred.current = false;
-      setIsResolvingSession(true);
-
-      const refresh = (async () => {
-        try {
-          const result = await measureMobileAsync("auth.token", () =>
-            postToken("/api/mobile-auth/token", {
-              session: activeSession,
-              forceRefresh,
+          read: () => measureMobileAsync("auth.storage", readAuthKeys),
+          write: persistStoredAuthKeys,
+          get: SecureStore.getItemAsync,
+          set: (key, value) =>
+            SecureStore.setItemAsync(key, value, {
+              keychainAccessible:
+                SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY,
             }),
-          );
-          if (
-            generation.current !== expectedGeneration ||
-            sessionRef.current !== activeSession
-          )
-            return accessTokenRef.current;
-          return await accept(result, expectedGeneration);
-        } catch (error) {
-          if (invalidSession(error))
-            await clear(activeSession, expectedGeneration);
-          return accessTokenRef.current;
-        }
-      })();
-      refreshInFlight.current = refresh;
-      try {
-        return await refresh;
-      } finally {
-        if (refreshInFlight.current === refresh) {
-          refreshInFlight.current = null;
-          setIsResolvingSession(false);
-        }
-      }
-    },
-    [accept, clear],
+          remove: SecureStore.deleteItemAsync,
+        },
+        (session, forceRefresh) =>
+          measureMobileAsync("auth.token", () =>
+            postToken("/api/mobile-auth/token", { session, forceRefresh }),
+          ),
+        () => AppState.currentState === "active",
+      ),
   );
-
-  const hydrate = useCallback(async () => {
-    if (hydrateInFlight.current) return hydrateInFlight.current;
-    const expectedGeneration = generation.current;
-    const task = (async () => {
-      try {
-        const stored = await measureMobileAsync("auth.storage", () =>
-          enqueueStorage(readAuthKeys),
-        );
-        if (!mounted.current || generation.current !== expectedGeneration)
-          return;
-        keychainLocked.current = false;
-        hydrated.current = true;
-        if (stored.localMode) setLocalMode(true);
-        sessionRef.current = stored.session;
-        if (stored.session && stored.userJson) {
-          try {
-            setUser(JSON.parse(stored.userJson) as MobileUser);
-          } catch {
-            // A successful refresh replaces the cached profile.
-          }
-        }
-        if (stored.needsMigration) {
-          await persistOrQueue(
-            {
-              session: stored.session,
-              userJson: stored.userJson,
-              localMode: stored.localMode,
-            },
-            expectedGeneration,
-          );
-        }
-        // Keep auth unresolved through migration; token resolution starts in
-        // the same turn so cloud screens never see a transient signed-out state.
-        setLoading(false);
-        if (generation.current === expectedGeneration && stored.session)
-          await fetchAccessToken();
-      } catch (error) {
-        if (generation.current !== expectedGeneration) return;
-        if (isKeychainLockedError(error)) {
-          keychainLocked.current = true;
-          return;
-        }
-        console.warn("[auth] Keychain read failed; retrying in foreground");
-        setLoading(false);
-      }
-    })();
-    hydrateInFlight.current = task;
-    try {
-      await task;
-    } finally {
-      if (hydrateInFlight.current === task) hydrateInFlight.current = null;
-    }
-  }, [enqueueStorage, fetchAccessToken, persistOrQueue]);
-
-  const flushPendingKeychain = useCallback(async () => {
-    const queued = pendingPersist.current;
-    if (queued) await persistOrQueue(queued.keys, queued.generation);
-  }, [persistOrQueue]);
+  const snapshot = useSyncExternalStore(
+    controller.subscribe,
+    controller.getSnapshot,
+  );
 
   useEffect(() => {
-    mounted.current = true;
-    let active = true;
-    void hydrate();
-    const sub = AppState.addEventListener("change", (state) => {
-      if (state !== "active") return;
-      void (async () => {
-        await flushPendingKeychain();
-        if (!active) return;
-        if (!hydrated.current) {
-          await hydrate();
-        } else if (refreshDeferred.current || !accessTokenRef.current) {
-          // Reinstall the Convex auth adapter after a background token refusal
-          // as well as retrying the WorkOS refresh itself.
-          setLoading(true);
-          try {
-            await fetchAccessToken({
-              forceRefreshToken: refreshDeferred.current,
-            });
-          } finally {
-            if (active) setLoading(false);
-          }
-        }
-      })();
+    void controller.restore();
+    if (AppState.currentState === "active") void controller.resume();
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") void controller.resume();
+      else controller.pause();
     });
     return () => {
-      active = false;
-      mounted.current = false;
-      sub.remove();
+      subscription.remove();
+      controller.pause();
     };
-  }, [fetchAccessToken, flushPendingKeychain, hydrate]);
+  }, [controller]);
 
-  const signIn = useCallback(async () => {
-    const startedGeneration = generation.current;
-    const { webUrl } = requirePublicConfig();
-    const callback = "workout://auth/callback";
-    const start = new URL(`${webUrl}/api/mobile-auth/start`);
-    const callbackOrigin = process.env.EXPO_PUBLIC_MOBILE_AUTH_CALLBACK_ORIGIN;
-    if (callbackOrigin)
-      start.searchParams.set("callback_origin", callbackOrigin);
-    const result = await WebBrowser.openAuthSessionAsync(
-      start.toString(),
-      callback,
-      { preferEphemeralSession: false },
-    );
-    if (result.type !== "success") return;
-    const code = new URL(result.url).searchParams.get("code");
-    if (!code) throw new Error("WorkOS did not return a mobile exchange code");
-    const tokens = await measureMobileAsync("auth.exchange", () =>
-      postToken("/api/mobile-auth/exchange", { code }),
-    );
-    if (generation.current !== startedGeneration) return;
-    const nextGeneration = ++generation.current;
-    refreshInFlight.current = null;
-    setIsResolvingSession(false);
-    await accept(tokens, nextGeneration);
-    if (generation.current !== nextGeneration) return;
-    setLoading(false);
-    hydrated.current = true;
-  }, [accept]);
-
-  const signOut = useCallback(async () => {
-    await clear();
-  }, [clear]);
-
-  const reconnect = useCallback(async () => {
-    setLoading(true);
-    try {
-      await flushPendingKeychain();
-      await fetchAccessToken({ forceRefreshToken: true });
-    } finally {
-      setLoading(false);
-    }
-  }, [fetchAccessToken, flushPendingKeychain]);
-
-  const continueOffline = useCallback(async () => {
-    const nextGeneration = ++generation.current;
-    setLocalMode(true);
-    hydrated.current = true;
-    setLoading(false);
-    await persistOrQueue(
-      {
-        session: sessionRef.current,
-        userJson: user ? JSON.stringify(user) : null,
-        localMode: true,
-      },
-      nextGeneration,
-    );
-  }, [persistOrQueue, user]);
+  const signIn = useCallback(
+    () =>
+      controller.signIn(async () => {
+        const { webUrl } = requirePublicConfig();
+        const callback = "workout://auth/callback";
+        const start = new URL(`${webUrl}/api/mobile-auth/start`);
+        const verifier = `${Crypto.randomUUID()}${Crypto.randomUUID()}`.replace(
+          /-/g,
+          "",
+        );
+        const challenge = await Crypto.digestStringAsync(
+          Crypto.CryptoDigestAlgorithm.SHA256,
+          verifier,
+        );
+        start.searchParams.set("challenge", challenge);
+        const callbackOrigin =
+          process.env.EXPO_PUBLIC_MOBILE_AUTH_CALLBACK_ORIGIN;
+        if (callbackOrigin)
+          start.searchParams.set("callback_origin", callbackOrigin);
+        const result = await WebBrowser.openAuthSessionAsync(
+          start.toString(),
+          callback,
+          {
+            preferEphemeralSession: false,
+          },
+        );
+        if (result.type !== "success") return null;
+        const url = new URL(result.url);
+        if (
+          url.protocol !== "workout:" ||
+          url.hostname !== "auth" ||
+          url.pathname !== "/callback"
+        ) {
+          throw new Error("Invalid sign-in callback");
+        }
+        const code = url.searchParams.get("code");
+        if (!code)
+          throw new Error("WorkOS did not return a mobile exchange code");
+        return measureMobileAsync("auth.exchange", () =>
+          postToken("/api/mobile-auth/exchange", { code, verifier }),
+        );
+      }),
+    [controller],
+  );
 
   const value = useMemo(
     () => ({
-      loading,
-      isLoading: loading,
-      isAuthenticated: Boolean(user) && hasAccessToken,
-      isResolvingSession,
-      canUseApp: localMode || Boolean(user),
-      user,
+      loading: snapshot.loading,
+      isLoading: snapshot.loading,
+      isResolvingSession: snapshot.isResolvingSession,
+      isAuthenticated: Boolean(snapshot.user) && snapshot.hasAccessToken,
+      canUseApp: snapshot.localMode || Boolean(snapshot.user),
+      user: snapshot.user,
       signIn,
-      signOut,
-      continueOffline,
-      reconnect,
-      fetchAccessToken,
+      signOut: controller.signOut,
+      continueOffline: controller.continueOffline,
+      reconnect: controller.reconnect,
+      fetchAccessToken: controller.fetchAccessToken,
     }),
-    [
-      continueOffline,
-      fetchAccessToken,
-      hasAccessToken,
-      isResolvingSession,
-      loading,
-      localMode,
-      reconnect,
-      signIn,
-      signOut,
-      user,
-    ],
+    [controller, signIn, snapshot],
   );
+
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
