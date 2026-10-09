@@ -86,3 +86,4 @@ Use `KEEP_PAID_IOS_ENTITLEMENTS=1` when building a binary that keeps Push, Assoc
 
 - Keep `expo.version` the same for OTA-only releases.
 - Bump `expo.version` when you ship a new native binary (`build:ios:production` bumps it for you).
+- Commit the resulting `app.json` and `package.json` version changes with the native release. OTA publishing must use the shipped binary's runtime version; an update for `0.1.17` cannot reach a `0.2.0` binary.
