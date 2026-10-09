@@ -2,6 +2,7 @@
   "expo": {
     "name": "Grayed Lift",
     "slug": "workout-ios-v1",
+    "platforms": ["ios"],
     "scheme": "workout",
     "version": "0.1.17",
     "orientation": "portrait",

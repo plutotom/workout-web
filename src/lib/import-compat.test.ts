@@ -79,6 +79,9 @@ describe("frozen import fixtures (must keep working)", () => {
     expect(result.snapshot.templates[0]!.name).toBe("Push Day");
     expect(result.snapshot.templates[0]!.lastPlaceId).toBeNull();
     expect(result.snapshot.sessions).toHaveLength(1);
+    expect(result.snapshot.sessions[0]!.inputMode).toBe("list");
+    expect(result.snapshot.sessions[0]!.noteBody).toBeNull();
+    expect(result.snapshot.sessions[0]!.noteUnit).toBeNull();
     expect(result.snapshot.sessions[0]!.placeId).toBeNull();
     expect(result.snapshot.sessions[0]!.placeName).toBeNull();
     expect(result.snapshot.sessions[0]!.exercises[0]!.machineId).toBeNull();
@@ -86,6 +89,19 @@ describe("frozen import fixtures (must keep working)", () => {
     expect(result.snapshot.machines).toBeUndefined();
     expect(result.snapshot.placeWeights).toBeUndefined();
     expect(result.snapshot.customExercises[0]!.name).toBe("Cable Fly (Low)");
+  });
+
+  it("restores a note workout without parsing text or adding exercises", () => {
+    const result = parseBackup(fixture("ios-backup-v1-notes.json"));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const note = result.snapshot.sessions[0]!;
+    expect(note.inputMode).toBe("note");
+    expect(note.noteUnit).toBe("lb");
+    expect(note.noteBody).toBe(
+      "  Bench 3 sets 10 @ 150, 10@150 6@160\n\nPull up, 10, 9, 9\nBent over row\n- 150 10 reps\n- 160 8 reps\n- 180 6\n",
+    );
+    expect(note.exercises).toEqual([]);
   });
 
   it("imports templates out of that original iOS backup", () => {

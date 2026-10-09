@@ -1,121 +1,237 @@
+import { validate } from "convex-helpers/validators";
+import type { Infer } from "convex/values";
 import { describe, expect, it, vi } from "vitest";
-import type { Id } from "../../_generated/dataModel";
-import type { MutationCtx } from "../../_generated/server";
-import { pushTemplate } from "./sync";
 
-const handler = (
-  pushTemplate as unknown as {
-    _handler: (
-      ctx: MutationCtx,
-      args: ReturnType<typeof fixture>["args"],
-    ) => Promise<{
-      remoteTemplateId: Id<"workoutTemplates">;
-      serverTime: number;
-    }>;
-  }
-)._handler;
+import type { MutationCtx } from "../../_generated/server";
+import { pushSession, sessionSnapshotValidator } from "./sync";
 
 vi.mock("../../lib/auth", () => ({
   requireUser: async () => ({ _id: "user-1" }),
 }));
 
-function fixture(
-  options: { receipt?: boolean; deleted?: boolean; owner?: string } = {},
-) {
-  const template = options.deleted
-    ? null
-    : { _id: "template-1", userId: options.owner ?? "user-1", name: "Push" };
-  const exercises = [
-    {
-      _id: "exercise-1",
-      exerciseSlug: "bench",
-      orderIndex: 0,
-      sets: [{ weight: 100, reps: 5 }],
+const session = {
+  clientId: "note-1",
+  remoteTemplateId: null,
+  templateName: "Note workout",
+  status: "in_progress" as const,
+  sessionKind: "tracked" as const,
+  inputMode: "note" as const,
+  noteUnit: "lb" as const,
+  noteBody: "  Bench 10@150\n\nPull up, 10, 9, 9\n",
+  startedAt: 100,
+  completedAt: null,
+  updatedAt: 300,
+  exercises: [],
+};
+
+function serverFixture(existing: Record<string, unknown> | null = null) {
+  const insert = vi
+    .fn<(table: string, fields: unknown) => Promise<string>>()
+    .mockResolvedValue("remote-session");
+  const patch = vi.fn(async () => {});
+  const ctx = {
+    db: {
+      async get() {
+        return existing ? { ...existing, userId: "user-1" } : null;
+      },
+      query(table: string) {
+        let indexName: string;
+        return {
+          withIndex(name: string) {
+            indexName = name;
+            return this;
+          },
+          async first() {
+            return table === "workoutSessions" &&
+              indexName === "by_user_client_id"
+              ? existing
+              : null;
+          },
+          async take() {
+            return [];
+          },
+          async collect() {
+            return [];
+          },
+        };
+      },
+      insert,
+      patch,
     },
-  ];
-  const receipt = options.receipt
-    ? { _id: "receipt-1", targetId: "template-1", appliedAt: 1234 }
-    : null;
-  const query = vi.fn((table: string) => ({
-    withIndex: () => ({
-      first: async () => (table === "iosSyncReceipts" ? receipt : null),
-      collect: async () => exercises,
-    }),
-  }));
-  const db = {
-    query,
-    get: vi.fn(async () => template),
-    patch: vi.fn(),
-    delete: vi.fn(),
-    insert: vi.fn(async () => "created"),
-  };
-  const args = {
-    operationId: "op-1",
-    deviceId: "device-1",
-    template: {
-      remoteId: "template-1" as Id<"workoutTemplates"> | null,
-      name: "Push",
-      exercises: [{ slug: "bench", sets: [{ weight: 100, reps: 5 }] }],
-    },
-  };
-  return { db, args, ctx: { db } as unknown as MutationCtx };
+  } as unknown as MutationCtx;
+  return { ctx, insert, patch };
 }
 
-describe("template upload acknowledgments", () => {
-  it("returns a completed operation without rewriting a newer server edit", async () => {
-    const { db, ctx, args } = fixture({ receipt: true });
-    args.template.name = "Old phone snapshot";
-    expect(await handler(ctx, args)).toEqual({
-      remoteTemplateId: "template-1",
-      serverTime: 1234,
+async function push(
+  ctx: MutationCtx,
+  incoming: Infer<typeof sessionSnapshotValidator> = session,
+) {
+  const handler = (
+    pushSession as unknown as {
+      _handler: (
+        ctx: MutationCtx,
+        args: {
+          operationId: string;
+          deviceId: string;
+          session: Infer<typeof sessionSnapshotValidator>;
+        },
+      ) => Promise<unknown>;
+    }
+  )._handler;
+  return handler(ctx, {
+    operationId: "operation-1",
+    deviceId: "device-1",
+    session: incoming,
+  });
+}
+
+describe("iOS note snapshots", () => {
+  it("accepts optional note fields and keeps legacy snapshots valid", () => {
+    expect(validate(sessionSnapshotValidator, session, { throw: true })).toBe(
+      true,
+    );
+    const legacy: Partial<typeof session> = { ...session };
+    delete legacy.inputMode;
+    delete legacy.noteBody;
+    delete legacy.noteUnit;
+    expect(validate(sessionSnapshotValidator, legacy, { throw: true })).toBe(
+      true,
+    );
+    expect(
+      validate(sessionSnapshotValidator, { ...session, noteUnit: "stone" }),
+    ).toBe(false);
+  });
+
+  it("persists exact note text, mode, unit and no invented exercises", async () => {
+    const fixture = serverFixture();
+    expect(await push(fixture.ctx)).toMatchObject({ status: "applied" });
+    expect(fixture.insert).toHaveBeenCalledWith(
+      "workoutSessions",
+      expect.objectContaining({
+        inputMode: "note",
+        noteBody: session.noteBody,
+        noteUnit: "lb",
+        sessionKind: "tracked",
+      }),
+    );
+    expect(fixture.insert.mock.calls.map(([table]) => table)).toEqual([
+      "workoutSessions",
+      "iosSyncReceipts",
+    ]);
+  });
+
+  it("accepts 20,000 characters and rejects overflow before writes", async () => {
+    const fixture = serverFixture();
+    await push(fixture.ctx, { ...session, noteBody: "n".repeat(20_000) });
+    const overflow = serverFixture();
+    await expect(
+      push(overflow.ctx, { ...session, noteBody: "n".repeat(20_001) }),
+    ).rejects.toThrow("20000 characters");
+    expect(overflow.insert).not.toHaveBeenCalled();
+    expect(overflow.patch).not.toHaveBeenCalled();
+  });
+
+  it("keeps the newer saved note when an older snapshot arrives", async () => {
+    const fixture = serverFixture({
+      _id: "remote-session",
+      sessionKind: "tracked",
+      clientUpdatedAt: 301,
     });
-    expect(db.patch).not.toHaveBeenCalled();
-    expect(db.delete).not.toHaveBeenCalled();
-    expect(db.insert).not.toHaveBeenCalled();
-    expect(db.query).toHaveBeenCalledTimes(1);
+    expect(await push(fixture.ctx)).toMatchObject({
+      status: "stale",
+      remoteSessionId: "remote-session",
+    });
+    expect(fixture.insert).not.toHaveBeenCalled();
+    expect(fixture.patch).not.toHaveBeenCalled();
   });
 
-  it("does not resurrect a template deleted after the original upload", async () => {
-    const { db, ctx, args } = fixture({ receipt: true, deleted: true });
-    args.template.remoteId = null;
-    expect((await handler(ctx, args)).remoteTemplateId).toBe("template-1");
-    expect(db.insert).not.toHaveBeenCalled();
-    expect(db.patch).not.toHaveBeenCalled();
-  });
+  it.each([null, undefined, "health-uuid"])(
+    "preserves a late Health link when an offline note edit uploads UUID %s",
+    async (externalId) => {
+      const health = {
+        externalProvider: "apple_health",
+        externalId: "health-uuid",
+        activityType: "traditionalStrengthTraining",
+        sourceName: "Apple Watch",
+        sourceBundleId: "com.apple.health",
+        durationSeconds: 100,
+        energyKcal: 42,
+        distanceMeters: 0,
+        importedAt: 350,
+        healthSegments: [
+          {
+            activityType: "traditionalStrengthTraining",
+            activityName: "Strength training",
+            startedAt: 100,
+            endedAt: 200,
+            durationSeconds: 100,
+            energyKcal: 42,
+            distanceMeters: null,
+          },
+        ],
+      };
+      const fixture = serverFixture({
+        _id: "remote-session",
+        ...session,
+        status: "completed",
+        completedAt: 200,
+        clientUpdatedAt: 350,
+        ...health,
+      });
+      expect(
+        await push(fixture.ctx, {
+          ...session,
+          status: "completed",
+          completedAt: 200,
+          updatedAt: 400,
+          noteBody: "Edited offline on phone B",
+          externalProvider: null,
+          externalId,
+          energyKcal: null,
+          durationSeconds: null,
+          healthSegments: [],
+        }),
+      ).toMatchObject({ status: "applied" });
+      expect(fixture.patch).toHaveBeenCalledWith(
+        "remote-session",
+        expect.objectContaining({
+          noteBody: "Edited offline on phone B",
+          clientUpdatedAt: 400,
+          startedAt: 100,
+          completedAt: 200,
+          ...health,
+        }),
+      );
+    },
+  );
 
-  it("rejects a target belonging to another account", async () => {
-    const { db, ctx, args } = fixture({ receipt: true, owner: "other-user" });
-    await expect(handler(ctx, args)).rejects.toThrow("Template not found");
-    expect(db.patch).not.toHaveBeenCalled();
-  });
-
-  it("acknowledges a new operation with identical content without rewriting template rows", async () => {
-    const { db, ctx, args } = fixture();
-    await handler(ctx, args);
-    expect(db.patch).not.toHaveBeenCalled();
-    expect(db.delete).not.toHaveBeenCalled();
-    expect(db.insert).toHaveBeenCalledExactlyOnceWith(
-      "iosSyncReceipts",
-      expect.objectContaining({ targetId: "template-1", operationId: "op-1" }),
-    );
-  });
-
-  it("still applies a real edit and records its receipt", async () => {
-    const { db, ctx, args } = fixture();
-    args.template.exercises[0].sets[0].weight = 150;
-    await handler(ctx, args);
-    expect(db.patch).toHaveBeenCalledWith(
-      "template-1",
-      expect.objectContaining({ name: "Push" }),
-    );
-    expect(db.delete).toHaveBeenCalledWith("exercise-1");
-    expect(db.insert).toHaveBeenCalledWith(
-      "templateExercises",
-      expect.objectContaining({ sets: [{ weight: 150, reps: 5 }] }),
-    );
-    expect(db.insert).toHaveBeenCalledWith(
-      "iosSyncReceipts",
-      expect.objectContaining({ operationId: "op-1" }),
+  it("accepts a new Health UUID without copying metadata from the old link", async () => {
+    const fixture = serverFixture({
+      _id: "remote-session",
+      ...session,
+      status: "completed",
+      completedAt: 200,
+      clientUpdatedAt: 350,
+      externalProvider: "apple_health",
+      externalId: "old-health-uuid",
+      energyKcal: 42,
+    });
+    await push(fixture.ctx, {
+      ...session,
+      status: "completed",
+      completedAt: 200,
+      updatedAt: 400,
+      externalProvider: "apple_health",
+      externalId: "new-health-uuid",
+      energyKcal: null,
+    });
+    expect(fixture.patch).toHaveBeenCalledWith(
+      "remote-session",
+      expect.objectContaining({
+        externalId: "new-health-uuid",
+        externalProvider: "apple_health",
+        energyKcal: undefined,
+      }),
     );
   });
 });

@@ -1,7 +1,7 @@
 import { api } from "@backend/api";
 import { useQuery } from "convex/react";
 import { router } from "expo-router";
-import { Dumbbell, Play } from "lucide-react-native";
+import { Dumbbell, NotebookPen, Play } from "lucide-react-native";
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
@@ -79,7 +79,7 @@ export default function DashboardScreen() {
     7,
     isAuthenticated ? remoteSessions : undefined,
   );
-  const { active, begin } = useStartWorkout();
+  const { active, begin, beginNote } = useStartWorkout();
   const today = templates?.[0];
   const startPlace = useStartPlace(today?._id);
   const [placeOpen, setPlaceOpen] = useState(false);
@@ -151,6 +151,12 @@ export default function DashboardScreen() {
                 })
               }
             />
+            <Button
+              label="Start note workout"
+              variant="outline"
+              icon={NotebookPen}
+              onPress={() => beginNote(startPlace.selected?._id)}
+            />
           </Card>
         ) : today ? (
           <Card>
@@ -212,6 +218,12 @@ export default function DashboardScreen() {
               variant="outline"
               onPress={() => begin(undefined, startPlace.selected?._id)}
             />
+            <Button
+              label="Note workout"
+              variant="outline"
+              icon={NotebookPen}
+              onPress={() => beginNote(startPlace.selected?._id)}
+            />
           </Card>
         ) : (
           <Card>
@@ -232,6 +244,12 @@ export default function DashboardScreen() {
             <Button
               label="Quick start"
               onPress={() => begin(undefined, startPlace.selected?._id)}
+            />
+            <Button
+              label="Note workout"
+              variant="outline"
+              icon={NotebookPen}
+              onPress={() => beginNote(startPlace.selected?._id)}
             />
             <Button
               label="New template"
@@ -325,6 +343,12 @@ export default function DashboardScreen() {
                     label="Quick start"
                     variant="outline"
                     onPress={() => begin(undefined, startPlace.selected?._id)}
+                  />
+                  <Button
+                    label="Note workout"
+                    variant="outline"
+                    icon={NotebookPen}
+                    onPress={() => beginNote(startPlace.selected?._id)}
                   />
                 </View>
               }

@@ -1,3 +1,9 @@
+import {
+  hasWorkoutNote,
+  type NoteUnit,
+  type SessionInputMode,
+} from "@shared/note-workouts";
+
 import type { LocalInsightsSession } from "@/data/local/repository";
 import { sessionMatchesPlace } from "@shared/place-memory";
 
@@ -188,6 +194,9 @@ export type InsightsSessionSummary = {
   durationMs: number;
   volume: number;
   sessionKind?: "tracked" | "health_summary";
+  inputMode?: SessionInputMode;
+  noteBody?: string | null;
+  noteUnit?: NoteUnit | null;
   sourceName?: string | null;
   activityType?: string | null;
   distanceMeters?: number | null;
@@ -226,6 +235,9 @@ function formatSessionSummary(session: LoadedSession): InsightsSessionSummary {
     durationMs,
     volume: sessionVolume(session),
     sessionKind: session.sessionKind,
+    inputMode: session.inputMode,
+    noteBody: session.noteBody,
+    noteUnit: session.noteUnit,
     sourceName: session.health?.sourceName ?? null,
     activityType: session.health?.activityType ?? null,
     distanceMeters: session.health?.distanceMeters ?? null,
@@ -606,7 +618,7 @@ function sessionCountsTowardGoals(session: LoadedSession) {
   if (session.sessionKind === "health_summary") {
     return session.countsTowardGoals !== false;
   }
-  return hasLoggedWork(session);
+  return hasLoggedWork(session) || hasWorkoutNote(session);
 }
 
 export type RecapProgressionPoint = {
@@ -640,6 +652,9 @@ export type WorkoutRecap = {
     startedAt: number;
     completedAt: number;
     sessionKind?: "tracked" | "health_summary";
+    inputMode?: SessionInputMode;
+    noteBody?: string | null;
+    noteUnit?: NoteUnit | null;
     placeName?: string | null;
     sourceName?: string | null;
     activityType?: string | null;
@@ -680,7 +695,10 @@ export function getLocalWorkoutRecap(
   sessionId: string,
   defaultPlaceId: string | null = null,
 ): WorkoutRecap | null {
-  const session = all.find((candidate) => candidate.sessionId === sessionId);
+  const session = all.find(
+    (candidate) =>
+      candidate.sessionId === sessionId || candidate.remoteId === sessionId,
+  );
   if (!session) return null;
 
   const completedAt = session.completedAt;
@@ -779,6 +797,9 @@ export function getLocalWorkoutRecap(
       startedAt: session.startedAt,
       completedAt,
       sessionKind: session.sessionKind,
+      inputMode: session.inputMode,
+      noteBody: session.noteBody,
+      noteUnit: session.noteUnit,
       placeName: session.placeName,
       sourceName: session.health?.sourceName ?? null,
       activityType: session.health?.activityType ?? null,
