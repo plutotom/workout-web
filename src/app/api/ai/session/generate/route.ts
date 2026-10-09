@@ -28,6 +28,7 @@ import {
   padExerciseSets,
   selectCatalogForAiPrompt,
 } from "@/lib/ai/template-draft";
+import { applyDevProEntitlementOverrideForRequest } from "@/lib/dev-pro-override-server";
 import {
   parseBoundedJson,
   RequestBodyTooLargeError,
@@ -74,10 +75,17 @@ export async function POST(request: Request) {
   const convex = new ConvexHttpClient(requireConvexUrl());
   convex.setAuth(accessToken);
 
-  const entitlement = await convex.query(api.routes.auth.users.entitlement, {});
-  if (!entitlement) {
+  const rawEntitlement = await convex.query(
+    api.routes.auth.users.entitlement,
+    {},
+  );
+  if (!rawEntitlement) {
     return aiJsonError(401, "User not found");
   }
+  const entitlement = applyDevProEntitlementOverrideForRequest(
+    rawEntitlement,
+    request,
+  );
   if (!entitlement.isPro) {
     return aiJsonError(403, "AI workout generation requires Pro", {
       code: "PRO_REQUIRED",

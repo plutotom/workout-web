@@ -34,6 +34,7 @@ import {
   completeSessionDeleteSync,
   completeSessionSync,
   completeTemplateSync,
+  convertLocalWorkoutNote,
   consumeWatchHealthUuid,
   countPendingHealthExports,
   createLocalTemplateFromSession,
@@ -125,6 +126,8 @@ import type {
 } from "@/data/local/types";
 import type { HealthAutoImportPrefs } from "@/health/types";
 import type { WorkoutExportBundle } from "@shared/workout-export";
+import type { NoteConversionPreview } from "@shared/note-conversion-preview";
+import type { NoteUnit } from "@shared/note-workouts";
 
 type LocalTemplateInput = {
   templateId?: string;
@@ -160,6 +163,11 @@ type LocalDataContextValue = {
     expectedStatus?: "in_progress" | "completed",
   ) => Promise<void>;
   finishNote: (sessionId: string, currentText: string) => Promise<void>;
+  convertWorkoutNote: (
+    sessionId: string,
+    draft: NoteConversionPreview,
+    targetUnit: NoteUnit,
+  ) => Promise<void>;
   adoptRemoteNoteWorkout: (
     remote: RemoteCompletedNoteWorkout,
   ) => Promise<string>;
@@ -325,6 +333,8 @@ function LocalDataState({ children }: { children: ReactNode }) {
         run(() => updateLocalWorkoutNote(db, sessionId, text, expectedStatus)),
       finishNote: (sessionId, currentText) =>
         run(() => finishTracked(sessionId, currentText)),
+      convertWorkoutNote: (sessionId, draft, targetUnit) =>
+        run(() => convertLocalWorkoutNote(db, sessionId, draft, targetUnit)),
       adoptRemoteNoteWorkout: (remote) =>
         adoptRemoteNoteWorkout(db, remote, refresh),
       startFromTemplate: (templateId, abandonExisting, placeId) =>

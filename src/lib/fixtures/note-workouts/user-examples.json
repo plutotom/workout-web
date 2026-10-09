@@ -1,0 +1,18 @@
+[
+  {
+    "id": "multiline-press-deadlift-gym-squat",
+    "noteBody": "Strict press \n6 @ 10s \n4 @ 20s\n2 @ 25s \n4 @ 25 s fail\n2 @ 25 fail\n\nDeadlift\n6 @ 180\n4 @ 200\n2 @ 225\n6 @ 200\n4 @ 225\n2 @ 235\n—-\nNormal gym\n10 50\n8 55\n\n\n\nBack squat\n5 45+10\n4 45+20\n3 45+ 25\n5 45+20\n4 45+25\n3 45+30"
+  },
+  {
+    "id": "inline-reps-at-weight-failure-suffix",
+    "noteBody": "Press: 6@10, 4@20, 2@25, 4@25F, 2@25F\nDeadlift: 6@180, 4@200, 2@225, 6@200, 4@225, 2@235\nGym: 10@50, 8@55"
+  },
+  {
+    "id": "multiline-reps-at-weight-failure-word",
+    "noteBody": "Press\n6@10\n4@20\n2@25\n4@25 fail\n2@25 fail"
+  },
+  {
+    "id": "inline-weight-times-reps-failure-suffix",
+    "noteBody": "Press: 10x6, 20x4, 25x2, 25x4F, 25x2F"
+  }
+]

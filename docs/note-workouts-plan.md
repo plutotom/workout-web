@@ -17,6 +17,9 @@ timing stay the same as an ordinary tracked session.
 Parsing, formatting, review, and the exercise/set edit page come later.
 Their design must not delay the basic release.
 
+V1 status: the user reports that the basic note version is live and working
+as of October 8, 2026. The next feature slice is a conversion preview.
+
 ## V1 decisions
 
 | Question               | Decision                                                                                                                             |
@@ -185,6 +188,42 @@ revisit, not settled requirements. Collect realistic notes first, then decide
 ambiguity, bodyweight, units, and unrecognized-line behavior. Split formatting,
 review, server conversion, and local application into small PRs when designed.
 
+### Next slice — conversion preview
+
+Build this in three stages:
+
+1. **Parser and examples.** Collect realistic workout notes and turn them
+   into a test corpus. Add a shared, pure note parser with a dedicated draft
+   type: recognized exercise names, explicit working sets, original source
+   lines, and unresolved items. Keep unknown or ambiguous lines visible.
+2. **Review UI.** Add an explicit Convert note action for Pro users. Preview
+   the proposed exercises and sets alongside the original note. Let the user
+   correct an exercise match or its numbers and resolve unsupported lines.
+   Opening or cancelling the preview does not alter saved workout data.
+3. **Apply confirmed sets.** Add a dedicated local transaction for applying
+   the reviewed result to the existing completed session and queuing sync.
+   Preserve its original note, date, duration, Health linkage, and single
+   attendance entry. Exercise statistics begin using the confirmed sets.
+
+Implementation constraints for these stages:
+
+- Reuse the existing exercise catalog, custom lifts, and server Pro checks.
+- Use a separate conversion contract from `sessionDraftSchema`: the current
+  workout generator adds default sets and rounds numbers, which is suitable
+  for suggested workouts but must not fabricate recorded work from a note.
+- Interpret unsuffixed weights using the note's saved `noteUnit`; decide
+  decimal precision and conversion rounding before accepting those forms.
+- Match clear catalog names directly. If AI name resolution is added, keep
+  it bounded to catalog/custom exercises and review any uncertain match.
+- Until its meaning is settled, `3 sets` beside an explicit set list must not
+  cause extra sets to be invented. A count mismatch should be shown for review.
+- Use dedicated conversion gating: existing on-device workout generation can
+  be available to free users, while this plan keeps note conversion Pro-only.
+- Keep the first parser/preview work independent of background jobs. Decide
+  generation authentication, quotas, and retry behavior when adding AI calls.
+
+Notation rules remain proposals until checked against the user's examples.
+
 ### User examples for the future parser corpus
 
 ```text
@@ -209,6 +248,78 @@ Bent over row
 
 Exercise heading, then weight/reps lines, with the word `reps` optional.
 V1 preserves all these examples as text without interpretation.
+
+#### October 8 examples
+
+The user's new multiline and inline examples are saved verbatim as note bodies
+in `src/lib/fixtures/note-workouts/user-examples.json`. The shared parser in
+`src/lib/parse-workout-note.ts` is checked against these examples in
+`src/lib/parse-workout-note.test.ts`.
+
+These examples cover:
+
+- Exercise headings followed by sets, with blank lines and `—-` separators.
+- `6 @ 180`, `6@180`, comma-separated lists, and bare `10 50` pairs.
+- Weight-first `10x6` notation, supplied as equivalent to six reps at ten.
+- `fail` and `F` suffixes, including `4 @ 25 s fail` with separated tokens.
+- Dumbbell-style `10s` suffixes and squat weight expressions like `45+10`.
+- Unmatched headings such as `Gym` / `Normal gym`, which need review rather
+  than an invented catalog match.
+
+Confirmed interpretation:
+
+- `5 45+10` means five reps with 45 lb and 10 lb plates on each side of a
+  45 lb bar: 155 lb total. Plus expressions in this note dialect are per-side
+  plate loading; ordinary weight-field addition remains unchanged.
+- `6 @ 10s` means six reps with 10 lb dumbbells, recorded as 10 lb per dumbbell.
+- `4 @ 25 fail` / `4@25F` means four successful reps followed by a failed
+  attempt. Preserve the completed reps and a failure annotation; do not add
+  a failed set or reduce the rep count.
+
+Parser foundation status: implemented as a pure review-draft function, with
+catalog/custom names and aliases supplied by the caller. No network requests
+or saved-workout writes occur. Unknown names and malformed lines remain
+visible through source text and issues; the parser does not pad sets. It
+preserves explicit units and fractional weights for later review rather than
+rounding them silently. The confirmed default bar for lb notes is 45 lb; kg
+plate notation requires a caller-supplied bar weight.
+
+Review UI status: completed note details and recaps now expose **Convert note ·
+Pro**, checked against the existing server entitlement query. The sheet uses
+the live catalog and custom lifts, offers explicit exercise selection, editable
+reps/weights/units and failure annotations, and retains unsupported lines for
+review or explicit note-only retention. It shows the original text verbatim.
+Missing saved units require a choice; unknown kg bars require a reviewed total.
+The development Pro override can open the preview, but confirmation requires
+the actual server Pro grant before adopting or saving a workout.
+Fractional weights remain visible with a warning instead of automatic rounding.
+Over-limit lists show the limit and retain the remainder in the original note;
+removing excess entries requires an explicit preview action.
+
+Opening the sheet reads an existing local revision when available without
+adopting remote data. Draft edits are temporary until **Confirm conversion**;
+closing an edited preview asks before discarding them. Confirmation adopts a
+remote-only note when needed, verifies the reviewed source is still current,
+and commits the logged sets and sync snapshot in one SQLite transaction.
+It switches the same completed session to list mode while retaining the exact
+original note and its unit, timing, place, Health linkage, and attendance.
+The original note remains visible in workout details and the structured recap.
+Failures are saved as per-exercise annotations identifying the set and completed
+rep count; no extra failed set is created.
+
+Reviewed input weights use whole-number set fields. Cross-unit weights convert
+to the account unit with the existing conversion factor, rounded to the nearest
+whole unit. The preview shows the resulting saved weight before confirmation;
+fractional source weights require a manual correction rather than silent
+rounding. The transaction rejects changed preferences and out-of-range results.
+
+Sync requires authenticated Pro access for the initial conversion, including
+notes finished and converted offline before their first upload. It validates
+the selected catalog/custom lifts and completed sets before writing. Already
+converted workouts can sync after Pro expires, and stale note-only snapshots
+cannot erase confirmed sets. Backend changes must deploy before the OTA client.
+Device checks for keyboard layout, sheet dismissal, confirmation and sync,
+and history navigation remain necessary.
 
 ### Constraints to retain when conversion is designed
 

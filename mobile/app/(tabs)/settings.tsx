@@ -31,7 +31,9 @@ import {
   Segmented,
 } from "@/components/ui";
 import { DescribeWithAiButton } from "@/components/describe-with-ai-button";
+import { DevProOverrideCard } from "@/components/settings/dev-pro-override-card";
 import { NotificationSettingsCard } from "@/components/settings/notification-settings-card";
+import { useEntitlement } from "@/hooks/use-entitlement";
 import { PlacesSettingsCard } from "@/components/settings/places-settings-card";
 import { useBackupStatus, useLocalData } from "@/data/local/provider";
 import { planAiSettingsCopy } from "@/lib/ai-copy";
@@ -130,6 +132,7 @@ function OfflineSettingsScreen() {
       <NotificationSettingsCard />
       <PlacesSettingsCard />
       <BackupCard signedIn={false} />
+      <DevProOverrideCard />
     </Screen>
   );
 }
@@ -351,6 +354,7 @@ function SettingsContent({
       <HealthSettingsCard />
       <NotificationSettingsCard />
       <BackupCard signedIn />
+      <DevProOverrideCard />
       <PlanCard />
       <AdminCard />
       <McpCard />
@@ -595,7 +599,7 @@ function BackupCard({ signedIn }: { signedIn: boolean }) {
 }
 
 function PlanCard() {
-  const entitlement = useQuery(api.routes.auth.users.entitlement);
+  const entitlement = useEntitlement();
   const products = useQuery(api.routes.billing.polar.getConfiguredProducts);
   const setPlan = useMutation(api.routes.auth.users.setPlanForTesting);
   const checkout = useAction(api.routes.billing.polar.generateCheckoutLink);

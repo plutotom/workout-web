@@ -1,12 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useQuery } from "convex-helpers/react/cache/hooks";
 import { Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import Link from "next/link";
 
-import { api } from "@backend/api";
+import { useEntitlementCached } from "@/hooks/use-entitlement";
 import { GeneratingLoader } from "@/components/app/generating-loader";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -40,7 +39,7 @@ export function AiTemplateButton({
   onApply: (draft: TemplateDraft) => void;
   className?: string;
 }) {
-  const entitlement = useQuery(api.routes.auth.users.entitlement);
+  const entitlement = useEntitlementCached();
   const [open, setOpen] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [generating, setGenerating] = useState(false);

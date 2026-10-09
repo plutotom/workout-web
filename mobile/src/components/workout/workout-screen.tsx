@@ -154,12 +154,16 @@ export function WorkoutScreen({ sessionId }: { sessionId: string }) {
       return <FullScreenLoader label="Loading workout…" />;
     // Structured remote-only sessions stay read-only. Explicit note editing
     // adopts its identity into the local store before opening the editor.
+    // Keep the same tree position after adoption so its open editor survives.
     return (
-      <CompletedWorkout
-        session={remote}
-        canDelete={false}
-        prepareNoteEdit={prepareNoteEdit}
-      />
+      <>
+        <WorkoutFinishController />
+        <CompletedWorkout
+          session={remote}
+          canDelete={false}
+          prepareNoteEdit={prepareNoteEdit}
+        />
+      </>
     );
   }
   // The controller stays mounted across the finish transition: its post-finish
@@ -1783,6 +1787,16 @@ function CompletedWorkout({
         />
       )}
 
+      {!isNote && session.noteBody?.trim() ? (
+        <NoteWorkoutBody
+          sessionId={session._id}
+          noteBody={session.noteBody}
+          noteUnit={session.noteUnit}
+          canEdit={false}
+          original
+        />
+      ) : null}
+
       {canShareOnSocial ? (
         sharedPostId ? (
           <Button
@@ -1813,7 +1827,13 @@ function CompletedWorkout({
           />
         )
       ) : null}
-      <Button label="Done" onPress={() => router.replace("/dashboard")} />
+      <Button
+        label="Done"
+        onPress={() => {
+          if (router.canGoBack()) router.back();
+          else router.replace("/dashboard");
+        }}
+      />
       {canDelete ? (
         <Button
           label={isHealthSummary ? "Remove from Grayed Lift" : "Delete workout"}

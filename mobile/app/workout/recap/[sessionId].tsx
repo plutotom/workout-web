@@ -13,7 +13,7 @@ import {
   Trophy,
 } from "lucide-react-native";
 import { useMemo, useRef, useState, type ReactNode } from "react";
-import { Alert, Pressable, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, Text, View } from "react-native";
 import Svg, { Circle, Path } from "react-native-svg";
 import { captureRef } from "react-native-view-shot";
 
@@ -770,6 +770,28 @@ export default function WorkoutRecapScreen() {
       ),
     },
   ];
+
+  if (recap.session.noteBody?.trim()) {
+    liftingBeats.splice(liftingBeats.length - 1, 0, {
+      kicker: "Original note",
+      title: "What you wrote",
+      body: recap.session.noteUnit
+        ? `Written in ${recap.session.noteUnit}`
+        : "Your original workout note",
+      extra: (
+        <Card style={{ marginTop: space.xl }}>
+          <ScrollView style={{ maxHeight: 300 }} showsVerticalScrollIndicator>
+            <Text
+              selectable
+              style={{ color: colors.text, fontSize: 16, lineHeight: 25 }}
+            >
+              {recap.session.noteBody}
+            </Text>
+          </ScrollView>
+        </Card>
+      ),
+    });
+  }
 
   const beats = isHealthSummary
     ? [

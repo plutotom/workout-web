@@ -60,6 +60,11 @@ import {
   templateHasPendingEdit,
 } from "./template-sync-storage";
 import { sessionMatchesPlace } from "@shared/place-memory";
+import { buildCatalog } from "@shared/exercises";
+import {
+  confirmNoteConversion,
+  type NoteConversionPreview,
+} from "@shared/note-conversion-preview";
 import {
   assertWorkoutNoteLength,
   hasWorkoutNote,
@@ -1052,6 +1057,25 @@ export async function adoptRemoteNoteWorkout(
   let localId = remote.clientId;
   let changed = false;
   await db.withExclusiveTransactionAsync(async (txn) => {
+    // Cached remote detail can outlive an offline deletion. Never recreate it
+    // while that deletion is waiting to sync, even under a different local id.
+    const pendingDeletes = await txn.getAllAsync<{
+      entity_id: string;
+      payload_json: string;
+    }>(
+      "SELECT entity_id, payload_json FROM local_sync_outbox WHERE entity_type = 'session_delete'",
+    );
+    if (
+      pendingDeletes.some((row) => {
+        const deleted = JSON.parse(row.payload_json) as SessionDeleteSnapshot;
+        return (
+          row.entity_id === remote.clientId ||
+          deleted.clientId === remote.clientId ||
+          deleted.remoteId === remote._id
+        );
+      })
+    )
+      throw new Error("This workout was deleted on this device.");
     const existing = await txn.getFirstAsync<{
       id: string;
       remote_id: string | null;
@@ -1212,6 +1236,91 @@ export async function updateLocalWorkoutNote(
     );
     // Commit text and its replacement outbox snapshot together, including offline edits.
     await queueSessionSnapshot(txn, sessionId, now);
+  });
+}
+
+/** Apply reviewed work once to the same completed note and queue its full aggregate. */
+export async function convertLocalWorkoutNote(
+  db: SQLiteDatabase,
+  sessionId: string,
+  draft: NoteConversionPreview,
+  targetUnit: NoteUnit,
+) {
+  assertWorkoutNoteLength(draft.originalText);
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    const session = await txn.getFirstAsync<SessionRow>(
+      `SELECT ${SESSION_COLUMNS} FROM local_sessions WHERE id = ?`,
+      sessionId,
+    );
+    if (
+      !session ||
+      session.status !== "completed" ||
+      session.input_mode !== "note" ||
+      mapSessionKind(session.session_kind) !== "tracked"
+    )
+      throw new Error("Only a completed note workout can be converted.");
+    if (
+      session.note_body !== draft.originalText ||
+      (session.note_unit && session.note_unit !== draft.noteUnit)
+    )
+      throw new Error(
+        "Your note changed. Reopen the preview to review the latest text.",
+      );
+    const existing = await txn.getFirstAsync<{ count: number }>(
+      "SELECT COUNT(*) AS count FROM local_session_exercises WHERE session_id = ?",
+      sessionId,
+    );
+    if (existing?.count)
+      throw new Error("This workout already has logged exercises.");
+    const preferences = await getLocalPreferences(txn);
+    if (preferences.unit !== targetUnit)
+      throw new Error(
+        "Your weight unit changed. Reopen the conversion preview.",
+      );
+    const custom = await listLocalCustomExercises(txn);
+    const catalog = buildCatalog(
+      custom.map((exercise) => ({
+        ...exercise,
+        short: exercise.short ?? undefined,
+      })),
+    );
+    const exercises = confirmNoteConversion(draft, catalog.all, targetUnit);
+    for (const [orderIndex, exercise] of exercises.entries()) {
+      const exerciseId = randomUUID();
+      await txn.runAsync(
+        `INSERT INTO local_session_exercises (id, session_id, slug, order_index, rest_seconds, notes)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        exerciseId,
+        sessionId,
+        exercise.slug,
+        orderIndex,
+        DEFAULT_REST_SECONDS,
+        exercise.notes || null,
+      );
+      for (const [setIndex, set] of exercise.sets.entries()) {
+        await txn.runAsync(
+          `INSERT INTO local_sets (id, session_exercise_id, order_index, target_weight, target_reps, weight, reps, completed, completed_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+          randomUUID(),
+          exerciseId,
+          setIndex,
+          set.weight,
+          set.reps,
+          set.weight,
+          set.reps,
+          session.completed_at ?? session.started_at,
+        );
+      }
+    }
+    const updatedAt = Math.max(Date.now(), session.updated_at + 1);
+    await txn.runAsync(
+      "UPDATE local_sessions SET input_mode = 'list', note_unit = ?, updated_at = ? WHERE id = ?",
+      session.note_unit ?? draft.noteUnit,
+      updatedAt,
+      sessionId,
+    );
+    // No finish call or Health export: date, attendance and Health identity stay intact.
+    await queueSessionSnapshot(txn, sessionId, updatedAt);
   });
 }
 

@@ -1,13 +1,21 @@
 import { validate } from "convex-helpers/validators";
 import type { Infer } from "convex/values";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { MutationCtx } from "../../_generated/server";
 import { pushSession, sessionSnapshotValidator } from "./sync";
 
+const access = vi.hoisted(() => ({ plan: "free", subscription: vi.fn() }));
 vi.mock("../../lib/auth", () => ({
-  requireUser: async () => ({ _id: "user-1" }),
+  requireUser: async () => ({ _id: "user-1", plan: access.plan }),
 }));
+vi.mock("../billing/polar", () => ({
+  polar: { getCurrentSubscription: access.subscription },
+}));
+beforeEach(() => {
+  access.plan = "free";
+  access.subscription.mockReset().mockResolvedValue(null);
+});
 
 const session = {
   clientId: "note-1",
@@ -24,7 +32,10 @@ const session = {
   exercises: [],
 };
 
-function serverFixture(existing: Record<string, unknown> | null = null) {
+function serverFixture(
+  existing: Record<string, unknown> | null = null,
+  receipt: Record<string, unknown> | null = null,
+) {
   const insert = vi
     .fn<(table: string, fields: unknown) => Promise<string>>()
     .mockResolvedValue("remote-session");
@@ -42,6 +53,7 @@ function serverFixture(existing: Record<string, unknown> | null = null) {
             return this;
           },
           async first() {
+            if (table === "iosSyncReceipts") return receipt;
             return table === "workoutSessions" &&
               indexName === "by_user_client_id"
               ? existing
@@ -86,6 +98,170 @@ async function push(
 }
 
 describe("iOS note snapshots", () => {
+  const converted = {
+    ...session,
+    status: "completed" as const,
+    completedAt: 200,
+    inputMode: "list" as const,
+    exercises: [
+      {
+        clientId: "lift-1",
+        slug: "deadlift",
+        orderIndex: 0,
+        restSeconds: 75,
+        notes: "Set 1: failed attempt after 4 completed reps.",
+        sets: [
+          {
+            clientId: "set-1",
+            orderIndex: 0,
+            targetWeight: 225,
+            targetReps: 4,
+            weight: 225,
+            reps: 4,
+            completed: true,
+            completedAt: 200,
+          },
+        ],
+      },
+    ],
+  };
+  it.each([null, { ...session, _id: "remote-session", clientUpdatedAt: 200 }])(
+    "rejects free conversion with existing row %j before any writes",
+    async (existing) => {
+      const fixture = serverFixture(existing);
+      await expect(push(fixture.ctx, converted)).rejects.toThrow(
+        "requires Pro",
+      );
+      expect(fixture.insert).not.toHaveBeenCalled();
+      expect(fixture.patch).not.toHaveBeenCalled();
+    },
+  );
+  it.each(["manual", "subscription"])(
+    "accepts conversion with %s Pro and credits only the recorded sets",
+    async (grant) => {
+      if (grant === "manual") access.plan = "pro";
+      else access.subscription.mockResolvedValue({ status: "active" });
+      const fixture = serverFixture({
+        ...session,
+        _id: "remote-session",
+        status: "completed",
+        completedAt: 200,
+        clientUpdatedAt: 200,
+        externalProvider: "apple_health",
+        externalId: "watch",
+        durationSeconds: 100,
+        countsTowardGoals: true,
+      });
+      await push(fixture.ctx, {
+        ...converted,
+        startedAt: 999,
+        completedAt: 1000,
+        externalProvider: null,
+        externalId: null,
+      });
+      expect(fixture.patch).toHaveBeenCalledWith(
+        "remote-session",
+        expect.objectContaining({
+          inputMode: "list",
+          noteBody: session.noteBody,
+          noteUnit: "lb",
+          startedAt: 100,
+          completedAt: 200,
+          externalId: "watch",
+          durationSeconds: 100,
+          countsTowardGoals: true,
+        }),
+      );
+      expect(fixture.insert.mock.calls.map(([table]) => table)).toEqual([
+        "sessionExercises",
+        "sets",
+        "iosSyncReceipts",
+      ]);
+      expect(fixture.insert).toHaveBeenCalledWith(
+        "sets",
+        expect.objectContaining({ reps: 4, weight: 225, completed: true }),
+      );
+    },
+  );
+  it("does not require a renewed subscription to sync an already converted workout", async () => {
+    const fixture = serverFixture({
+      ...converted,
+      _id: "remote-session",
+      clientUpdatedAt: 200,
+    });
+    expect(await push(fixture.ctx, converted)).toMatchObject({
+      status: "applied",
+    });
+    expect(access.subscription).not.toHaveBeenCalled();
+  });
+  it("acknowledges a conversion retry without writing another session or set", async () => {
+    const fixture = serverFixture(
+      { ...converted, _id: "remote-session", clientUpdatedAt: 300 },
+      { _id: "receipt", operationId: "operation-1" },
+    );
+    expect(await push(fixture.ctx, converted)).toMatchObject({
+      status: "duplicate",
+      remoteSessionId: "remote-session",
+    });
+    expect(fixture.insert).not.toHaveBeenCalled();
+    expect(fixture.patch).not.toHaveBeenCalled();
+    expect(access.subscription).not.toHaveBeenCalled();
+  });
+  it("enforces Pro when a conversion snapshot omits the optional list-mode flag", async () => {
+    const fixture = serverFixture();
+    await expect(
+      push(fixture.ctx, { ...converted, inputMode: undefined }),
+    ).rejects.toThrow("requires Pro");
+    expect(fixture.insert).not.toHaveBeenCalled();
+  });
+  it("does not let a pre-conversion note upload erase confirmed sets or change original text", async () => {
+    const fixture = serverFixture({
+      ...converted,
+      _id: "remote-session",
+      clientUpdatedAt: 200,
+    });
+    expect(
+      await push(fixture.ctx, { ...session, updatedAt: 500 }),
+    ).toMatchObject({ status: "stale" });
+    await expect(
+      push(fixture.ctx, { ...converted, noteBody: "changed" }),
+    ).rejects.toThrow("original note");
+    expect(fixture.insert).not.toHaveBeenCalled();
+    expect(fixture.patch).not.toHaveBeenCalled();
+  });
+  it.each(["custom:someone-else", "unknown"])(
+    "rejects conversion mapped to %s",
+    async (slug) => {
+      access.plan = "pro";
+      const fixture = serverFixture();
+      await expect(
+        push(fixture.ctx, {
+          ...converted,
+          exercises: [{ ...converted.exercises[0], slug }],
+        }),
+      ).rejects.toThrow("active exercises");
+      expect(fixture.insert).not.toHaveBeenCalled();
+    },
+  );
+  it.each([NaN, Infinity, -1, 1.5, 10001])(
+    "rejects invalid converted weight %s before writes",
+    async (weight) => {
+      access.plan = "pro";
+      const fixture = serverFixture();
+      await expect(
+        push(fixture.ctx, {
+          ...converted,
+          exercises: [
+            {
+              ...converted.exercises[0],
+              sets: [{ ...converted.exercises[0].sets[0], weight }],
+            },
+          ],
+        }),
+      ).rejects.toThrow("valid completed");
+      expect(fixture.insert).not.toHaveBeenCalled();
+    },
+  );
   it("accepts optional note fields and keeps legacy snapshots valid", () => {
     expect(validate(sessionSnapshotValidator, session, { throw: true })).toBe(
       true,

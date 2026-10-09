@@ -1,13 +1,19 @@
-import { Pencil } from "lucide-react-native";
+import { router } from "expo-router";
+import { ListChecks, Pencil } from "lucide-react-native";
 import { useSQLiteContext } from "expo-sqlite";
 import { useState } from "react";
 import { Alert, Keyboard, Modal, ScrollView, Text } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { useMobileAuth } from "@/auth/auth-provider";
+import { useEntitlementState } from "@/hooks/use-entitlement";
 import { KeyboardStickyFooter } from "@/components/keyboard-sticky-footer";
 import { Button, Card } from "@/components/ui";
+import { NoteConversionPreviewSheet } from "@/components/workout/note-conversion-preview";
 import { WorkoutNoteField } from "@/components/workout/note-workout-editor";
-import { useLocalData } from "@/data/local/provider";
+import { useLocalData, useLocalPreferences } from "@/data/local/provider";
+import type { NoteConversionPreview } from "@shared/note-conversion-preview";
+import type { NoteUnit } from "@shared/note-workouts";
 import { getLocalWorkout } from "@/data/local/repository";
 import { colors } from "@/theme";
 import { MAX_WORKOUT_NOTE_LENGTH } from "@shared/note-workouts";
@@ -18,19 +24,70 @@ export function NoteWorkoutBody({
   noteBody,
   noteUnit,
   canEdit = true,
+  original = false,
   prepareEdit,
 }: {
   sessionId: string;
   noteBody: string | null | undefined;
   noteUnit?: "lb" | "kg" | null;
   canEdit?: boolean;
+  original?: boolean;
   prepareEdit?: () => Promise<string>;
 }) {
   const db = useSQLiteContext();
+  const { convertWorkoutNote } = useLocalData();
+  const preferences = useLocalPreferences();
+  const { isAuthenticated } = useMobileAuth();
+  const { entitlement, serverEntitlement } = useEntitlementState(
+    !isAuthenticated || !canEdit,
+  );
   const [editing, setEditing] = useState(false);
   const [editSessionId, setEditSessionId] = useState(sessionId);
   const [editText, setEditText] = useState("");
   const [preparing, setPreparing] = useState(false);
+  const [preview, setPreview] = useState<{
+    noteBody: string;
+    noteUnit?: "lb" | "kg" | null;
+  } | null>(null);
+
+  async function beginPreview() {
+    if (preparing || editing || preview) return;
+    if (!entitlement?.isPro) {
+      Alert.alert(
+        "Note conversion is part of Pro",
+        "Review the lifts and sets in your workout notes with Pro.",
+        [
+          { text: "Maybe later", style: "cancel" },
+          { text: "View Pro", onPress: () => router.push("/settings") },
+        ],
+      );
+      return;
+    }
+    setPreparing(true);
+    try {
+      // Read an existing offline revision without adopting or writing anything.
+      const local = await getLocalWorkout(db, sessionId);
+      if (local && (local.status !== "completed" || local.inputMode !== "note"))
+        throw new Error("This workout note is unavailable for conversion.");
+      const text = local ? (local.noteBody ?? "") : (noteBody ?? "");
+      if (!text.trim()) throw new Error("Add some workout text first.");
+      if (text.length > MAX_WORKOUT_NOTE_LENGTH)
+        throw new Error(
+          "Shorten this note before opening the conversion preview.",
+        );
+      setPreview({
+        noteBody: text,
+        noteUnit: local ? local.noteUnit : noteUnit,
+      });
+    } catch (caught) {
+      Alert.alert(
+        "Couldn’t open preview",
+        caught instanceof Error ? caught.message : "Try again.",
+      );
+    } finally {
+      setPreparing(false);
+    }
+  }
 
   async function beginEdit() {
     if (preparing) return;
@@ -58,6 +115,21 @@ export function NoteWorkoutBody({
       setPreparing(false);
     }
   }
+  async function confirmConversion(
+    draft: NoteConversionPreview,
+    targetUnit: NoteUnit,
+  ) {
+    if (!entitlement?.isPro)
+      throw new Error(
+        "Note conversion requires Pro. Check your account and try again.",
+      );
+    if (!serverEntitlement?.isPro)
+      throw new Error(
+        "Saving requires active Pro access. Reconnect your account and try again.",
+      );
+    const localId = prepareEdit ? await prepareEdit() : sessionId;
+    await convertWorkoutNote(localId, draft, targetUnit);
+  }
   return (
     <>
       <Card style={{ gap: 16 }}>
@@ -69,7 +141,7 @@ export function NoteWorkoutBody({
             letterSpacing: 1.5,
           }}
         >
-          WORKOUT NOTE
+          {original ? "ORIGINAL NOTE" : "WORKOUT NOTE"}
         </Text>
         <Text
           selectable
@@ -91,12 +163,36 @@ export function NoteWorkoutBody({
             onPress={beginEdit}
           />
         ) : null}
+        {canEdit && noteBody?.trim() ? (
+          <Button
+            label={
+              isAuthenticated && entitlement === undefined
+                ? "Checking Pro…"
+                : "Convert note · Pro"
+            }
+            variant="ghost"
+            icon={ListChecks}
+            disabled={
+              preparing || (isAuthenticated && entitlement === undefined)
+            }
+            onPress={beginPreview}
+          />
+        ) : null}
       </Card>
       {editing ? (
         <EditWorkoutNote
           sessionId={editSessionId}
           initialText={editText}
           onClose={() => setEditing(false)}
+        />
+      ) : null}
+      {preview ? (
+        <NoteConversionPreviewSheet
+          noteBody={preview.noteBody}
+          noteUnit={preview.noteUnit}
+          targetUnit={preferences?.unit ?? "lb"}
+          onConfirm={confirmConversion}
+          onClose={() => setPreview(null)}
         />
       ) : null}
     </>
