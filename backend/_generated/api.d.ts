@@ -18,6 +18,7 @@ import type * as lib_exercises from "../lib/exercises.js";
 import type * as lib_health_sessions from "../lib/health_sessions.js";
 import type * as lib_insights from "../lib/insights.js";
 import type * as lib_ios_session_sync from "../lib/ios_session_sync.js";
+import type * as lib_note_conversion from "../lib/note_conversion.js";
 import type * as lib_placeMemory from "../lib/placeMemory.js";
 import type * as lib_places from "../lib/places.js";
 import type * as lib_plan from "../lib/plan.js";
@@ -87,6 +88,7 @@ declare const fullApi: ApiFromModules<{
   "lib/health_sessions": typeof lib_health_sessions;
   "lib/insights": typeof lib_insights;
   "lib/ios_session_sync": typeof lib_ios_session_sync;
+  "lib/note_conversion": typeof lib_note_conversion;
   "lib/placeMemory": typeof lib_placeMemory;
   "lib/places": typeof lib_places;
   "lib/plan": typeof lib_plan;

@@ -2,12 +2,12 @@
 
 import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { useQuery as useCacheQuery } from "convex-helpers/react/cache/hooks";
 import { CheckoutLink, CustomerPortalLink } from "@convex-dev/polar/react";
 import { Crown } from "lucide-react";
 import { toast } from "sonner";
 
 import { api } from "@backend/api";
+import { useEntitlementCached } from "@/hooks/use-entitlement";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -48,7 +48,7 @@ function productPriceLabel(
 }
 
 export function PlanSettings() {
-  const entitlement = useCacheQuery(api.routes.auth.users.entitlement);
+  const entitlement = useEntitlementCached();
   const products = useQuery(api.routes.billing.polar.getConfiguredProducts);
   const setPlanForTesting = useMutation(
     api.routes.auth.users.setPlanForTesting,

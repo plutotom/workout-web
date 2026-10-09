@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useMutation } from "convex/react";
-import { useQuery } from "convex-helpers/react/cache/hooks";
 import { Check, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import Link from "next/link";
@@ -10,6 +9,7 @@ import Link from "next/link";
 import { api } from "@backend/api";
 import type { Id } from "@backend/dataModel";
 import { useExerciseCatalog } from "@/components/app/exercise-catalog-provider";
+import { useEntitlementCached } from "@/hooks/use-entitlement";
 import { GeneratingLoader } from "@/components/app/generating-loader";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -122,7 +122,7 @@ export function AiSessionButton({
   label?: string;
 }) {
   const catalog = useExerciseCatalog();
-  const entitlement = useQuery(api.routes.auth.users.entitlement);
+  const entitlement = useEntitlementCached();
   const applyDraft = useMutation(
     api.routes.workouts.mutations.addExercisesFromDraft,
   );

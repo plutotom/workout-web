@@ -1,9 +1,8 @@
-import { api } from "@backend/api";
-import { useQuery } from "convex/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppState } from "react-native";
 
 import { useMobileAuth } from "@/auth/auth-provider";
+import { useEntitlement } from "@/hooks/use-entitlement";
 import {
   generateSessionOnApple,
   generateTemplateOnApple,
@@ -19,6 +18,10 @@ import {
   type AppleFoundationAvailability,
 } from "@shared/ai/apple-on-device";
 import { requirePublicConfig } from "@/lib/config";
+import {
+  devProOverrideHeaderValue,
+  readDevProOverride,
+} from "@shared/dev-pro-override";
 import { useCatalog } from "@/providers/catalog-provider";
 
 export type DraftSet = { weight: number; reps: number };
@@ -74,10 +77,7 @@ export function useAppleAiAvailability() {
 
 export function useAiGeneration() {
   const { fetchAccessToken, isAuthenticated } = useMobileAuth();
-  const entitlement = useQuery(
-    api.routes.auth.users.entitlement,
-    isAuthenticated ? {} : "skip",
-  );
+  const entitlement = useEntitlement(!isAuthenticated);
   const catalog = useCatalog();
   const apple = useAppleAiAvailability();
   const appleReady = appleAiIsUsable(apple);
@@ -98,11 +98,13 @@ export function useAiGeneration() {
       const token = await fetchAccessToken();
       if (!token) throw new Error("Sign in again to use AI");
       const { webUrl } = requirePublicConfig();
+      const devOverride = devProOverrideHeaderValue(readDevProOverride());
       const response = await fetch(`${webUrl}${path}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
+          ...(devOverride ? { "x-dev-pro-override": devOverride } : undefined),
         },
         body: JSON.stringify(body),
       });

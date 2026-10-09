@@ -7,6 +7,8 @@ import { pathToFileURL } from "node:url";
 import { build } from "esbuild";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { parseBackup, serializeBackup } from "./workout-backup";
+import { createNoteConversionPreview } from "./note-conversion-preview";
+import { EXERCISES } from "./exercises";
 let storage;
 let bundleDirectory;
 beforeAll(async () => {
@@ -15,7 +17,7 @@ beforeAll(async () => {
   await build({
     stdin: {
       contents:
-        'export * from "./repository"; export * from "./backup"; export * from "./migrations";',
+        'export * from "./repository"; export * from "./backup"; export * from "./migrations"; export * from "./insights";',
       resolveDir: resolve(import.meta.dirname, "../../mobile/src/data/local"),
     },
     bundle: true,
@@ -91,6 +93,237 @@ async function seedNote(db, fields = {}) {
   );
 }
 describe("note storage using SQLite", () => {
+  it("converts the existing session, preserves timing/Health/text, and credits sets without extra attendance", async () => {
+    const { db, sql } = sqliteFixture();
+    try {
+      await storage.migrateLocalDatabase(db);
+      await seedNote(db);
+      const original = "  Deadlift\n4@100kgF\n2@225lb\n";
+      await storage.updateLocalWorkoutNote(db, "note-1", original, "completed");
+      const before = await storage.getLocalWorkout(db, "note-1");
+      const beforeStats = storage.getLocalOverview(
+        await storage.listLocalCompletedSessions(db),
+        7,
+        300,
+      );
+      const draft = createNoteConversionPreview(original, "lb", EXERCISES);
+      await storage.convertLocalWorkoutNote(db, "note-1", draft, "lb");
+      const after = await storage.getLocalWorkout(db, "note-1");
+      expect(after).toMatchObject({
+        ...before,
+        inputMode: "list",
+        updatedAt: expect.any(Number),
+        exercises: expect.any(Array),
+      });
+      expect(after.noteBody).toBe(original);
+      expect(after.exercises).toHaveLength(1);
+      expect(after.exercises[0]).toMatchObject({
+        slug: "deadlift",
+        notes: "Set 1: failed attempt after 4 completed reps.",
+      });
+      expect(
+        after.exercises[0].sets.map((set) => [
+          set.weight,
+          set.reps,
+          set.completed,
+          set.completedAt,
+        ]),
+      ).toEqual([
+        [220, 4, true, 200],
+        [225, 2, true, 200],
+      ]);
+      const pending = await storage.getPendingSessionSync(db);
+      expect(pending.snapshot).toMatchObject({
+        clientId: "note-1",
+        status: "completed",
+        inputMode: "list",
+        noteBody: original,
+        noteUnit: "lb",
+        startedAt: 100,
+        completedAt: 200,
+        externalId: "health-uuid",
+      });
+      expect(pending.snapshot.exercises[0].sets).toHaveLength(2);
+      expect(await storage.countPendingHealthExports(db)).toBe(0);
+      const stats = storage.getLocalOverview(
+        await storage.listLocalCompletedSessions(db),
+        7,
+        300,
+      );
+      expect(stats.stats.workoutCount).toBe(beforeStats.stats.workoutCount);
+      expect(stats.stats.totalVolume).toBe(1330);
+      await expect(
+        storage.convertLocalWorkoutNote(db, "note-1", draft, "lb"),
+      ).rejects.toThrow("completed note");
+      expect((await storage.getPendingSessionSync(db)).operationId).toBe(
+        pending.operationId,
+      );
+      expect(
+        sql.prepare("SELECT COUNT(*) AS count FROM local_sessions").get().count,
+      ).toBe(1);
+    } finally {
+      sql.close();
+    }
+  });
+
+  it("rolls back all converted sets when the sync snapshot cannot be queued", async () => {
+    const { db, sql } = sqliteFixture();
+    try {
+      await storage.migrateLocalDatabase(db);
+      await seedNote(db);
+      sql
+        .prepare("UPDATE local_sessions SET note_body = 'Deadlift: 6@180'")
+        .run();
+      const before = await storage.getLocalWorkout(db, "note-1");
+      sql.exec(
+        "CREATE TRIGGER reject_sync BEFORE INSERT ON local_sync_outbox BEGIN SELECT RAISE(ABORT, 'queue failure'); END;",
+      );
+      await expect(
+        storage.convertLocalWorkoutNote(
+          db,
+          "note-1",
+          createNoteConversionPreview(before.noteBody, "lb", EXERCISES),
+          "lb",
+        ),
+      ).rejects.toThrow("queue failure");
+      expect(await storage.getLocalWorkout(db, "note-1")).toEqual(before);
+      expect(await storage.getPendingSessionSync(db)).toBeNull();
+      expect(await storage.countPendingHealthExports(db)).toBe(0);
+    } finally {
+      sql.close();
+    }
+  });
+
+  it("rejects a stale preview, changed account unit, or unresolved exercise before writes", async () => {
+    const { db, sql } = sqliteFixture();
+    try {
+      await storage.migrateLocalDatabase(db);
+      await seedNote(db);
+      sql
+        .prepare("UPDATE local_sessions SET note_body = 'Deadlift: 6@180'")
+        .run();
+      const original = await storage.getLocalWorkout(db, "note-1");
+      const valid = createNoteConversionPreview(
+        original.noteBody,
+        "lb",
+        EXERCISES,
+      );
+      await expect(
+        storage.convertLocalWorkoutNote(
+          db,
+          "note-1",
+          { ...valid, originalText: "old text" },
+          "lb",
+        ),
+      ).rejects.toThrow("note changed");
+      await expect(
+        storage.convertLocalWorkoutNote(db, "note-1", valid, "kg"),
+      ).rejects.toThrow("unit changed");
+      valid.exercises[0].slug = "not-a-lift";
+      await expect(
+        storage.convertLocalWorkoutNote(db, "note-1", valid, "lb"),
+      ).rejects.toThrow("Choose an exercise");
+      expect(await storage.getLocalWorkout(db, "note-1")).toEqual(original);
+      expect(await storage.getPendingSessionSync(db)).toBeNull();
+    } finally {
+      sql.close();
+    }
+  });
+
+  it("keeps converted sets, annotations, and original notes through backup restoration", async () => {
+    const source = sqliteFixture();
+    const target = sqliteFixture();
+    try {
+      await storage.migrateLocalDatabase(source.db);
+      await storage.migrateLocalDatabase(target.db);
+      await seedNote(source.db);
+      source.sql
+        .prepare("UPDATE local_sessions SET note_body = 'Deadlift: 4@225F'")
+        .run();
+      await storage.convertLocalWorkoutNote(
+        source.db,
+        "note-1",
+        createNoteConversionPreview("Deadlift: 4@225F", "lb", EXERCISES),
+        "lb",
+      );
+      const backup = await storage.createLocalBackup(source.db);
+      const parsed = parseBackup(serializeBackup(backup));
+      expect(parsed.ok).toBe(true);
+      await storage.restoreLocalBackup(target.db, parsed.snapshot);
+      expect(await storage.getLocalWorkout(target.db, "note-1")).toEqual(
+        await storage.getLocalWorkout(source.db, "note-1"),
+      );
+      expect(
+        (await storage.getPendingSessionSync(target.db)).snapshot,
+      ).toMatchObject({ inputMode: "list", noteBody: "Deadlift: 4@225F" });
+    } finally {
+      source.sql.close();
+      target.sql.close();
+    }
+  });
+  it.each(["client", "remote"])(
+    "does not resurrect a deleted note matched by its %s identity",
+    async (identity) => {
+      const { db, sql } = sqliteFixture();
+      try {
+        await storage.migrateLocalDatabase(db);
+        const remote = {
+          _id: "remote-note",
+          clientId: "original-phone",
+          clientUpdatedAt: 300,
+          status: "completed",
+          sessionKind: "tracked",
+          inputMode: "note",
+          noteBody: "saved note",
+          noteUnit: "lb",
+          templateName: "Note workout",
+          startedAt: 100,
+          completedAt: 200,
+          countsTowardGoals: true,
+          placeId: null,
+          placeName: null,
+          exercises: [],
+        };
+        const id = await storage.adoptRemoteNoteWorkout(db, remote);
+        if (identity === "client") {
+          // A deletion may be queued before the phone learns the cloud id.
+          sql
+            .prepare("UPDATE local_sessions SET remote_id = NULL WHERE id = ?")
+            .run(id);
+        } else {
+          // Restored backups can use a different local identity for the cloud row.
+          sql
+            .prepare(
+              "UPDATE local_sessions SET id = 'restored-local' WHERE id = ?",
+            )
+            .run(id);
+        }
+        const deletedId = identity === "client" ? id : "restored-local";
+        await storage.deleteLocalWorkout(db, deletedId);
+        const deletion = await storage.getPendingSessionDelete(db);
+        let refreshes = 0;
+        await expect(
+          storage.adoptRemoteNoteWorkout(db, remote, () => refreshes++),
+        ).rejects.toThrow("deleted on this device");
+        expect(await storage.getLocalWorkout(db, id)).toBeNull();
+        expect(await storage.getLocalWorkout(db, remote._id)).toBeNull();
+        expect(await storage.getPendingSessionDelete(db)).toEqual(deletion);
+        expect(await storage.getPendingSessionSync(db)).toBeNull();
+        expect(refreshes).toBe(0);
+        // A queued deletion must not block adoption of an unrelated workout.
+        const otherId = await storage.adoptRemoteNoteWorkout(db, {
+          ...remote,
+          _id: "other-remote-note",
+          clientId: "other-phone-note",
+        });
+        expect((await storage.getLocalWorkout(db, otherId)).noteBody).toBe(
+          remote.noteBody,
+        );
+      } finally {
+        sql.close();
+      }
+    },
+  );
   it("reconciles late remote Health metadata before a phone edit without refreshing no-op adoptions", async () => {
     const { db, sql } = sqliteFixture();
     try {

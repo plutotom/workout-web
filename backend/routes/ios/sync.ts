@@ -5,6 +5,11 @@ import { assertWorkoutNoteLength } from "../../../src/lib/note-workouts";
 import type { Id } from "../../_generated/dataModel";
 import { mutation, type MutationCtx } from "../../_generated/server";
 import { requireUser } from "../../lib/auth";
+import {
+  isConvertedNote,
+  requireNoteConversionPro,
+  validateNoteConversion,
+} from "../../lib/note_conversion";
 import { upsertCustomExerciseFromClient } from "../../lib/exercises";
 import {
   resolvePushSessionTarget,
@@ -481,6 +486,32 @@ export const pushSession = mutation({
         serverTime: Date.now(),
       };
     }
+    // Older bundles/other devices may still upload the pre-conversion note.
+    if (
+      existing &&
+      isConvertedNote(existing) &&
+      args.session.inputMode === "note"
+    )
+      return {
+        status: "stale" as const,
+        remoteSessionId: existing._id,
+        serverTime: Date.now(),
+      };
+    const convertsNote =
+      args.session.inputMode !== "note" &&
+      (existing?.inputMode === "note" ||
+        (isConvertedNote(args.session) && !isConvertedNote(existing ?? {})));
+    if (convertsNote) {
+      await requireNoteConversionPro(ctx, user);
+      await validateNoteConversion(ctx, user, args.session);
+    }
+    if (
+      existing &&
+      isConvertedNote(existing) &&
+      (args.session.noteBody !== existing.noteBody ||
+        args.session.noteUnit !== existing.noteUnit)
+    )
+      throw new Error("A converted workout’s original note must be preserved.");
     if (resolution.action === "apply") {
       if (resolution.deleteSessionId) {
         await deleteWorkout(ctx, user._id, resolution.deleteSessionId);
@@ -499,10 +530,12 @@ export const pushSession = mutation({
     const savedHealth =
       existing?.status === "completed" &&
       existing.sessionKind === "tracked" &&
-      existing.inputMode === "note" &&
+      (existing.inputMode === "note" || isConvertedNote(existing)) &&
       args.session.status === "completed" &&
       args.session.sessionKind === "tracked" &&
-      args.session.inputMode === "note" &&
+      (args.session.inputMode === "note" ||
+        convertsNote ||
+        isConvertedNote(existing)) &&
       existing.externalId &&
       (!args.session.externalId ||
         args.session.externalId === existing.externalId)
@@ -542,6 +575,17 @@ export const pushSession = mutation({
           ? args.session.healthSegments
           : savedHealth?.healthSegments,
     };
+    if (
+      convertsNote &&
+      existing?.status === "completed" &&
+      existing.sessionKind === "tracked"
+    ) {
+      sessionFields.startedAt = existing.startedAt;
+      sessionFields.completedAt = existing.completedAt;
+      sessionFields.countsTowardGoals = existing.countsTowardGoals ?? true;
+      sessionFields.placeId = existing.placeId;
+      sessionFields.placeName = existing.placeName;
+    }
     const sessionId =
       existing?._id ??
       (await ctx.db.insert("workoutSessions", {

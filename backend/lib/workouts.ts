@@ -1047,7 +1047,7 @@ export async function getWorkout(
         _id: e._id,
         slug: e.exerciseSlug,
         restSeconds: e.restSeconds ?? DEFAULT_REST_SECONDS,
-        notes: notesBySlug[e.exerciseSlug],
+        notes: e.notes ?? notesBySlug[e.exerciseSlug],
         machineId: e.machineId ?? null,
         machineName: e.machineName ?? null,
         sets: sets.map((set) => ({

@@ -6,6 +6,7 @@ import { FlaskConical } from "lucide-react";
 import { toast } from "sonner";
 
 import { api } from "@backend/api";
+import { DevProOverrideControl } from "@/components/app/dev-pro-override-control";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -49,7 +50,8 @@ export function DevSettings() {
           Local testing helpers. Not shown in production.
         </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="flex flex-col gap-4">
+        <DevProOverrideControl />
         <Button
           type="button"
           variant="outline"
