@@ -14,6 +14,7 @@ The committed source of truth is the Expo config in `app.json`. Native `ios/` is
 ## Current defaults
 
 - Slug: `workout-ios-v1`
+- Supported platform: iOS (release commands pass `--platform ios`)
 - Runtime version policy: `appVersion` (`expo.version` in `app.json`)
 - Production channel: `production`
 - Preview channel: `preview`
@@ -60,7 +61,7 @@ SKIP_CONVEX_DEPLOY=1 pnpm ota:production -- "Describe the change"
 From `mobile/`:
 
 ```sh
-pnpm exec eas update --channel preview --message "Describe the change"
+pnpm exec eas update --platform ios --channel preview --environment preview --message "Describe the change"
 ```
 
 ## Production native build + submit
