@@ -56,7 +56,7 @@ pnpm exec eas submit --platform ios --path "$IPA_PATH"
 echo ""
 
 echo "🔄 Step 3/3: Publishing OTA update for runtime version $VERSION..."
-pnpm exec eas update --channel production --environment production --message "v$VERSION release"
+pnpm exec eas update --platform ios --channel production --environment production --message "v$VERSION release"
 echo ""
 
 echo "✅ Done!"
