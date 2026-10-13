@@ -11,6 +11,7 @@ import {
 import type { HealthAutoImportPrefs } from "@/health/types";
 import { watchHealthUuidKey, watchRecordedKey } from "@/health/watch-session";
 
+import { shouldAdoptCloudExerciseNote } from "@/data/local/exercise-notes-sync";
 import {
   GENERAL_PREFS_ECHO_PENDING_KEY,
   generalPreferenceBindValues,
@@ -24,10 +25,12 @@ import {
 } from "@/data/local/preferences";
 import type {
   CustomExerciseSyncSnapshot,
+  ExerciseNoteSyncSnapshot,
   IosBootstrapPayload,
   LocalActiveWorkout,
   LocalCustomExercise,
   LocalGeneralPreferencePatch,
+  LocalGeneralPreferences,
   LocalHealthSummary,
   LocalMuscleGroup,
   LocalNotificationPreferences,
@@ -38,6 +41,8 @@ import type {
   LocalWorkoutSession,
   LocalWorkoutSet,
   PendingCustomExerciseSync,
+  PendingExerciseNoteSync,
+  PendingPreferencesSync,
   PendingSessionDelete,
   PendingSessionSync,
   SessionDeleteSnapshot,
@@ -997,16 +1002,21 @@ export async function saveLocalExerciseNote(
   notes: string,
 ) {
   const now = Date.now();
-  await db.runAsync(
-    `INSERT INTO local_exercise_notes (slug, notes, updated_at)
-     VALUES (?, ?, ?)
-     ON CONFLICT(slug) DO UPDATE SET
-       notes = excluded.notes,
-       updated_at = excluded.updated_at`,
-    normalizedSlug(slug),
-    notes.trim(),
-    now,
-  );
+  const normalized = normalizedSlug(slug);
+  const trimmed = notes.trim();
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    await txn.runAsync(
+      `INSERT INTO local_exercise_notes (slug, notes, updated_at)
+       VALUES (?, ?, ?)
+       ON CONFLICT(slug) DO UPDATE SET
+         notes = excluded.notes,
+         updated_at = excluded.updated_at`,
+      normalized,
+      trimmed,
+      now,
+    );
+    await queueExerciseNoteSnapshot(txn, normalized, trimmed, now);
+  });
   const active = await db.getAllAsync<{ session_id: string }>(
     `SELECT DISTINCT e.session_id
        FROM local_session_exercises e
@@ -1016,6 +1026,49 @@ export async function saveLocalExerciseNote(
   );
   for (const session of active)
     await markSessionUpdated(db, session.session_id, now);
+}
+
+async function queueExerciseNoteSnapshot(
+  db: SQLiteDatabase,
+  slug: string,
+  notes: string,
+  now: number,
+) {
+  const snapshot: ExerciseNoteSyncSnapshot = { slug, notes };
+  await db.runAsync(
+    `INSERT INTO local_sync_outbox (
+       entity_type, entity_id, operation_id, payload_json, created_at, attempt_count
+     ) VALUES ('exercise_note', ?, ?, ?, ?, 0)
+     ON CONFLICT(entity_type, entity_id) DO UPDATE SET
+       operation_id = excluded.operation_id,
+       payload_json = excluded.payload_json,
+       created_at = excluded.created_at,
+       attempt_count = 0`,
+    slug,
+    randomUUID(),
+    JSON.stringify(snapshot),
+    now,
+  );
+}
+
+async function queuePreferencesSnapshot(
+  db: SQLiteDatabase,
+  snapshot: LocalGeneralPreferences,
+  now: number,
+) {
+  await db.runAsync(
+    `INSERT INTO local_sync_outbox (
+       entity_type, entity_id, operation_id, payload_json, created_at, attempt_count
+     ) VALUES ('preferences', '1', ?, ?, ?, 0)
+     ON CONFLICT(entity_type, entity_id) DO UPDATE SET
+       operation_id = excluded.operation_id,
+       payload_json = excluded.payload_json,
+       created_at = excluded.created_at,
+       attempt_count = 0`,
+    randomUUID(),
+    JSON.stringify(snapshot),
+    now,
+  );
 }
 
 /** Full authenticated remote detail needed for explicit note-edit adoption. */
@@ -2437,6 +2490,34 @@ async function remapCustomSlug(
     newSlug,
     oldSlug,
   );
+  const pendingOldNote = await txn.getFirstAsync<{ payload_json: string }>(
+    `SELECT payload_json FROM local_sync_outbox
+      WHERE entity_type = 'exercise_note' AND entity_id = ?`,
+    oldSlug,
+  );
+  const pendingNewNote = await txn.getFirstAsync<{ entity_id: string }>(
+    `SELECT entity_id FROM local_sync_outbox
+      WHERE entity_type = 'exercise_note' AND entity_id = ?`,
+    newSlug,
+  );
+  await txn.runAsync(
+    `DELETE FROM local_sync_outbox
+      WHERE entity_type = 'exercise_note' AND entity_id = ?`,
+    oldSlug,
+  );
+  if (pendingOldNote || pendingNewNote) {
+    const noteRow = await txn.getFirstAsync<{ notes: string }>(
+      "SELECT notes FROM local_exercise_notes WHERE slug = ?",
+      newSlug,
+    );
+    const notes =
+      noteRow?.notes ??
+      (pendingOldNote
+        ? ((JSON.parse(pendingOldNote.payload_json) as ExerciseNoteSyncSnapshot)
+            .notes ?? "")
+        : "");
+    await queueExerciseNoteSnapshot(txn, newSlug, notes, Date.now());
+  }
 
   return {
     sessionIds: sessionRows.map((row) => row.session_id),
@@ -2737,7 +2818,16 @@ export async function applyIosBootstrap(
 
     await applyPlacesBootstrap(txn, payload);
 
+    const pendingNoteRows = await txn.getAllAsync<{ entity_id: string }>(
+      "SELECT entity_id FROM local_sync_outbox WHERE entity_type = 'exercise_note'",
+    );
+    const pendingNoteSlugs = new Set(
+      pendingNoteRows.map((row) => row.entity_id),
+    );
     for (const note of payload.exerciseNotes) {
+      if (!shouldAdoptCloudExerciseNote(pendingNoteSlugs.has(note.slug))) {
+        continue;
+      }
       await txn.runAsync(
         `INSERT INTO local_exercise_notes (slug, notes, updated_at)
          VALUES (?, ?, ?)
@@ -2825,6 +2915,11 @@ export async function patchLocalPreferences(
         serializedPending,
       );
     }
+    await queuePreferencesSnapshot(
+      txn,
+      pickGeneralPreferences(next),
+      Date.now(),
+    );
   });
 }
 
@@ -2993,6 +3088,92 @@ export async function completeSessionDeleteSync(
     "DELETE FROM local_sync_outbox WHERE operation_id = ?",
     operationId,
   );
+}
+
+export async function getPendingExerciseNoteSync(
+  db: SQLiteDatabase,
+): Promise<PendingExerciseNoteSync | null> {
+  const row = await db.getFirstAsync<{
+    operation_id: string;
+    entity_id: string;
+    payload_json: string;
+    created_at: number;
+    attempt_count: number;
+  }>(
+    `SELECT operation_id, entity_id, payload_json, created_at, attempt_count
+       FROM local_sync_outbox
+      WHERE entity_type = 'exercise_note'
+      ORDER BY created_at
+      LIMIT 1`,
+  );
+  if (!row) return null;
+  return {
+    operationId: row.operation_id,
+    slug: row.entity_id,
+    snapshot: JSON.parse(row.payload_json) as ExerciseNoteSyncSnapshot,
+    createdAt: row.created_at,
+    attemptCount: row.attempt_count,
+  };
+}
+
+export async function noteExerciseNoteSyncAttempt(
+  db: SQLiteDatabase,
+  operationId: string,
+) {
+  await db.runAsync(
+    `UPDATE local_sync_outbox
+        SET attempt_count = attempt_count + 1
+      WHERE operation_id = ?`,
+    operationId,
+  );
+}
+
+export async function completeExerciseNoteSync(
+  db: SQLiteDatabase,
+  operationId: string,
+) {
+  await db.runAsync(
+    "DELETE FROM local_sync_outbox WHERE operation_id = ?",
+    operationId,
+  );
+}
+
+export async function getPendingPreferencesSync(
+  db: SQLiteDatabase,
+): Promise<PendingPreferencesSync | null> {
+  const row = await db.getFirstAsync<{
+    operation_id: string;
+    payload_json: string;
+    created_at: number;
+    attempt_count: number;
+  }>(
+    `SELECT operation_id, payload_json, created_at, attempt_count
+       FROM local_sync_outbox
+      WHERE entity_type = 'preferences'
+      ORDER BY created_at
+      LIMIT 1`,
+  );
+  if (!row) return null;
+  return {
+    operationId: row.operation_id,
+    snapshot: JSON.parse(row.payload_json) as LocalGeneralPreferences,
+    createdAt: row.created_at,
+    attemptCount: row.attempt_count,
+  };
+}
+
+export async function notePreferencesSyncAttempt(
+  db: SQLiteDatabase,
+  operationId: string,
+) {
+  await noteExerciseNoteSyncAttempt(db, operationId);
+}
+
+export async function completePreferencesSync(
+  db: SQLiteDatabase,
+  operationId: string,
+) {
+  await completeExerciseNoteSync(db, operationId);
 }
 
 const HEALTH_AUTH_REQUESTED_KEY = "health_auth_requested";

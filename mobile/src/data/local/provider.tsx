@@ -29,8 +29,10 @@ import {
   attachExportedHealthUuid,
   attachStoredWatchHealthUuid,
   completeCustomExerciseSync,
+  completeExerciseNoteSync,
   completeMachineSync,
   completePlaceSync,
+  completePreferencesSync,
   completeSessionDeleteSync,
   completeSessionSync,
   completeTemplateSync,
@@ -56,6 +58,8 @@ import {
   getOrCreateDeviceId,
   restoreLocalCustomExercise,
   getPendingCustomExerciseSync,
+  getPendingExerciseNoteSync,
+  getPendingPreferencesSync,
   getPendingSessionDelete,
   getPendingSessionSync,
   getPendingTemplateSync,
@@ -70,6 +74,8 @@ import {
   localSessionTemplateDiffers,
   moveLocalExercise,
   noteCustomExerciseSyncAttempt,
+  noteExerciseNoteSyncAttempt,
+  notePreferencesSyncAttempt,
   noteSessionSyncAttempt,
   noteTemplateSyncAttempt,
   queueHealthExportIfEnabled,
@@ -598,6 +604,8 @@ export function useLocalSyncStore() {
       getPendingCustomExercise: () => getPendingCustomExerciseSync(db),
       getPendingPlace: () => getPendingPlaceSync(db),
       getPendingMachine: () => getPendingMachineSync(db),
+      getPendingPreferences: () => getPendingPreferencesSync(db),
+      getPendingExerciseNote: () => getPendingExerciseNoteSync(db),
       noteSessionAttempt: (operationId: string) =>
         noteSessionSyncAttempt(db, operationId),
       noteTemplateAttempt: (operationId: string) =>
@@ -612,6 +620,10 @@ export function useLocalSyncStore() {
         notePlaceSyncAttempt(db, operationId),
       noteMachineAttempt: (operationId: string) =>
         noteMachineSyncAttempt(db, operationId),
+      notePreferencesAttempt: (operationId: string) =>
+        notePreferencesSyncAttempt(db, operationId),
+      noteExerciseNoteAttempt: (operationId: string) =>
+        noteExerciseNoteSyncAttempt(db, operationId),
       completePlace: async (
         operationId: string,
         placeId: string,
@@ -626,6 +638,14 @@ export function useLocalSyncStore() {
         remoteMachineId: string,
       ) => {
         await completeMachineSync(db, operationId, machineId, remoteMachineId);
+        refresh();
+      },
+      completePreferences: async (operationId: string) => {
+        await completePreferencesSync(db, operationId);
+        refresh();
+      },
+      completeExerciseNote: async (operationId: string) => {
+        await completeExerciseNoteSync(db, operationId);
         refresh();
       },
       completeCustomExercise: async (

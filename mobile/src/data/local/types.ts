@@ -226,6 +226,26 @@ export type LocalGeneralPreferences = Pick<
 
 export type LocalGeneralPreferencePatch = Partial<LocalGeneralPreferences>;
 
+export type ExerciseNoteSyncSnapshot = {
+  slug: string;
+  notes: string;
+};
+
+export type PendingExerciseNoteSync = {
+  operationId: string;
+  slug: string;
+  snapshot: ExerciseNoteSyncSnapshot;
+  createdAt: number;
+  attemptCount: number;
+};
+
+export type PendingPreferencesSync = {
+  operationId: string;
+  snapshot: LocalGeneralPreferences;
+  createdAt: number;
+  attemptCount: number;
+};
+
 export type PlaceSyncSnapshot = {
   clientId: string;
   name: string;

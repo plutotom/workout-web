@@ -72,7 +72,22 @@ export default function SettingsScreen() {
 
 function AuthenticatedSettingsScreen() {
   const user = useQuery(api.routes.auth.users.current);
-  if (user === undefined) return <FullScreenLoader label="Loading settings…" />;
+  if (user === undefined) {
+    return (
+      <Screen>
+        <GeneralPreferencesCard />
+        <Card>
+          <Text style={{ color: colors.dim, fontSize: 13 }}>
+            Loading account…
+          </Text>
+        </Card>
+        <PlacesSettingsCard />
+        <HealthSettingsCard />
+        <NotificationSettingsCard />
+        <BackupCard signedIn />
+      </Screen>
+    );
+  }
   if (!user) return <OfflineSettingsScreen />;
   return <SettingsContent user={user} />;
 }
@@ -132,6 +147,7 @@ function OfflineSettingsScreen() {
           />
         ) : null}
       </Card>
+      <GeneralPreferencesCard />
       <HealthSettingsCard />
       <NotificationSettingsCard />
       <PlacesSettingsCard />
@@ -141,18 +157,11 @@ function OfflineSettingsScreen() {
   );
 }
 
-function SettingsContent({
-  user,
-}: {
-  user: NonNullable<
-    ReturnType<typeof useQuery<typeof api.routes.auth.users.current>>
-  >;
-}) {
+function GeneralPreferencesCard({ email }: { email?: string }) {
+  // Local-first: SQLite is what the workout reads. The outbox pushes Convex
+  // when the account is reachable, so this card works offline.
   const localPrefs = useLocalPreferences();
   const { setGeneralPreferences } = useLocalData();
-  // The live workout reads SQLite. Don't show Convex here or List can look
-  // selected while the in-progress session is still on Focus. Same for unit
-  // and bar: the plate calculator uses the local row, not `users.current`.
   const unit = localPrefs?.unit;
   const mode = localPrefs?.activeWorkoutMode;
   const rest = localPrefs
@@ -173,15 +182,6 @@ function SettingsContent({
   >("idle");
   const saveSequence = useRef(0);
   const barSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const setUnit = useMutation(api.routes.auth.users.setUnit);
-  const setBar = useMutation(api.routes.auth.users.setBar);
-  const setActiveWorkoutMode = useMutation(
-    api.routes.auth.users.setActiveWorkoutMode,
-  );
-  const setRestTimerEnabled = useMutation(
-    api.routes.auth.users.setRestTimerEnabled,
-  );
-  const { signOut } = useMobileAuth();
 
   async function persist(change: () => Promise<unknown>) {
     const sequence = ++saveSequence.current;
@@ -212,7 +212,6 @@ function SettingsContent({
           ? { barWeightLb: barWeight }
           : { barWeightKg: barWeight },
       );
-      await setBar({ unit: unitToSave, barWeight });
       setBarDraft(null);
     });
   }
@@ -231,11 +230,123 @@ function SettingsContent({
             ? { barWeightLb: barWeight }
             : { barWeightKg: barWeight },
         );
-        await setBar({ unit: unitToSave, barWeight });
         setBarDraft(null);
       });
     }, 450);
   }
+
+  return (
+    <Card>
+      <SectionTitle title="General" />
+      {email ? <Field label="Email" value={email} editable={false} /> : null}
+      <View style={{ gap: 7 }}>
+        <Text style={{ color: colors.text, fontSize: 13, fontWeight: "600" }}>
+          Default unit
+        </Text>
+        <Segmented
+          value={unit}
+          options={unitOptions}
+          onChange={(next) => {
+            clearQueuedBarSave();
+            setBarDraft(null);
+            void persist(async () => {
+              await setGeneralPreferences({ unit: next });
+            });
+          }}
+        />
+        <Text style={{ color: colors.dim, fontSize: 11 }}>
+          New weights are entered in this unit.
+        </Text>
+      </View>
+      <View style={{ gap: 7 }}>
+        <Text style={{ color: colors.text, fontSize: 13, fontWeight: "600" }}>
+          Active workout view
+        </Text>
+        <Segmented
+          value={mode}
+          options={modeOptions}
+          onChange={(next) => {
+            void persist(async () => {
+              await setGeneralPreferences({ activeWorkoutMode: next });
+            });
+          }}
+        />
+        <Text style={{ color: colors.dim, fontSize: 11 }}>
+          Switching during a workout is safe; both views share the same session.
+        </Text>
+      </View>
+      <View style={{ gap: 7 }}>
+        <Text style={{ color: colors.text, fontSize: 13, fontWeight: "600" }}>
+          Rest timer
+        </Text>
+        <Segmented
+          value={rest}
+          options={restOptions}
+          onChange={(next) => {
+            void persist(async () => {
+              await setGeneralPreferences({
+                restTimerEnabled: next === "on",
+              });
+            });
+          }}
+        />
+      </View>
+      <Field
+        label={unit ? `Default bar (${unit})` : "Default bar"}
+        value={bar}
+        onChangeText={(value) => {
+          const next = value.replace(/\D/g, "");
+          setBarDraft(next);
+          queueBarSave(next);
+        }}
+        onBlur={() => {
+          if (barSaveTimer.current || bar === "") saveBarValue(bar);
+        }}
+        keyboardType="number-pad"
+      />
+      <View style={{ flexDirection: "row", gap: 8 }}>
+        {(unit === "kg" ? [15, 20] : [35, 45]).map((preset) => (
+          <Button
+            key={preset}
+            label={`${preset} ${unit ?? "lb"}`}
+            variant={Number(bar) === preset ? "primary" : "outline"}
+            size="sm"
+            onPress={() => {
+              if (!unit) return;
+              const next = String(preset);
+              setBarDraft(next);
+              saveBarValue(next);
+            }}
+          />
+        ))}
+      </View>
+      <Text
+        accessibilityLiveRegion="polite"
+        style={{
+          color: saveState === "error" ? colors.danger : colors.dim,
+          fontSize: 11,
+        }}
+      >
+        {saveState === "saving"
+          ? "Saving changes…"
+          : saveState === "error"
+            ? "Couldn’t save on this phone. Try again."
+            : saveState === "saved"
+              ? "Saved on this phone. Syncs when you’re online."
+              : "Changes save on this phone and sync when you’re online."}
+      </Text>
+    </Card>
+  );
+}
+
+function SettingsContent({
+  user,
+}: {
+  user: NonNullable<
+    ReturnType<typeof useQuery<typeof api.routes.auth.users.current>>
+  >;
+}) {
+  const { signOut } = useMobileAuth();
 
   return (
     <Screen>
@@ -258,110 +369,7 @@ function SettingsContent({
           Units, bar defaults, plan, and external access.
         </Text>
       </Card>
-      <Card>
-        <SectionTitle title="General" />
-        <Field label="Email" value={user.email} editable={false} />
-        <View style={{ gap: 7 }}>
-          <Text style={{ color: colors.text, fontSize: 13, fontWeight: "600" }}>
-            Default unit
-          </Text>
-          <Segmented
-            value={unit}
-            options={unitOptions}
-            onChange={(next) => {
-              clearQueuedBarSave();
-              setBarDraft(null);
-              void persist(async () => {
-                await setGeneralPreferences({ unit: next });
-                await setUnit({ unit: next });
-              });
-            }}
-          />
-          <Text style={{ color: colors.dim, fontSize: 11 }}>
-            New weights are entered in this unit.
-          </Text>
-        </View>
-        <View style={{ gap: 7 }}>
-          <Text style={{ color: colors.text, fontSize: 13, fontWeight: "600" }}>
-            Active workout view
-          </Text>
-          <Segmented
-            value={mode}
-            options={modeOptions}
-            onChange={(next) => {
-              void persist(async () => {
-                await setGeneralPreferences({ activeWorkoutMode: next });
-                await setActiveWorkoutMode({ mode: next });
-              });
-            }}
-          />
-          <Text style={{ color: colors.dim, fontSize: 11 }}>
-            Switching during a workout is safe; both views share the same
-            session.
-          </Text>
-        </View>
-        <View style={{ gap: 7 }}>
-          <Text style={{ color: colors.text, fontSize: 13, fontWeight: "600" }}>
-            Rest timer
-          </Text>
-          <Segmented
-            value={rest}
-            options={restOptions}
-            onChange={(next) => {
-              void persist(async () => {
-                await setGeneralPreferences({
-                  restTimerEnabled: next === "on",
-                });
-                await setRestTimerEnabled({ enabled: next === "on" });
-              });
-            }}
-          />
-        </View>
-        <Field
-          label={unit ? `Default bar (${unit})` : "Default bar"}
-          value={bar}
-          onChangeText={(value) => {
-            const next = value.replace(/\D/g, "");
-            setBarDraft(next);
-            queueBarSave(next);
-          }}
-          onBlur={() => {
-            if (barSaveTimer.current || bar === "") saveBarValue(bar);
-          }}
-          keyboardType="number-pad"
-        />
-        <View style={{ flexDirection: "row", gap: 8 }}>
-          {(unit === "kg" ? [15, 20] : [35, 45]).map((preset) => (
-            <Button
-              key={preset}
-              label={`${preset} ${unit ?? "lb"}`}
-              variant={Number(bar) === preset ? "primary" : "outline"}
-              size="sm"
-              onPress={() => {
-                if (!unit) return;
-                const next = String(preset);
-                setBarDraft(next);
-                saveBarValue(next);
-              }}
-            />
-          ))}
-        </View>
-        <Text
-          accessibilityLiveRegion="polite"
-          style={{
-            color: saveState === "error" ? colors.danger : colors.dim,
-            fontSize: 11,
-          }}
-        >
-          {saveState === "saving"
-            ? "Saving changes…"
-            : saveState === "error"
-              ? "Couldn’t save. Check your connection and try again."
-              : saveState === "saved"
-                ? "Changes saved automatically."
-                : "Changes save automatically."}
-        </Text>
-      </Card>
+      <GeneralPreferencesCard email={user.email} />
       <PlacesSettingsCard />
       <Card>
         <Share2 color={colors.text} size={22} strokeWidth={2.3} />

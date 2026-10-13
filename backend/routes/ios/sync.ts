@@ -25,8 +25,13 @@ import {
   exerciseInputValidator,
   updateTemplate as updateTemplateLib,
 } from "../../lib/templates";
+import { upsertExerciseNote } from "../../lib/exercise_notes";
 import { deleteWorkout } from "../../lib/workouts";
-import { muscleGroupValidator } from "../../schemas/exercises";
+import {
+  exerciseSlugValidator,
+  muscleGroupValidator,
+} from "../../schemas/exercises";
+import { activeWorkoutModeValidator, unitValidator } from "../../schemas/users";
 import {
   healthSegmentValidator,
   sessionKindValidator,
@@ -325,6 +330,93 @@ export const pushCustomExercise = mutation({
       slug: result.slug,
       serverTime: Date.now(),
     };
+  },
+});
+
+/**
+ * Upload one per-lift note authored on the phone. Empty notes clear the
+ * Convex row. Receipts make retries idempotent.
+ */
+export const pushExerciseNote = mutation({
+  args: {
+    operationId: v.string(),
+    deviceId: v.string(),
+    note: v.object({
+      slug: exerciseSlugValidator,
+      notes: v.string(),
+    }),
+  },
+  returns: v.object({
+    serverTime: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const user = await requireUser(ctx);
+    await upsertExerciseNote(ctx, user._id, args.note.slug, args.note.notes);
+
+    const duplicate = await ctx.db
+      .query("iosSyncReceipts")
+      .withIndex("by_user_operation_id", (q) =>
+        q.eq("userId", user._id).eq("operationId", args.operationId),
+      )
+      .first();
+    if (!duplicate) {
+      await ctx.db.insert("iosSyncReceipts", {
+        userId: user._id,
+        operationId: args.operationId,
+        deviceId: args.deviceId,
+        appliedAt: Date.now(),
+      });
+    }
+
+    return { serverTime: Date.now() };
+  },
+});
+
+/**
+ * Upload the phone's general Settings snapshot (unit, bar, List/Focus, rest).
+ * Last write wins; retries with the same operationId are receipt-idempotent.
+ */
+export const pushPreferences = mutation({
+  args: {
+    operationId: v.string(),
+    deviceId: v.string(),
+    preferences: v.object({
+      unit: unitValidator,
+      barWeightLb: v.number(),
+      barWeightKg: v.number(),
+      activeWorkoutMode: activeWorkoutModeValidator,
+      restTimerEnabled: v.boolean(),
+    }),
+  },
+  returns: v.object({
+    serverTime: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const user = await requireUser(ctx);
+    await ctx.db.patch(user._id, {
+      unit: args.preferences.unit,
+      barWeightLb: Math.max(0, Math.round(args.preferences.barWeightLb)),
+      barWeightKg: Math.max(0, Math.round(args.preferences.barWeightKg)),
+      activeWorkoutMode: args.preferences.activeWorkoutMode,
+      restTimerEnabled: args.preferences.restTimerEnabled,
+    });
+
+    const duplicate = await ctx.db
+      .query("iosSyncReceipts")
+      .withIndex("by_user_operation_id", (q) =>
+        q.eq("userId", user._id).eq("operationId", args.operationId),
+      )
+      .first();
+    if (!duplicate) {
+      await ctx.db.insert("iosSyncReceipts", {
+        userId: user._id,
+        operationId: args.operationId,
+        deviceId: args.deviceId,
+        appliedAt: Date.now(),
+      });
+    }
+
+    return { serverTime: Date.now() };
   },
 });
 

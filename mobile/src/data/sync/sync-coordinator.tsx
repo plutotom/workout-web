@@ -37,6 +37,8 @@ export function SyncCoordinator() {
   );
   const pushPlace = useMutation(api.routes.ios.sync.pushPlace);
   const pushMachine = useMutation(api.routes.ios.sync.pushMachine);
+  const pushPreferences = useMutation(api.routes.ios.sync.pushPreferences);
+  const pushExerciseNote = useMutation(api.routes.ios.sync.pushExerciseNote);
   const pushTemplate = useMutation(api.routes.ios.sync.pushTemplate);
   const { applyBootstrap } = useLocalData();
   const syncStore = useLocalSyncStore();
@@ -122,6 +124,36 @@ export function SyncCoordinator() {
           result.remoteExerciseId,
           result.slug,
         );
+        if (!canContinue()) return "idle" as const;
+        continue;
+      }
+
+      const pendingPreferences = await syncStore.getPendingPreferences();
+      if (!canContinue()) return "idle" as const;
+      if (pendingPreferences) {
+        await syncStore.notePreferencesAttempt(pendingPreferences.operationId);
+        if (!canContinue()) return "idle" as const;
+        await pushPreferences({
+          operationId: pendingPreferences.operationId,
+          deviceId,
+          preferences: pendingPreferences.snapshot,
+        });
+        await syncStore.completePreferences(pendingPreferences.operationId);
+        if (!canContinue()) return "idle" as const;
+        continue;
+      }
+
+      const pendingNote = await syncStore.getPendingExerciseNote();
+      if (!canContinue()) return "idle" as const;
+      if (pendingNote) {
+        await syncStore.noteExerciseNoteAttempt(pendingNote.operationId);
+        if (!canContinue()) return "idle" as const;
+        await pushExerciseNote({
+          operationId: pendingNote.operationId,
+          deviceId,
+          note: pendingNote.snapshot,
+        });
+        await syncStore.completeExerciseNote(pendingNote.operationId);
         if (!canContinue()) return "idle" as const;
         continue;
       }
