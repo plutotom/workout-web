@@ -35,7 +35,11 @@ import { DevProOverrideCard } from "@/components/settings/dev-pro-override-card"
 import { NotificationSettingsCard } from "@/components/settings/notification-settings-card";
 import { useEntitlement } from "@/hooks/use-entitlement";
 import { PlacesSettingsCard } from "@/components/settings/places-settings-card";
-import { useBackupStatus, useLocalData } from "@/data/local/provider";
+import {
+  useBackupStatus,
+  useLocalData,
+  useLocalPreferences,
+} from "@/data/local/provider";
 import { planAiSettingsCopy } from "@/lib/ai-copy";
 import { useAppleAiAvailability } from "@/lib/ai";
 import { appleAiIsUsable } from "@shared/ai/apple-on-device";
@@ -144,17 +148,21 @@ function SettingsContent({
     ReturnType<typeof useQuery<typeof api.routes.auth.users.current>>
   >;
 }) {
-  const [unit, setUnitValue] = useState<"lb" | "kg">(user.unit);
+  const localPrefs = useLocalPreferences();
+  const { setGeneralPreferences } = useLocalData();
+  // The live workout reads SQLite. Don't show Convex here or List can look
+  // selected while the in-progress session is still on Focus.
+  const unit = localPrefs?.unit ?? user.unit;
+  const mode = localPrefs?.activeWorkoutMode;
+  const rest = localPrefs
+    ? localPrefs.restTimerEnabled
+      ? "on"
+      : "off"
+    : undefined;
   const [bar, setBarValue] = useState(
     String(
       user.unit === "lb" ? (user.barWeightLb ?? 45) : (user.barWeightKg ?? 20),
     ),
-  );
-  const [mode, setMode] = useState<"list" | "focus">(
-    user.activeWorkoutMode ?? "list",
-  );
-  const [rest, setRest] = useState<"on" | "off">(
-    (user.restTimerEnabled ?? true) ? "on" : "off",
   );
   const [saveState, setSaveState] = useState<
     "idle" | "saving" | "saved" | "error"
@@ -191,9 +199,13 @@ function SettingsContent({
 
   function saveBarValue(value: string) {
     clearQueuedBarSave();
-    void persist(() =>
-      setBar({ unit, barWeight: value === "" ? 0 : Number(value) }),
-    );
+    const barWeight = value === "" ? 0 : Number(value);
+    void persist(async () => {
+      await setGeneralPreferences(
+        unit === "lb" ? { barWeightLb: barWeight } : { barWeightKg: barWeight },
+      );
+      await setBar({ unit, barWeight });
+    });
   }
 
   function queueBarSave(value: string) {
@@ -201,7 +213,15 @@ function SettingsContent({
     if (value === "") return;
     barSaveTimer.current = setTimeout(() => {
       barSaveTimer.current = null;
-      void persist(() => setBar({ unit, barWeight: Number(value) }));
+      const barWeight = Number(value);
+      void persist(async () => {
+        await setGeneralPreferences(
+          unit === "lb"
+            ? { barWeightLb: barWeight }
+            : { barWeightKg: barWeight },
+        );
+        await setBar({ unit, barWeight });
+      });
     }, 450);
   }
 
@@ -238,15 +258,17 @@ function SettingsContent({
             options={unitOptions}
             onChange={(next) => {
               clearQueuedBarSave();
-              setUnitValue(next);
               setBarValue(
                 String(
                   next === "lb"
-                    ? (user.barWeightLb ?? 45)
-                    : (user.barWeightKg ?? 20),
+                    ? (localPrefs?.barWeightLb ?? user.barWeightLb ?? 45)
+                    : (localPrefs?.barWeightKg ?? user.barWeightKg ?? 20),
                 ),
               );
-              void persist(() => setUnit({ unit: next }));
+              void persist(async () => {
+                await setGeneralPreferences({ unit: next });
+                await setUnit({ unit: next });
+              });
             }}
           />
           <Text style={{ color: colors.dim, fontSize: 11 }}>
@@ -261,8 +283,10 @@ function SettingsContent({
             value={mode}
             options={modeOptions}
             onChange={(next) => {
-              setMode(next);
-              void persist(() => setActiveWorkoutMode({ mode: next }));
+              void persist(async () => {
+                await setGeneralPreferences({ activeWorkoutMode: next });
+                await setActiveWorkoutMode({ mode: next });
+              });
             }}
           />
           <Text style={{ color: colors.dim, fontSize: 11 }}>
@@ -278,10 +302,12 @@ function SettingsContent({
             value={rest}
             options={restOptions}
             onChange={(next) => {
-              setRest(next);
-              void persist(() =>
-                setRestTimerEnabled({ enabled: next === "on" }),
-              );
+              void persist(async () => {
+                await setGeneralPreferences({
+                  restTimerEnabled: next === "on",
+                });
+                await setRestTimerEnabled({ enabled: next === "on" });
+              });
             }}
           />
         </View>

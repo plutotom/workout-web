@@ -11,11 +11,16 @@ import {
 import type { HealthAutoImportPrefs } from "@/health/types";
 import { watchHealthUuidKey, watchRecordedKey } from "@/health/watch-session";
 
+import {
+  generalPreferenceBindValues,
+  mergeGeneralPreferences,
+} from "@/data/local/preferences";
 import type {
   CustomExerciseSyncSnapshot,
   IosBootstrapPayload,
   LocalActiveWorkout,
   LocalCustomExercise,
+  LocalGeneralPreferencePatch,
   LocalHealthSummary,
   LocalMuscleGroup,
   LocalNotificationPreferences,
@@ -2758,6 +2763,24 @@ export async function getLocalPreferences(
     appleHealthImportNotificationsEnabled:
       (row?.apple_health_import_notifications_enabled ?? 0) === 1,
   };
+}
+
+/**
+ * Immediate phone write for Settings. The live workout reads SQLite, so a
+ * Convex-only save leaves Focus on screen until the next bootstrap.
+ */
+export async function patchLocalPreferences(
+  db: SQLiteDatabase,
+  patch: LocalGeneralPreferencePatch,
+) {
+  const next = mergeGeneralPreferences(await getLocalPreferences(db), patch);
+  await db.runAsync(
+    `UPDATE local_preferences
+        SET unit = ?, bar_weight_lb = ?, bar_weight_kg = ?,
+            active_workout_mode = ?, rest_timer_enabled = ?, updated_at = ?
+      WHERE id = 1`,
+    ...generalPreferenceBindValues(next, Date.now()),
+  );
 }
 
 export async function setLocalNotificationPreferences(

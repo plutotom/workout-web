@@ -60,6 +60,7 @@ import { useSessionAi } from "@/components/workout/use-session-ai";
 import { appleGenerateSheetCopy } from "@/lib/ai-copy";
 import { formatDate, formatDuration, formatWeight } from "@/lib/format";
 import { formatHealthDistance, formatHealthEnergy } from "@/health/mapping";
+import { inProgressWorkoutLayout } from "@/data/local/preferences";
 import {
   useLocalData,
   useLocalLastSet,
@@ -169,23 +170,27 @@ export function WorkoutScreen({ sessionId }: { sessionId: string }) {
   // The controller stays mounted across the finish transition: its post-finish
   // prompts open once the session is already `completed`, and unmounting here
   // would tear them down before the user could answer.
+  const layout =
+    session.status === "in_progress"
+      ? inProgressWorkoutLayout(session.inputMode, user.activeWorkoutMode)
+      : "completed";
   return (
     <>
       <WorkoutFinishController />
-      {session.status !== "in_progress" ? (
+      {layout === "completed" ? (
         <CompletedWorkout
           session={session}
           canDelete
           prepareNoteEdit={prepareNoteEdit}
         />
-      ) : session.inputMode === "note" ? (
+      ) : layout === "note" ? (
         <NoteWorkoutEditor
           key={session._id}
           session={session}
           subtitle={<ElapsedSubtitle startedAt={session.startedAt} />}
           placeControls={<SessionPlaceControls session={session} />}
         />
-      ) : user.activeWorkoutMode === "focus" ? (
+      ) : layout === "focus" ? (
         <FocusWorkout session={session} user={user} />
       ) : (
         <ListWorkout session={session} user={user} />

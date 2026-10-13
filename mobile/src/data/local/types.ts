@@ -214,6 +214,18 @@ export type LocalNotificationPreferences = Pick<
   "restTimerNotificationsEnabled" | "appleHealthImportNotificationsEnabled"
 >;
 
+/** Fields the in-progress workout reads from SQLite, not Convex. */
+export type LocalGeneralPreferences = Pick<
+  LocalPreferences,
+  | "unit"
+  | "barWeightLb"
+  | "barWeightKg"
+  | "activeWorkoutMode"
+  | "restTimerEnabled"
+>;
+
+export type LocalGeneralPreferencePatch = Partial<LocalGeneralPreferences>;
+
 export type PlaceSyncSnapshot = {
   clientId: string;
   name: string;
