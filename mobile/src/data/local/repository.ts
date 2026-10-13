@@ -12,8 +12,15 @@ import type { HealthAutoImportPrefs } from "@/health/types";
 import { watchHealthUuidKey, watchRecordedKey } from "@/health/watch-session";
 
 import {
+  GENERAL_PREFS_ECHO_PENDING_KEY,
   generalPreferenceBindValues,
+  mergeEchoPendingPatch,
   mergeGeneralPreferences,
+  normalizeCloudGeneralPreferences,
+  parseEchoPendingPatch,
+  pickGeneralPreferences,
+  resolveBootstrappedGeneralPreferences,
+  serializeEchoPendingPatch,
 } from "@/data/local/preferences";
 import type {
   CustomExerciseSyncSnapshot,
@@ -2547,18 +2554,37 @@ export async function applyIosBootstrap(
   const remapTargets: SlugRemapTargets = { sessionIds: [], templateIds: [] };
 
   await db.withExclusiveTransactionAsync(async (txn) => {
+    const local = pickGeneralPreferences(await getLocalPreferences(txn));
+    const pendingRow = await txn.getFirstAsync<{ value: string }>(
+      "SELECT value FROM local_metadata WHERE key = ?",
+      GENERAL_PREFS_ECHO_PENDING_KEY,
+    );
+    const { next, remainingPending } = resolveBootstrappedGeneralPreferences({
+      pending: parseEchoPendingPatch(pendingRow?.value),
+      local,
+      cloud: normalizeCloudGeneralPreferences(payload.preferences),
+    });
     await txn.runAsync(
       `UPDATE local_preferences
           SET unit = ?, bar_weight_lb = ?, bar_weight_kg = ?,
               active_workout_mode = ?, rest_timer_enabled = ?, updated_at = ?
         WHERE id = 1`,
-      payload.preferences.unit,
-      payload.preferences.barWeightLb ?? 45,
-      payload.preferences.barWeightKg ?? 20,
-      payload.preferences.activeWorkoutMode,
-      payload.preferences.restTimerEnabled ? 1 : 0,
-      payload.serverTime,
+      ...generalPreferenceBindValues(next, payload.serverTime),
     );
+    const serializedPending = serializeEchoPendingPatch(remainingPending);
+    if (serializedPending) {
+      await txn.runAsync(
+        `INSERT INTO local_metadata (key, value) VALUES (?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+        GENERAL_PREFS_ECHO_PENDING_KEY,
+        serializedPending,
+      );
+    } else {
+      await txn.runAsync(
+        "DELETE FROM local_metadata WHERE key = ?",
+        GENERAL_PREFS_ECHO_PENDING_KEY,
+      );
+    }
 
     for (const template of payload.templates) {
       const existing = await txn.getFirstAsync<{ id: string }>(
@@ -2773,14 +2799,33 @@ export async function patchLocalPreferences(
   db: SQLiteDatabase,
   patch: LocalGeneralPreferencePatch,
 ) {
-  const next = mergeGeneralPreferences(await getLocalPreferences(db), patch);
-  await db.runAsync(
-    `UPDATE local_preferences
-        SET unit = ?, bar_weight_lb = ?, bar_weight_kg = ?,
-            active_workout_mode = ?, rest_timer_enabled = ?, updated_at = ?
-      WHERE id = 1`,
-    ...generalPreferenceBindValues(next, Date.now()),
-  );
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    const next = mergeGeneralPreferences(await getLocalPreferences(txn), patch);
+    const pendingRow = await txn.getFirstAsync<{ value: string }>(
+      "SELECT value FROM local_metadata WHERE key = ?",
+      GENERAL_PREFS_ECHO_PENDING_KEY,
+    );
+    const pending = mergeEchoPendingPatch(
+      parseEchoPendingPatch(pendingRow?.value),
+      patch,
+    );
+    await txn.runAsync(
+      `UPDATE local_preferences
+          SET unit = ?, bar_weight_lb = ?, bar_weight_kg = ?,
+              active_workout_mode = ?, rest_timer_enabled = ?, updated_at = ?
+        WHERE id = 1`,
+      ...generalPreferenceBindValues(next, Date.now()),
+    );
+    const serializedPending = serializeEchoPendingPatch(pending);
+    if (serializedPending) {
+      await txn.runAsync(
+        `INSERT INTO local_metadata (key, value) VALUES (?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+        GENERAL_PREFS_ECHO_PENDING_KEY,
+        serializedPending,
+      );
+    }
+  });
 }
 
 export async function setLocalNotificationPreferences(

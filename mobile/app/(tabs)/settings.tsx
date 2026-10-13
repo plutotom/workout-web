@@ -151,19 +151,23 @@ function SettingsContent({
   const localPrefs = useLocalPreferences();
   const { setGeneralPreferences } = useLocalData();
   // The live workout reads SQLite. Don't show Convex here or List can look
-  // selected while the in-progress session is still on Focus.
-  const unit = localPrefs?.unit ?? user.unit;
+  // selected while the in-progress session is still on Focus. Same for unit
+  // and bar: the plate calculator uses the local row, not `users.current`.
+  const unit = localPrefs?.unit;
   const mode = localPrefs?.activeWorkoutMode;
   const rest = localPrefs
     ? localPrefs.restTimerEnabled
       ? "on"
       : "off"
     : undefined;
-  const [bar, setBarValue] = useState(
-    String(
-      user.unit === "lb" ? (user.barWeightLb ?? 45) : (user.barWeightKg ?? 20),
-    ),
-  );
+  const savedBar =
+    unit === "kg"
+      ? localPrefs?.barWeightKg
+      : unit === "lb"
+        ? localPrefs?.barWeightLb
+        : undefined;
+  const [barDraft, setBarDraft] = useState<string | null>(null);
+  const bar = barDraft ?? (savedBar !== undefined ? String(savedBar) : "");
   const [saveState, setSaveState] = useState<
     "idle" | "saving" | "saved" | "error"
   >("idle");
@@ -198,29 +202,37 @@ function SettingsContent({
   }
 
   function saveBarValue(value: string) {
+    if (!unit) return;
     clearQueuedBarSave();
     const barWeight = value === "" ? 0 : Number(value);
+    const unitToSave = unit;
     void persist(async () => {
       await setGeneralPreferences(
-        unit === "lb" ? { barWeightLb: barWeight } : { barWeightKg: barWeight },
+        unitToSave === "lb"
+          ? { barWeightLb: barWeight }
+          : { barWeightKg: barWeight },
       );
-      await setBar({ unit, barWeight });
+      await setBar({ unit: unitToSave, barWeight });
+      setBarDraft(null);
     });
   }
 
   function queueBarSave(value: string) {
+    if (!unit) return;
     clearQueuedBarSave();
     if (value === "") return;
+    const unitToSave = unit;
     barSaveTimer.current = setTimeout(() => {
       barSaveTimer.current = null;
       const barWeight = Number(value);
       void persist(async () => {
         await setGeneralPreferences(
-          unit === "lb"
+          unitToSave === "lb"
             ? { barWeightLb: barWeight }
             : { barWeightKg: barWeight },
         );
-        await setBar({ unit, barWeight });
+        await setBar({ unit: unitToSave, barWeight });
+        setBarDraft(null);
       });
     }, 450);
   }
@@ -258,13 +270,7 @@ function SettingsContent({
             options={unitOptions}
             onChange={(next) => {
               clearQueuedBarSave();
-              setBarValue(
-                String(
-                  next === "lb"
-                    ? (localPrefs?.barWeightLb ?? user.barWeightLb ?? 45)
-                    : (localPrefs?.barWeightKg ?? user.barWeightKg ?? 20),
-                ),
-              );
+              setBarDraft(null);
               void persist(async () => {
                 await setGeneralPreferences({ unit: next });
                 await setUnit({ unit: next });
@@ -312,11 +318,11 @@ function SettingsContent({
           />
         </View>
         <Field
-          label={`Default bar (${unit})`}
+          label={unit ? `Default bar (${unit})` : "Default bar"}
           value={bar}
           onChangeText={(value) => {
             const next = value.replace(/\D/g, "");
-            setBarValue(next);
+            setBarDraft(next);
             queueBarSave(next);
           }}
           onBlur={() => {
@@ -325,15 +331,16 @@ function SettingsContent({
           keyboardType="number-pad"
         />
         <View style={{ flexDirection: "row", gap: 8 }}>
-          {(unit === "lb" ? [35, 45] : [15, 20]).map((preset) => (
+          {(unit === "kg" ? [15, 20] : [35, 45]).map((preset) => (
             <Button
               key={preset}
-              label={`${preset} ${unit}`}
+              label={`${preset} ${unit ?? "lb"}`}
               variant={Number(bar) === preset ? "primary" : "outline"}
               size="sm"
               onPress={() => {
+                if (!unit) return;
                 const next = String(preset);
-                setBarValue(next);
+                setBarDraft(next);
                 saveBarValue(next);
               }}
             />
