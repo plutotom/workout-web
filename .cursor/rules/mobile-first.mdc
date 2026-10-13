@@ -17,6 +17,10 @@ This app is **mobile-first**. Design and build for a phone viewport first; deskt
 
 ## Soft keyboard (critical)
 
+A focused input must never sit under the software keyboard — web or iOS.
+
+### Web / PWA (Safari)
+
 On iOS Safari/PWA the keyboard often covers fixed sheets, footers, and focused inputs. **Never ship overlays that trap content under the keyboard.**
 
 When building sheets, dialogs, or any fixed bottom chrome with inputs:
@@ -40,6 +44,40 @@ const { style, keyboardOpen } = useVisualViewportFrame(open);
 ```tsx
 // ❌ Fixed sheet using only h-dvh / bottom-0 — keyboard covers the CTA
 <SheetContent className="h-dvh">…</SheetContent>
+```
+
+### Expo / iOS app
+
+`KeyboardProvider` is already at the root. Do not use RN's `KeyboardAvoidingView`
+or `automaticallyAdjustKeyboardInsets` for new input screens.
+
+- **Scrolling screens** — `Screen` uses `KeyboardAwareScroll`, which scrolls the
+  caret into view (including multiline).
+- **Sticky Finish/Save/Generate footers** — `KeyboardAwareFooterLayout` +
+  `KeyboardStickyFooter`. The layout measures the footer and passes it as
+  `bottomOffset` / `extraKeyboardSpace` so the caret clears both keyboard and
+  footer.
+- **Composer-style inputs** (comments) — put the field in `KeyboardStickyFooter`
+  via `Screen`'s `footer` prop, not at the bottom of the scroll content.
+- **Multiline notes** — keep `scrollEnabled={false}` on the `TextInput` so the
+  parent scroll view follows the caret as the note grows.
+- **Inputs in page sheets** — same primitives; a `Modal` still sits under the
+  root `KeyboardProvider`.
+
+```tsx
+// ✅ Note / sheet with sticky CTA
+<KeyboardAwareFooterLayout
+  footer={<KeyboardStickyFooter>…Finish…</KeyboardStickyFooter>}
+>
+  {/* Multiline TextInput with scrollEnabled={false} so the parent follows the caret */}
+  <WorkoutNoteField />
+</KeyboardAwareFooterLayout>
+```
+
+```tsx
+// ❌ ScrollView + fixed footer — keyboard covers the caret
+<ScrollView automaticallyAdjustKeyboardInsets>…input…</ScrollView>
+<View style={{ position: "absolute", bottom: 0 }}>Finish</View>
 ```
 
 ## Checklist before finishing UI

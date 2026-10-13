@@ -3,6 +3,8 @@ import { useState } from "react";
 import { Alert, Modal, Pressable, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { KeyboardAwareFooterLayout } from "@/components/keyboard-aware-scroll";
+import { KeyboardStickyFooter } from "@/components/keyboard-sticky-footer";
 import { Button, Card, SectionTitle } from "@/components/ui";
 import { useLocalData, useLocalPlaces } from "@/data/local/provider";
 import type { LocalPlace } from "@/data/local/types";
@@ -235,8 +237,34 @@ export function PlacesSettingsCard() {
         presentationStyle="pageSheet"
         onRequestClose={() => setRenaming(null)}
       >
-        <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
-          <View style={{ padding: 16, gap: 12 }}>
+        <SafeAreaView
+          edges={["top"]}
+          style={{ flex: 1, backgroundColor: colors.bg }}
+        >
+          <KeyboardAwareFooterLayout
+            contentContainerStyle={{ padding: 16, gap: 12 }}
+            footer={
+              <KeyboardStickyFooter
+                style={{
+                  paddingHorizontal: 16,
+                  paddingTop: 12,
+                  gap: 10,
+                  backgroundColor: colors.bg,
+                }}
+              >
+                <Button
+                  label={saving ? "Saving…" : "Save"}
+                  disabled={saving}
+                  onPress={() => void handleRename()}
+                />
+                <Button
+                  label="Cancel"
+                  variant="outline"
+                  onPress={() => setRenaming(null)}
+                />
+              </KeyboardStickyFooter>
+            }
+          >
             <Text
               style={{ color: colors.text, fontSize: 22, fontWeight: "700" }}
             >
@@ -259,17 +287,7 @@ export function PlacesSettingsCard() {
                 fontSize: 16,
               }}
             />
-            <Button
-              label={saving ? "Saving…" : "Save"}
-              disabled={saving}
-              onPress={() => void handleRename()}
-            />
-            <Button
-              label="Cancel"
-              variant="outline"
-              onPress={() => setRenaming(null)}
-            />
-          </View>
+          </KeyboardAwareFooterLayout>
         </SafeAreaView>
       </Modal>
     </>

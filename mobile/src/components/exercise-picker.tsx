@@ -5,7 +5,6 @@ import {
   FlatList,
   Modal,
   Pressable,
-  ScrollView,
   Text,
   TextInput,
   View,
@@ -16,6 +15,7 @@ import type { MuscleGroup } from "@shared/exercises";
 import { MUSCLE_GROUPS } from "@shared/exercises";
 import { useLocalCustomExercises, useLocalData } from "@/data/local/provider";
 import { useCatalog } from "@/providers/catalog-provider";
+import { KeyboardAwareFooterLayout } from "@/components/keyboard-aware-scroll";
 import { KeyboardStickyFooter } from "@/components/keyboard-sticky-footer";
 import { Button, Field, Segmented } from "@/components/ui";
 import { colors, radius } from "@/theme";
@@ -138,7 +138,7 @@ export function ExercisePicker({
                   onChangeText={setQuery}
                   placeholder="Search exercises"
                   placeholderTextColor={colors.faint}
-                  style={{ flex: 1, color: colors.text, fontSize: 15 }}
+                  style={{ flex: 1, color: colors.text, fontSize: 16 }}
                   autoCorrect={false}
                 />
               </View>
@@ -357,12 +357,36 @@ function CreateExercise({
         </Pressable>
       </View>
 
-      <ScrollView
-        style={{ flex: 1 }}
+      <KeyboardAwareFooterLayout
         contentContainerStyle={{ padding: 16, gap: 20 }}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="interactive"
-        showsVerticalScrollIndicator={false}
+        footer={
+          <KeyboardStickyFooter
+            style={{
+              flexDirection: "row",
+              gap: 9,
+              paddingHorizontal: 16,
+              paddingTop: 12,
+              borderTopWidth: 1,
+              borderTopColor: colors.line,
+              backgroundColor: colors.bg,
+            }}
+          >
+            <Button
+              label="Cancel"
+              variant="outline"
+              size="lg"
+              onPress={onCancel}
+              style={{ flex: 1 }}
+            />
+            <Button
+              label={saving ? "Creating…" : "Create exercise"}
+              size="lg"
+              disabled={saving || !name.trim()}
+              onPress={save}
+              style={{ flex: 1 }}
+            />
+          </KeyboardStickyFooter>
+        }
       >
         <Field
           label="Name"
@@ -445,34 +469,7 @@ function CreateExercise({
             {error}
           </Text>
         ) : null}
-      </ScrollView>
-
-      <KeyboardStickyFooter
-        style={{
-          flexDirection: "row",
-          gap: 9,
-          paddingHorizontal: 16,
-          paddingTop: 12,
-          borderTopWidth: 1,
-          borderTopColor: colors.line,
-          backgroundColor: colors.bg,
-        }}
-      >
-        <Button
-          label="Cancel"
-          variant="outline"
-          size="lg"
-          onPress={onCancel}
-          style={{ flex: 1 }}
-        />
-        <Button
-          label={saving ? "Creating…" : "Create exercise"}
-          size="lg"
-          disabled={saving || !name.trim()}
-          onPress={save}
-          style={{ flex: 1 }}
-        />
-      </KeyboardStickyFooter>
+      </KeyboardAwareFooterLayout>
     </>
   );
 }

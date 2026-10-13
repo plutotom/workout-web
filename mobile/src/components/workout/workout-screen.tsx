@@ -24,7 +24,6 @@ import {
   Modal,
   Platform,
   Pressable,
-  ScrollView,
   Text,
   View,
 } from "react-native";
@@ -34,6 +33,7 @@ import { useMobileAuth } from "@/auth/auth-provider";
 import { openSocialPost } from "@/lib/social-navigation";
 import { AiPromptModal } from "@/components/ai-prompt-modal";
 import { ExercisePicker } from "@/components/exercise-picker";
+import { KeyboardAwareFooterLayout } from "@/components/keyboard-aware-scroll";
 import { KeyboardStickyFooter } from "@/components/keyboard-sticky-footer";
 import {
   Button,
@@ -882,8 +882,8 @@ function FocusWorkout({
   return (
     <>
       <Screen
-        scroll={false}
-        contentStyle={{ flex: 1, paddingBottom: rest.rest ? 92 : 20 }}
+        keyboardMode="layout"
+        contentStyle={{ flexGrow: 1, paddingBottom: rest.rest ? 92 : 20 }}
       >
         <PageHeader
           back
@@ -1323,12 +1323,37 @@ export function WorkoutFinishController() {
         edges={["top"]}
         style={{ flex: 1, backgroundColor: colors.bg }}
       >
-        <ScrollView
-          style={{ flex: 1 }}
+        <KeyboardAwareFooterLayout
           contentContainerStyle={{ padding: 16, gap: 18 }}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="interactive"
-          showsVerticalScrollIndicator={false}
+          footer={
+            <KeyboardStickyFooter
+              style={{
+                flexDirection: "row",
+                gap: 9,
+                paddingHorizontal: 16,
+                paddingTop: 12,
+                borderTopWidth: 1,
+                borderTopColor: colors.line,
+                backgroundColor: colors.bg,
+              }}
+            >
+              <Button
+                label="No thanks"
+                variant="outline"
+                size="lg"
+                disabled={savingTemplate}
+                onPress={closeSavePrompt}
+                style={{ flex: 1 }}
+              />
+              <Button
+                label={savingTemplate ? "Saving…" : "Save template"}
+                size="lg"
+                disabled={savingTemplate || !templateName.trim()}
+                onPress={confirmSaveTemplate}
+                style={{ flex: 1 }}
+              />
+            </KeyboardStickyFooter>
+          }
         >
           <Text style={{ color: colors.text, fontSize: 24, fontWeight: "700" }}>
             Save as template?
@@ -1357,34 +1382,7 @@ export function WorkoutFinishController() {
               {saveError}
             </Text>
           ) : null}
-        </ScrollView>
-        <KeyboardStickyFooter
-          style={{
-            flexDirection: "row",
-            gap: 9,
-            paddingHorizontal: 16,
-            paddingTop: 12,
-            borderTopWidth: 1,
-            borderTopColor: colors.line,
-            backgroundColor: colors.bg,
-          }}
-        >
-          <Button
-            label="No thanks"
-            variant="outline"
-            size="lg"
-            disabled={savingTemplate}
-            onPress={closeSavePrompt}
-            style={{ flex: 1 }}
-          />
-          <Button
-            label={savingTemplate ? "Saving…" : "Save template"}
-            size="lg"
-            disabled={savingTemplate || !templateName.trim()}
-            onPress={confirmSaveTemplate}
-            style={{ flex: 1 }}
-          />
-        </KeyboardStickyFooter>
+        </KeyboardAwareFooterLayout>
       </SafeAreaView>
     </Modal>
   );

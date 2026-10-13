@@ -74,6 +74,28 @@ are unaffected.
 rebuild**, not just a Metro reload, before the file transport or universal links
 work on device.
 
+## iOS keyboard (Expo)
+
+On iOS a focused text input must never sit under the software keyboard — not
+the caret in a multiline note, not a comment composer, not a field in a
+page sheet. This is an app-wide rule, not a per-screen fix.
+
+Use the shared primitives in `mobile/src/components/` instead of RN's
+`KeyboardAvoidingView` or `automaticallyAdjustKeyboardInsets`:
+
+| Layout                                         | Primitive                                            |
+| ---------------------------------------------- | ---------------------------------------------------- |
+| Full screen with inputs                        | `Screen` (wraps `KeyboardAwareScroll`)               |
+| Scroll + sticky CTA (Finish / Save / Generate) | `KeyboardAwareFooterLayout` + `KeyboardStickyFooter` |
+| Non-scrolling screen                           | `Screen scroll={false}` keeps `KeyboardAvoidingView` |
+
+`KeyboardAwareScroll` tracks the caret (including multiline) and takes a
+`bottomOffset` so typing stays above a sticky footer. Do not put a focused
+input in a plain `ScrollView` or a fixed footer that ignores the keyboard.
+
+See `.cursor/rules/mobile-first.mdc` for the web/PWA counterpart
+(`useVisualViewportFrame`).
+
 ## Deployment
 
 Vercel runs `pnpm build` → `scripts/vercel-build.mjs`:

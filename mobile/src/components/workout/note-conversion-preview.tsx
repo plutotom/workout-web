@@ -12,13 +12,17 @@ import {
   Keyboard,
   Modal,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
+  type LayoutChangeEvent,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import {
+  KEYBOARD_CARET_GAP,
+  KeyboardAwareScroll,
+} from "@/components/keyboard-aware-scroll";
 import { KeyboardStickyFooter } from "@/components/keyboard-sticky-footer";
 import { Button, Card, Field } from "@/components/ui";
 import { useCatalog } from "@/providers/catalog-provider";
@@ -63,6 +67,7 @@ export function NoteConversionPreviewSheet({
   const [selecting, setSelecting] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [visibleLineCount, setVisibleLineCount] = useState(50);
+  const [footerHeight, setFooterHeight] = useState(88);
   const nextId = useRef(0);
   const review = useMemo(
     () =>
@@ -261,13 +266,12 @@ export function NoteConversionPreviewSheet({
             />
           </>
         ) : (
-          <ScrollView
+          <KeyboardAwareScroll
+            style={{ flex: 1 }}
             pointerEvents={saving ? "none" : "auto"}
             contentContainerStyle={styles.content}
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="interactive"
-            automaticallyAdjustKeyboardInsets
-            showsVerticalScrollIndicator={false}
+            extraKeyboardSpace={footerHeight}
+            bottomOffset={footerHeight + KEYBOARD_CARET_GAP}
           >
             <Text style={styles.description}>
               Review the lifts and completed sets from your note. Confirm to log
@@ -553,40 +557,47 @@ export function NoteConversionPreviewSheet({
                 ) : null}
               </>
             )}
-          </ScrollView>
+          </KeyboardAwareScroll>
         )}
-        <KeyboardStickyFooter style={styles.footer}>
-          {error ? (
-            <Text accessibilityRole="alert" style={styles.warning}>
-              {error}
-            </Text>
-          ) : null}
-          {selecting !== null || !draft ? (
-            <Button
-              label={selecting !== null ? "Back to preview" : "Close preview"}
-              size="lg"
-              onPress={close}
-            />
-          ) : (
-            <View style={styles.row}>
+        <View
+          onLayout={(event: LayoutChangeEvent) => {
+            const next = Math.ceil(event.nativeEvent.layout.height);
+            if (next > 0) setFooterHeight(next);
+          }}
+        >
+          <KeyboardStickyFooter style={styles.footer}>
+            {error ? (
+              <Text accessibilityRole="alert" style={styles.warning}>
+                {error}
+              </Text>
+            ) : null}
+            {selecting !== null || !draft ? (
               <Button
-                label="Cancel"
-                variant="outline"
+                label={selecting !== null ? "Back to preview" : "Close preview"}
                 size="lg"
-                disabled={saving}
-                style={{ flex: 1 }}
                 onPress={close}
               />
-              <Button
-                label={saving ? "Converting…" : "Confirm conversion"}
-                size="lg"
-                disabled={saving || review.length > 0}
-                style={{ flex: 2 }}
-                onPress={confirm}
-              />
-            </View>
-          )}
-        </KeyboardStickyFooter>
+            ) : (
+              <View style={styles.row}>
+                <Button
+                  label="Cancel"
+                  variant="outline"
+                  size="lg"
+                  disabled={saving}
+                  style={{ flex: 1 }}
+                  onPress={close}
+                />
+                <Button
+                  label={saving ? "Converting…" : "Confirm conversion"}
+                  size="lg"
+                  disabled={saving || review.length > 0}
+                  style={{ flex: 2 }}
+                  onPress={confirm}
+                />
+              </View>
+            )}
+          </KeyboardStickyFooter>
+        </View>
       </SafeAreaView>
     </Modal>
   );

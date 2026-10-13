@@ -1,7 +1,6 @@
 import {
   ActivityIndicator,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -19,6 +18,10 @@ import { ChevronLeft, type LucideIcon } from "lucide-react-native";
 import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
 
+import {
+  KeyboardAwareFooterLayout,
+  KeyboardAwareScroll,
+} from "@/components/keyboard-aware-scroll";
 import { colors, radius, space } from "@/theme";
 
 export function Screen({
@@ -26,35 +29,51 @@ export function Screen({
   scroll = true,
   contentStyle,
   refreshControl,
+  footer,
+  keyboardMode,
 }: {
   children: ReactNode;
   scroll?: boolean;
   contentStyle?: StyleProp<ViewStyle>;
   refreshControl?: ReactElement<RefreshControlProps>;
+  /** Sticky chrome (usually `KeyboardStickyFooter`) that must stay above the keyboard. */
+  footer?: ReactNode;
+  keyboardMode?: "insets" | "layout";
 }) {
   const content = (
     <View style={[styles.screenContent, contentStyle]}>{children}</View>
   );
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
-      <KeyboardAvoidingView
-        style={styles.safe}
-        behavior="padding"
-        automaticOffset
-      >
-        {scroll ? (
-          <ScrollView
+      {scroll ? (
+        footer ? (
+          <KeyboardAwareFooterLayout
+            footer={footer}
             contentContainerStyle={{ flexGrow: 1 }}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
             refreshControl={refreshControl}
           >
             {content}
-          </ScrollView>
+          </KeyboardAwareFooterLayout>
         ) : (
-          content
-        )}
-      </KeyboardAvoidingView>
+          <KeyboardAwareScroll
+            style={styles.safe}
+            mode={keyboardMode}
+            contentContainerStyle={{ flexGrow: 1 }}
+            refreshControl={refreshControl}
+          >
+            {content}
+          </KeyboardAwareScroll>
+        )
+      ) : (
+        <KeyboardAvoidingView
+          style={styles.safe}
+          behavior="padding"
+          automaticOffset
+        >
+          {content}
+          {footer}
+        </KeyboardAvoidingView>
+      )}
     </SafeAreaView>
   );
 }

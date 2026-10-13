@@ -2,11 +2,12 @@ import { router } from "expo-router";
 import { ListChecks, Pencil } from "lucide-react-native";
 import { useSQLiteContext } from "expo-sqlite";
 import { useState } from "react";
-import { Alert, Keyboard, Modal, ScrollView, Text } from "react-native";
+import { Alert, Keyboard, Modal, Text } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useMobileAuth } from "@/auth/auth-provider";
 import { useEntitlementState } from "@/hooks/use-entitlement";
+import { KeyboardAwareFooterLayout } from "@/components/keyboard-aware-scroll";
 import { KeyboardStickyFooter } from "@/components/keyboard-sticky-footer";
 import { Button, Card } from "@/components/ui";
 import { NoteConversionPreviewSheet } from "@/components/workout/note-conversion-preview";
@@ -257,12 +258,39 @@ function EditWorkoutNote({
         edges={["top"]}
         style={{ flex: 1, backgroundColor: colors.bg }}
       >
-        <ScrollView
+        <KeyboardAwareFooterLayout
           contentContainerStyle={{ padding: 16, gap: 16, flexGrow: 1 }}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="interactive"
-          automaticallyAdjustKeyboardInsets
-          showsVerticalScrollIndicator={false}
+          footer={
+            <KeyboardStickyFooter
+              style={{
+                flexDirection: "row",
+                gap: 10,
+                paddingHorizontal: 16,
+                paddingTop: 12,
+                backgroundColor: colors.bg,
+              }}
+            >
+              <Button
+                label="Cancel"
+                variant="outline"
+                size="lg"
+                disabled={saving}
+                style={{ flex: 1 }}
+                onPress={close}
+              />
+              <Button
+                label={saving ? "Saving…" : "Save note"}
+                size="lg"
+                disabled={
+                  saving ||
+                  !text.trim() ||
+                  text.length > MAX_WORKOUT_NOTE_LENGTH
+                }
+                style={{ flex: 1 }}
+                onPress={save}
+              />
+            </KeyboardStickyFooter>
+          }
         >
           <Text style={{ color: colors.text, fontSize: 28, fontWeight: "700" }}>
             Edit note
@@ -296,34 +324,7 @@ function EditWorkoutNote({
               {error}
             </Text>
           ) : null}
-        </ScrollView>
-        <KeyboardStickyFooter
-          style={{
-            flexDirection: "row",
-            gap: 10,
-            paddingHorizontal: 16,
-            paddingTop: 12,
-            backgroundColor: colors.bg,
-          }}
-        >
-          <Button
-            label="Cancel"
-            variant="outline"
-            size="lg"
-            disabled={saving}
-            style={{ flex: 1 }}
-            onPress={close}
-          />
-          <Button
-            label={saving ? "Saving…" : "Save note"}
-            size="lg"
-            disabled={
-              saving || !text.trim() || text.length > MAX_WORKOUT_NOTE_LENGTH
-            }
-            style={{ flex: 1 }}
-            onPress={save}
-          />
-        </KeyboardStickyFooter>
+        </KeyboardAwareFooterLayout>
       </SafeAreaView>
     </Modal>
   );

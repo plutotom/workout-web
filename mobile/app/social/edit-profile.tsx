@@ -78,6 +78,7 @@ function Editor({
               borderRadius: 12,
               padding: 14,
               marginTop: 8,
+              fontSize: 16,
             }}
           />
         </View>

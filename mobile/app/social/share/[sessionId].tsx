@@ -155,6 +155,8 @@ export default function ShareWorkoutScreen() {
                 minHeight: 100,
                 padding: 14,
                 marginBottom: 16,
+                fontSize: 16,
+                textAlignVertical: "top",
               }}
             />
           )}
