@@ -26,6 +26,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
+    "test:review": "pnpm test && pnpm test:offline-accounts",
     "test:offline-accounts": "vitest run --config vitest.offline-accounts.config.mjs",
     "test:import-compat": "vitest run src/lib/import-compat.test.ts",
     "smoke:ai": "node scripts/ai-gateway-smoke.mjs",

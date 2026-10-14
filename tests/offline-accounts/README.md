@@ -6,6 +6,18 @@ Run from the repository root after installing the workspace dependencies:
 pnpm test:offline-accounts
 ```
 
+For general reviews, run both required test suites with:
+
+```bash
+pnpm test:review
+```
+
+`.github/workflows/review.yml` runs `Unit tests` and `Offline account lifecycle`
+for every PR, merge-group commit, and push to `main`/`staging`. There are no path
+filters or successful fallbacks for failed data-preservation checks. GitHub's
+merge rules require both checks against the latest base branch code. Keep the job
+names stable; changing them also requires updating the repository ruleset.
+
 Use Node 22.13+ (tested with 22.23.1), which provides `node:sqlite` without a
 command-line flag. No simulator, development server, credentials, internet
 connection, or existing account is needed. The SQLite experimental warning on
@@ -102,3 +114,6 @@ These exercise existing storage/sync paths also present on `main`, rather than
 the keyboard layout changes alone. Keep the requirements enabled until the
 implementations satisfy them. When fixing a failure, run the entire gate: a merge
 fix can affect acknowledgments, idempotency, references, and account ownership.
+
+See [the implementation and migration plan](fix-plan.md) for the recommended
+fix order and additional regression cases.

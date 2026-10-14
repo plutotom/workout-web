@@ -6,6 +6,23 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 <!-- END:nextjs-agent-rules -->
 
+## Review and merge checks
+
+- Run `pnpm test:review` for general code reviews and before recommending a
+  merge. It runs the ordinary unit suite and the strict offline account lifecycle
+  gate. Report both results; `pnpm test` alone does not establish merge readiness.
+- GitHub Actions runs `Unit tests` and `Offline account lifecycle` on every PR
+  and merge-group commit, without path filters. Both checks must pass on the
+  current integration commit before merging into `main` or `staging`.
+- Do not skip cases, use test-name filters, mark failures as expected, or add
+  `continue-on-error` to turn data-preservation defects into a green check.
+- Account, auth, sync, SQLite migration, Convex schema, and import changes must
+  preserve old users/data. Add regression coverage for the failure and verify
+  offline restart, reconnect, retries, and account ownership as applicable.
+- These tests use temporary SQLite files and synthetic Convex/WorkOS accounts;
+  do not substitute real users, production data, or production credentials.
+  See [the lifecycle gate documentation](tests/offline-accounts/README.md).
+
 ## Backend (Convex)
 
 Convex functions live in `backend/`. As the app grows:
