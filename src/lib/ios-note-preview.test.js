@@ -34,6 +34,7 @@ beforeAll(async () => {
       export const Modal = 'Modal', Pressable = 'Pressable', ScrollView = 'ScrollView', Text = 'Text', View = 'View';
       export function FlatList(props) { return React.createElement('FlatList', props, props.data.map(item => React.createElement(React.Fragment, {key: props.keyExtractor(item)}, props.renderItem({item})))); }`,
     "react-native-safe-area-context": `export const SafeAreaView = 'SafeAreaView';`,
+    "react-native-keyboard-controller": `export const KeyboardAwareScrollView = 'KeyboardAwareScrollView';`,
     "lucide-react-native": `export const Check = 'Check', ChevronDown = 'ChevronDown', ChevronRight = 'ChevronRight', Trash2 = 'Trash2', X = 'X', ListChecks = 'ListChecks', Pencil = 'Pencil';`,
     "expo-sqlite": `export const useSQLiteContext = () => ({});`,
     "expo-router": `export const router = {push: path => globalThis.__notePreviewHarness.routes.push(path)};`,
