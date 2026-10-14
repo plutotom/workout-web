@@ -30,6 +30,7 @@ import {
   attachStoredWatchHealthUuid,
   completeCustomExerciseSync,
   completeExerciseNoteSync,
+  quarantineExerciseNoteSync,
   completeMachineSync,
   completePlaceSync,
   completePreferencesSync,
@@ -646,6 +647,10 @@ export function useLocalSyncStore() {
       },
       completeExerciseNote: async (operationId: string) => {
         await completeExerciseNoteSync(db, operationId);
+        refresh();
+      },
+      quarantineExerciseNote: async (operationId: string) => {
+        await quarantineExerciseNoteSync(db, operationId);
         refresh();
       },
       completeCustomExercise: async (

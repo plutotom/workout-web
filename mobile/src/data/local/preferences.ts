@@ -8,6 +8,7 @@ import type {
 
 /** Set while a Settings write is waiting for Convex to echo through bootstrap. */
 export const GENERAL_PREFS_ECHO_PENDING_KEY = "general_prefs_echo_pending";
+export const GENERAL_PREFS_OPERATION_KEY = "general_prefs_operation_id";
 
 const GENERAL_PREFERENCE_KEYS = [
   "unit",
@@ -22,6 +23,21 @@ export function mergeGeneralPreferences(
   patch: LocalGeneralPreferencePatch,
 ): LocalPreferences {
   return { ...current, ...patch };
+}
+
+export function normalizeGeneralPreferencePatch(
+  patch: LocalGeneralPreferencePatch,
+): LocalGeneralPreferencePatch {
+  const normalized = { ...patch };
+  for (const key of ["barWeightLb", "barWeightKg"] as const) {
+    const weight = normalized[key];
+    if (weight === undefined) continue;
+    if (!Number.isFinite(weight) || weight < 0) {
+      throw new Error("Bar weight must be a finite, non-negative number");
+    }
+    normalized[key] = Math.round(weight);
+  }
+  return normalized;
 }
 
 export function pickGeneralPreferences(
@@ -141,24 +157,26 @@ export function serializeEchoPendingPatch(
 }
 
 /**
- * Last-write-wins for in-flight Settings saves. A stale bootstrap still
- * carries the previous Convex values; those must not clobber SQLite before
- * the matching echo arrives. Fields the phone did not write still adopt
- * cloud (web → iOS, or a sibling device).
+ * Keep local edits until bootstrap acknowledges their operation, even if an
+ * older cloud snapshot happens to contain the intended value already. An
+ * acknowledgment can retire the guard without requiring an exact value echo.
+ * Fields the phone did not edit continue to adopt cloud values.
  */
 export function resolveBootstrappedGeneralPreferences({
   pending,
   local,
   cloud,
+  acknowledged = false,
 }: {
   pending: LocalGeneralPreferencePatch | null;
   local: LocalGeneralPreferences;
   cloud: LocalGeneralPreferences;
+  acknowledged?: boolean;
 }): {
   next: LocalGeneralPreferences;
   remainingPending: LocalGeneralPreferencePatch | null;
 } {
-  if (!pending) {
+  if (!pending || acknowledged) {
     return { next: cloud, remainingPending: null };
   }
 
@@ -167,7 +185,6 @@ export function resolveBootstrappedGeneralPreferences({
   for (const key of GENERAL_PREFERENCE_KEYS) {
     const intended = pending[key];
     if (intended === undefined) continue;
-    if (cloud[key] === intended) continue;
     Object.assign(next, { [key]: local[key] });
     Object.assign(remaining, { [key]: intended });
   }

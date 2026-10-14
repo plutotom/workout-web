@@ -6,6 +6,7 @@ import {
   mergeEchoPendingPatch,
   mergeGeneralPreferences,
   normalizeCloudGeneralPreferences,
+  normalizeGeneralPreferencePatch,
   parseEchoPendingPatch,
   resolveBootstrappedGeneralPreferences,
   serializeEchoPendingPatch,
@@ -102,14 +103,36 @@ describe("resolveBootstrappedGeneralPreferences", () => {
     expect(resolved.remainingPending).toEqual({ activeWorkoutMode: "list" });
   });
 
-  it("clears echo-pending once Convex catches up to the local write", () => {
+  it("clears pending protection when bootstrap acknowledges the upload", () => {
+    const resolved = resolveBootstrappedGeneralPreferences({
+      pending: { activeWorkoutMode: "list" },
+      local: localGeneral,
+      cloud: localGeneral,
+      acknowledged: true,
+    });
+    expect(resolved.next.activeWorkoutMode).toBe("list");
+    expect(resolved.remainingPending).toBeNull();
+  });
+
+  it("protects a quick toggle back even if a stale cloud value already matches", () => {
     const resolved = resolveBootstrappedGeneralPreferences({
       pending: { activeWorkoutMode: "list" },
       local: localGeneral,
       cloud: localGeneral,
     });
-    expect(resolved.next.activeWorkoutMode).toBe("list");
-    expect(resolved.remainingPending).toBeNull();
+    expect(resolved.remainingPending).toEqual({ activeWorkoutMode: "list" });
+  });
+
+  it("retires an acknowledged edit even when its exact value echo was missed", () => {
+    const cloud = { ...localGeneral, activeWorkoutMode: "focus" as const };
+    expect(
+      resolveBootstrappedGeneralPreferences({
+        pending: { activeWorkoutMode: "list" },
+        local: localGeneral,
+        cloud,
+        acknowledged: true,
+      }),
+    ).toEqual({ next: cloud, remainingPending: null });
   });
 
   it("still adopts a web unit change while a List echo is in flight", () => {
@@ -139,6 +162,20 @@ describe("resolveBootstrappedGeneralPreferences", () => {
     });
     expect(resolved.next.barWeightLb).toBe(35);
     expect(resolved.remainingPending).toEqual({ barWeightLb: 35 });
+  });
+});
+
+describe("normalizeGeneralPreferencePatch", () => {
+  it("normalizes bar weights before saving or uploading them", () => {
+    expect(
+      normalizeGeneralPreferencePatch({ barWeightLb: 35.4, barWeightKg: 20.7 }),
+    ).toEqual({ barWeightLb: 35, barWeightKg: 21 });
+  });
+
+  it.each([NaN, Infinity, -1])("rejects an invalid bar weight %s", (weight) => {
+    expect(() =>
+      normalizeGeneralPreferencePatch({ barWeightLb: weight }),
+    ).toThrow();
   });
 });
 

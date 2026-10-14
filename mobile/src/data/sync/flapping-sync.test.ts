@@ -22,12 +22,14 @@ type Session = {
 
 type Cloud = {
   prefs: LocalGeneralPreferences;
+  preferencesOperationId: number;
   notes: Map<string, string>;
   sessions: Map<string, Session>;
 };
 
 type Phone = {
   prefs: LocalGeneralPreferences;
+  preferencesOperationId: number;
   echoPending: LocalGeneralPreferencePatch | null;
   notes: Map<string, string>;
   noteOutbox: Map<string, string>;
@@ -54,6 +56,7 @@ function cloneSession(session: Session): Session {
 function createCloud(): Cloud {
   return {
     prefs: { ...DEFAULT_PREFS },
+    preferencesOperationId: 0,
     notes: new Map([["bench-press", "old cue"]]),
     sessions: new Map(),
   };
@@ -62,6 +65,7 @@ function createCloud(): Cloud {
 function createPhone(cloud: Cloud): Phone {
   return {
     prefs: { ...cloud.prefs },
+    preferencesOperationId: cloud.preferencesOperationId,
     echoPending: null,
     notes: new Map(cloud.notes),
     noteOutbox: new Map(),
@@ -76,6 +80,7 @@ function applyBootstrap(phone: Phone, cloud: Cloud) {
     pending: phone.echoPending,
     local: phone.prefs,
     cloud: cloud.prefs,
+    acknowledged: phone.preferencesOperationId === cloud.preferencesOperationId,
   });
   phone.prefs = resolved.next;
   phone.echoPending = resolved.remainingPending;
@@ -93,6 +98,7 @@ function drain(phone: Phone, cloud: Cloud, maxOps: number) {
   let remaining = maxOps;
   if (remaining > 0 && phone.prefOutbox) {
     cloud.prefs = { ...phone.prefOutbox };
+    cloud.preferencesOperationId = phone.preferencesOperationId;
     phone.prefOutbox = null;
     remaining--;
   }
@@ -112,6 +118,7 @@ function drain(phone: Phone, cloud: Cloud, maxOps: number) {
 }
 
 function writePrefs(phone: Phone, patch: Partial<LocalGeneralPreferences>) {
+  phone.preferencesOperationId++;
   phone.prefs = { ...phone.prefs, ...patch };
   phone.echoPending = { ...phone.echoPending, ...patch };
   phone.prefOutbox = { ...phone.prefs };

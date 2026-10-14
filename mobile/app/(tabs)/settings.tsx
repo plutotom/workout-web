@@ -17,29 +17,18 @@ import {
   Shield,
   Trash2,
 } from "lucide-react-native";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { Alert, Modal, Pressable, Text, View } from "react-native";
 
 import { useMobileAuth } from "@/auth/auth-provider";
-import {
-  Button,
-  Card,
-  Field,
-  FullScreenLoader,
-  Screen,
-  SectionTitle,
-  Segmented,
-} from "@/components/ui";
+import { Button, Card, Field, Screen, SectionTitle } from "@/components/ui";
 import { DescribeWithAiButton } from "@/components/describe-with-ai-button";
 import { DevProOverrideCard } from "@/components/settings/dev-pro-override-card";
+import { GeneralPreferencesCard } from "@/components/settings/general-preferences-card";
 import { NotificationSettingsCard } from "@/components/settings/notification-settings-card";
 import { useEntitlement } from "@/hooks/use-entitlement";
 import { PlacesSettingsCard } from "@/components/settings/places-settings-card";
-import {
-  useBackupStatus,
-  useLocalData,
-  useLocalPreferences,
-} from "@/data/local/provider";
+import { useBackupStatus, useLocalData } from "@/data/local/provider";
 import { planAiSettingsCopy } from "@/lib/ai-copy";
 import { useAppleAiAvailability } from "@/lib/ai";
 import { appleAiIsUsable } from "@shared/ai/apple-on-device";
@@ -49,50 +38,45 @@ import { pickBackupFile, shareBackupFile } from "@/lib/workout-transfer";
 import { HealthSettingsCard } from "@/health/health-settings-card";
 import { colors } from "@/theme";
 
-const unitOptions = [
-  { value: "lb", label: "lb" },
-  { value: "kg", label: "kg" },
-] as const;
-const modeOptions = [
-  { value: "list", label: "List", hint: "All sets" },
-  { value: "focus", label: "Focus", hint: "One at a time" },
-] as const;
-const restOptions = [
-  { value: "on", label: "On" },
-  { value: "off", label: "Off" },
-] as const;
-
 export default function SettingsScreen() {
-  const { isAuthenticated, accountStatus } = useMobileAuth();
-  if (accountStatus === "connecting")
-    return <FullScreenLoader label="Loading settings…" />;
-  if (!isAuthenticated) return <OfflineSettingsScreen />;
-  return <AuthenticatedSettingsScreen />;
-}
+  const { isAuthenticated } = useMobileAuth();
+  const user = useQuery(
+    api.routes.auth.users.current,
+    isAuthenticated ? {} : "skip",
+  );
 
-function AuthenticatedSettingsScreen() {
-  const user = useQuery(api.routes.auth.users.current);
-  if (user === undefined) {
-    return (
-      <Screen>
-        <GeneralPreferencesCard />
+  // These local controls stay mounted while auth connects or reconnects.
+  return (
+    <Screen>
+      {isAuthenticated ? (
         <Card>
-          <Text style={{ color: colors.dim, fontSize: 13 }}>
-            Loading account…
+          <Settings2 color={colors.text} size={22} />
+          <Text style={{ color: colors.text, fontSize: 30, fontWeight: "700" }}>
+            App controls
           </Text>
+          {user ? (
+            <Field label="Email" value={user.email} editable={false} />
+          ) : (
+            <Text style={{ color: colors.dim, fontSize: 13 }}>
+              Loading account…
+            </Text>
+          )}
         </Card>
-        <PlacesSettingsCard />
-        <HealthSettingsCard />
-        <NotificationSettingsCard />
-        <BackupCard signedIn />
-      </Screen>
-    );
-  }
-  if (!user) return <OfflineSettingsScreen />;
-  return <SettingsContent user={user} />;
+      ) : (
+        <OfflineAccountCard />
+      )}
+      <GeneralPreferencesCard />
+      <PlacesSettingsCard />
+      <HealthSettingsCard />
+      <NotificationSettingsCard />
+      <BackupCard signedIn={isAuthenticated} />
+      <DevProOverrideCard />
+      {isAuthenticated && user ? <SettingsContent /> : null}
+    </Screen>
+  );
 }
 
-function OfflineSettingsScreen() {
+function OfflineAccountCard() {
   const { signIn, signOut, user, accountStatus, retryAccountConnection } =
     useMobileAuth();
   const [connecting, setConnecting] = useState(false);
@@ -113,264 +97,47 @@ function OfflineSettingsScreen() {
   }
 
   return (
-    <Screen>
-      <Card>
-        <Settings2 color={colors.text} size={22} />
-        <Text style={{ color: colors.text, fontSize: 28, fontWeight: "700" }}>
-          {accountStatus === "connecting"
-            ? "Connecting account…"
-            : user
-              ? "Account unavailable"
-              : "Offline mode"}
-        </Text>
-        <Text style={{ color: colors.dim, fontSize: 13, lineHeight: 19 }}>
-          {user
-            ? "Your account connection isn’t ready. Workouts remain saved on this phone, and cloud sync will resume when your account connects."
-            : "Workouts are saved on this phone. Connect your account whenever you want to synchronize them with Grayed Lift on the web."}
-        </Text>
-        <Button
-          label={
-            connecting
-              ? "Connecting…"
-              : user
-                ? "Retry connection"
-                : "Connect account"
-          }
-          disabled={connecting || accountStatus === "connecting"}
-          onPress={() => void connectAccount()}
-        />
-        {user ? (
-          <Button
-            label="Sign out"
-            variant="ghost"
-            onPress={() => void signOut()}
-          />
-        ) : null}
-      </Card>
-      <GeneralPreferencesCard />
-      <HealthSettingsCard />
-      <NotificationSettingsCard />
-      <PlacesSettingsCard />
-      <BackupCard signedIn={false} />
-      <DevProOverrideCard />
-    </Screen>
-  );
-}
-
-function GeneralPreferencesCard({ email }: { email?: string }) {
-  // Local-first: SQLite is what the workout reads. The outbox pushes Convex
-  // when the account is reachable, so this card works offline.
-  const localPrefs = useLocalPreferences();
-  const { setGeneralPreferences } = useLocalData();
-  const unit = localPrefs?.unit;
-  const mode = localPrefs?.activeWorkoutMode;
-  const rest = localPrefs
-    ? localPrefs.restTimerEnabled
-      ? "on"
-      : "off"
-    : undefined;
-  const savedBar =
-    unit === "kg"
-      ? localPrefs?.barWeightKg
-      : unit === "lb"
-        ? localPrefs?.barWeightLb
-        : undefined;
-  const [barDraft, setBarDraft] = useState<string | null>(null);
-  const bar = barDraft ?? (savedBar !== undefined ? String(savedBar) : "");
-  const [saveState, setSaveState] = useState<
-    "idle" | "saving" | "saved" | "error"
-  >("idle");
-  const saveSequence = useRef(0);
-  const barSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  async function persist(change: () => Promise<unknown>) {
-    const sequence = ++saveSequence.current;
-    setSaveState("saving");
-    try {
-      await change();
-      if (sequence === saveSequence.current) setSaveState("saved");
-    } catch {
-      if (sequence === saveSequence.current) setSaveState("error");
-    }
-  }
-
-  function clearQueuedBarSave() {
-    if (barSaveTimer.current) {
-      clearTimeout(barSaveTimer.current);
-      barSaveTimer.current = null;
-    }
-  }
-
-  function saveBarValue(value: string) {
-    if (!unit) return;
-    clearQueuedBarSave();
-    const barWeight = value === "" ? 0 : Number(value);
-    const unitToSave = unit;
-    void persist(async () => {
-      await setGeneralPreferences(
-        unitToSave === "lb"
-          ? { barWeightLb: barWeight }
-          : { barWeightKg: barWeight },
-      );
-      setBarDraft(null);
-    });
-  }
-
-  function queueBarSave(value: string) {
-    if (!unit) return;
-    clearQueuedBarSave();
-    if (value === "") return;
-    const unitToSave = unit;
-    barSaveTimer.current = setTimeout(() => {
-      barSaveTimer.current = null;
-      const barWeight = Number(value);
-      void persist(async () => {
-        await setGeneralPreferences(
-          unitToSave === "lb"
-            ? { barWeightLb: barWeight }
-            : { barWeightKg: barWeight },
-        );
-        setBarDraft(null);
-      });
-    }, 450);
-  }
-
-  return (
     <Card>
-      <SectionTitle title="General" />
-      {email ? <Field label="Email" value={email} editable={false} /> : null}
-      <View style={{ gap: 7 }}>
-        <Text style={{ color: colors.text, fontSize: 13, fontWeight: "600" }}>
-          Default unit
-        </Text>
-        <Segmented
-          value={unit}
-          options={unitOptions}
-          onChange={(next) => {
-            clearQueuedBarSave();
-            setBarDraft(null);
-            void persist(async () => {
-              await setGeneralPreferences({ unit: next });
-            });
-          }}
-        />
-        <Text style={{ color: colors.dim, fontSize: 11 }}>
-          New weights are entered in this unit.
-        </Text>
-      </View>
-      <View style={{ gap: 7 }}>
-        <Text style={{ color: colors.text, fontSize: 13, fontWeight: "600" }}>
-          Active workout view
-        </Text>
-        <Segmented
-          value={mode}
-          options={modeOptions}
-          onChange={(next) => {
-            void persist(async () => {
-              await setGeneralPreferences({ activeWorkoutMode: next });
-            });
-          }}
-        />
-        <Text style={{ color: colors.dim, fontSize: 11 }}>
-          Switching during a workout is safe; both views share the same session.
-        </Text>
-      </View>
-      <View style={{ gap: 7 }}>
-        <Text style={{ color: colors.text, fontSize: 13, fontWeight: "600" }}>
-          Rest timer
-        </Text>
-        <Segmented
-          value={rest}
-          options={restOptions}
-          onChange={(next) => {
-            void persist(async () => {
-              await setGeneralPreferences({
-                restTimerEnabled: next === "on",
-              });
-            });
-          }}
-        />
-      </View>
-      <Field
-        label={unit ? `Default bar (${unit})` : "Default bar"}
-        value={bar}
-        onChangeText={(value) => {
-          const next = value.replace(/\D/g, "");
-          setBarDraft(next);
-          queueBarSave(next);
-        }}
-        onBlur={() => {
-          if (barSaveTimer.current || bar === "") saveBarValue(bar);
-        }}
-        keyboardType="number-pad"
-      />
-      <View style={{ flexDirection: "row", gap: 8 }}>
-        {(unit === "kg" ? [15, 20] : [35, 45]).map((preset) => (
-          <Button
-            key={preset}
-            label={`${preset} ${unit ?? "lb"}`}
-            variant={Number(bar) === preset ? "primary" : "outline"}
-            size="sm"
-            onPress={() => {
-              if (!unit) return;
-              const next = String(preset);
-              setBarDraft(next);
-              saveBarValue(next);
-            }}
-          />
-        ))}
-      </View>
-      <Text
-        accessibilityLiveRegion="polite"
-        style={{
-          color: saveState === "error" ? colors.danger : colors.dim,
-          fontSize: 11,
-        }}
-      >
-        {saveState === "saving"
-          ? "Saving changes…"
-          : saveState === "error"
-            ? "Couldn’t save on this phone. Try again."
-            : saveState === "saved"
-              ? "Saved on this phone. Syncs when you’re online."
-              : "Changes save on this phone and sync when you’re online."}
+      <Settings2 color={colors.text} size={22} />
+      <Text style={{ color: colors.text, fontSize: 28, fontWeight: "700" }}>
+        {accountStatus === "connecting"
+          ? "Connecting account…"
+          : user
+            ? "Account unavailable"
+            : "Offline mode"}
       </Text>
+      <Text style={{ color: colors.dim, fontSize: 13, lineHeight: 19 }}>
+        {user
+          ? "Your account connection isn’t ready. Workouts remain saved on this phone, and cloud sync will resume when your account connects."
+          : "Workouts are saved on this phone. Connect your account whenever you want to synchronize them with Grayed Lift on the web."}
+      </Text>
+      <Button
+        label={
+          connecting
+            ? "Connecting…"
+            : user
+              ? "Retry connection"
+              : "Connect account"
+        }
+        disabled={connecting || accountStatus === "connecting"}
+        onPress={() => void connectAccount()}
+      />
+      {user ? (
+        <Button
+          label="Sign out"
+          variant="ghost"
+          onPress={() => void signOut()}
+        />
+      ) : null}
     </Card>
   );
 }
 
-function SettingsContent({
-  user,
-}: {
-  user: NonNullable<
-    ReturnType<typeof useQuery<typeof api.routes.auth.users.current>>
-  >;
-}) {
+function SettingsContent() {
   const { signOut } = useMobileAuth();
 
   return (
-    <Screen>
-      <Card>
-        <Settings2 color={colors.text} size={22} />
-        <Text
-          style={{
-            color: colors.dim,
-            fontSize: 11,
-            fontWeight: "700",
-            letterSpacing: 2,
-          }}
-        >
-          SETTINGS
-        </Text>
-        <Text style={{ color: colors.text, fontSize: 30, fontWeight: "700" }}>
-          App controls
-        </Text>
-        <Text style={{ color: colors.dim, fontSize: 13 }}>
-          Units, bar defaults, plan, and external access.
-        </Text>
-      </Card>
-      <GeneralPreferencesCard email={user.email} />
-      <PlacesSettingsCard />
+    <>
       <Card>
         <Share2 color={colors.text} size={22} strokeWidth={2.3} />
         <SectionTitle title="Share with someone" />
@@ -392,10 +159,6 @@ function SettingsContent({
         />
         <RemoveDuplicateTemplatesButton />
       </Card>
-      <HealthSettingsCard />
-      <NotificationSettingsCard />
-      <BackupCard signedIn />
-      <DevProOverrideCard />
       <PlanCard />
       <AdminCard />
       <McpCard />
@@ -415,7 +178,7 @@ function SettingsContent({
           ])
         }
       />
-    </Screen>
+    </>
   );
 }
 

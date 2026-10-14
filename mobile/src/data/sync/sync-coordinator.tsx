@@ -16,6 +16,7 @@ import {
 } from "./template-sync-policy";
 
 import { SyncWorker } from "./sync-worker";
+import { MAX_EXERCISE_NOTE_LENGTH } from "@shared/exercise-notes";
 
 const MAX_PUSHES_PER_PASS = 20;
 
@@ -44,6 +45,7 @@ export function SyncCoordinator() {
   const syncStore = useLocalSyncStore();
   const appliedBootstrap = useRef<typeof bootstrap>(undefined);
   const templateLimitAlertShown = useRef(false);
+  const noteLimitAlertShown = useRef(false);
 
   useEffect(() => {
     if ((bootstrap?.templates.length ?? 0) < 100) {
@@ -146,6 +148,17 @@ export function SyncCoordinator() {
       const pendingNote = await syncStore.getPendingExerciseNote();
       if (!canContinue()) return "idle" as const;
       if (pendingNote) {
+        if (pendingNote.snapshot.notes.length > MAX_EXERCISE_NOTE_LENGTH) {
+          await syncStore.quarantineExerciseNote(pendingNote.operationId);
+          if (canContinue() && !noteLimitAlertShown.current) {
+            noteLimitAlertShown.current = true;
+            Alert.alert(
+              "Exercise note saved on this phone",
+              "An older exercise note is longer than 10,000 characters. Its full text is safe on this phone. Shorten it to sync; your other changes will keep syncing.",
+            );
+          }
+          continue;
+        }
         await syncStore.noteExerciseNoteAttempt(pendingNote.operationId);
         if (!canContinue()) return "idle" as const;
         await pushExerciseNote({

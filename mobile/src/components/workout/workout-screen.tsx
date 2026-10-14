@@ -34,6 +34,7 @@ import { useMobileAuth } from "@/auth/auth-provider";
 import { openSocialPost } from "@/lib/social-navigation";
 import { AiPromptModal } from "@/components/ai-prompt-modal";
 import { ExercisePicker } from "@/components/exercise-picker";
+import { ExerciseNoteEditor } from "@/components/exercise-note-editor";
 import { KeyboardStickyFooter } from "@/components/keyboard-sticky-footer";
 import {
   Button,
@@ -466,9 +467,10 @@ function ListWorkout({
                   </Pressable>
                 </View>
                 {collapsed[exercise._id] ? null : (
-                  <NoteField
+                  <ExerciseNoteEditor
                     initial={exercise.notes ?? ""}
                     onSave={(notes) => saveNote(exercise.slug, notes)}
+                    multiline={false}
                   />
                 )}
               </View>
@@ -739,24 +741,6 @@ function SetRow({
         }}
       />
     </>
-  );
-}
-
-function NoteField({
-  initial,
-  onSave,
-}: {
-  initial: string;
-  onSave: (notes: string) => Promise<unknown>;
-}) {
-  const [value, setValue] = useState(initial);
-  return (
-    <Field
-      value={value}
-      onChangeText={setValue}
-      onBlur={() => void onSave(value)}
-      placeholder="Exercise note"
-    />
   );
 }
 

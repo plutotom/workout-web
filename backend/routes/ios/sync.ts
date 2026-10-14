@@ -351,41 +351,29 @@ export const pushExerciseNote = mutation({
   }),
   handler: async (ctx, args) => {
     const user = await requireUser(ctx);
+    const duplicate = await findReceipt(ctx, user._id, args.operationId);
+    if (duplicate) return { serverTime: duplicate.appliedAt };
     await upsertExerciseNote(ctx, user._id, args.note.slug, args.note.notes);
-
-    const duplicate = await ctx.db
-      .query("iosSyncReceipts")
-      .withIndex("by_user_operation_id", (q) =>
-        q.eq("userId", user._id).eq("operationId", args.operationId),
-      )
-      .first();
-    if (!duplicate) {
-      await ctx.db.insert("iosSyncReceipts", {
-        userId: user._id,
-        operationId: args.operationId,
-        deviceId: args.deviceId,
-        appliedAt: Date.now(),
-      });
-    }
+    await writeReceipt(ctx, user._id, args);
 
     return { serverTime: Date.now() };
   },
 });
 
 /**
- * Upload the phone's general Settings snapshot (unit, bar, List/Focus, rest).
- * Last write wins; retries with the same operationId are receipt-idempotent.
+ * Upload only general Settings fields edited on the phone. Local edits win;
+ * receipts keep a lost acknowledgment from applying the same edit twice.
  */
 export const pushPreferences = mutation({
   args: {
     operationId: v.string(),
     deviceId: v.string(),
     preferences: v.object({
-      unit: unitValidator,
-      barWeightLb: v.number(),
-      barWeightKg: v.number(),
-      activeWorkoutMode: activeWorkoutModeValidator,
-      restTimerEnabled: v.boolean(),
+      unit: v.optional(unitValidator),
+      barWeightLb: v.optional(v.number()),
+      barWeightKg: v.optional(v.number()),
+      activeWorkoutMode: v.optional(activeWorkoutModeValidator),
+      restTimerEnabled: v.optional(v.boolean()),
     }),
   },
   returns: v.object({
@@ -393,28 +381,23 @@ export const pushPreferences = mutation({
   }),
   handler: async (ctx, args) => {
     const user = await requireUser(ctx);
-    await ctx.db.patch(user._id, {
-      unit: args.preferences.unit,
-      barWeightLb: Math.max(0, Math.round(args.preferences.barWeightLb)),
-      barWeightKg: Math.max(0, Math.round(args.preferences.barWeightKg)),
-      activeWorkoutMode: args.preferences.activeWorkoutMode,
-      restTimerEnabled: args.preferences.restTimerEnabled,
-    });
+    const duplicate = await findReceipt(ctx, user._id, args.operationId);
+    if (duplicate) return { serverTime: duplicate.appliedAt };
 
-    const duplicate = await ctx.db
-      .query("iosSyncReceipts")
-      .withIndex("by_user_operation_id", (q) =>
-        q.eq("userId", user._id).eq("operationId", args.operationId),
-      )
-      .first();
-    if (!duplicate) {
-      await ctx.db.insert("iosSyncReceipts", {
-        userId: user._id,
-        operationId: args.operationId,
-        deviceId: args.deviceId,
-        appliedAt: Date.now(),
-      });
+    const preferences = { ...args.preferences };
+    for (const key of ["barWeightLb", "barWeightKg"] as const) {
+      const weight = preferences[key];
+      if (weight === undefined) continue;
+      if (!Number.isFinite(weight) || weight < 0) {
+        throw new Error("Bar weight must be a finite, non-negative number");
+      }
+      preferences[key] = Math.round(weight);
     }
+    await ctx.db.patch(user._id, {
+      ...preferences,
+      iosPreferencesOperationId: args.operationId,
+    });
+    await writeReceipt(ctx, user._id, args);
 
     return { serverTime: Date.now() };
   },

@@ -60,11 +60,11 @@ async function callPrefs(
   ctx: MutationCtx,
   operationId: string,
   preferences: {
-    unit: "lb" | "kg";
-    barWeightLb: number;
-    barWeightKg: number;
-    activeWorkoutMode: "list" | "focus";
-    restTimerEnabled: boolean;
+    unit?: "lb" | "kg";
+    barWeightLb?: number;
+    barWeightKg?: number;
+    activeWorkoutMode?: "list" | "focus";
+    restTimerEnabled?: boolean;
   },
 ) {
   const handler = (
@@ -110,14 +110,14 @@ describe("pushExerciseNote", () => {
     );
   });
 
-  it("does not insert a second receipt on retry", async () => {
-    const { ctx, insert } = ctxFixture({ _id: "existing" });
+  it("does not reapply a note or insert a second receipt on retry", async () => {
+    const { ctx, insert } = ctxFixture({ _id: "existing", appliedAt: 123 });
     await callNote(ctx, {
       operationId: "op-note",
       slug: "bench-press",
       notes: "pause at the bottom",
     });
-    expect(upsert).toHaveBeenCalled();
+    expect(upsert).not.toHaveBeenCalled();
     expect(insert).not.toHaveBeenCalled();
   });
 });
@@ -138,10 +138,44 @@ describe("pushPreferences", () => {
       barWeightKg: 20,
       activeWorkoutMode: "list",
       restTimerEnabled: false,
+      iosPreferencesOperationId: "op-prefs",
     });
     expect(insert).toHaveBeenCalledWith(
       "iosSyncReceipts",
       expect.objectContaining({ operationId: "op-prefs" }),
     );
   });
+
+  it("updates only the edited fields", async () => {
+    const { ctx, patch } = ctxFixture();
+    await callPrefs(ctx, "op-mode", { activeWorkoutMode: "list" });
+    expect(patch).toHaveBeenCalledWith("user-1", {
+      activeWorkoutMode: "list",
+      iosPreferencesOperationId: "op-mode",
+    });
+  });
+
+  it("does not replay an acknowledged operation over newer settings", async () => {
+    const { ctx, patch, insert } = ctxFixture({
+      _id: "existing",
+      appliedAt: 123,
+    });
+    expect(await callPrefs(ctx, "op-prefs", { unit: "lb" })).toEqual({
+      serverTime: 123,
+    });
+    expect(patch).not.toHaveBeenCalled();
+    expect(insert).not.toHaveBeenCalled();
+  });
+
+  it.each([NaN, Infinity, -1])(
+    "rejects invalid bar weight %s before writing",
+    async (weight) => {
+      const { ctx, patch, insert } = ctxFixture();
+      await expect(
+        callPrefs(ctx, "op-bar", { barWeightLb: weight }),
+      ).rejects.toThrow();
+      expect(patch).not.toHaveBeenCalled();
+      expect(insert).not.toHaveBeenCalled();
+    },
+  );
 });

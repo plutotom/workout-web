@@ -241,7 +241,7 @@ export type PendingExerciseNoteSync = {
 
 export type PendingPreferencesSync = {
   operationId: string;
-  snapshot: LocalGeneralPreferences;
+  snapshot: LocalGeneralPreferencePatch;
   createdAt: number;
   attemptCount: number;
 };
@@ -308,6 +308,7 @@ export type IosBootstrapPayload = {
     barWeightKg: number | null;
     activeWorkoutMode: "list" | "focus";
     restTimerEnabled: boolean;
+    operationId?: string;
   };
   templates: Array<{
     remoteId: string;

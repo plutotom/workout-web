@@ -19,6 +19,7 @@ const bootstrapResultValidator = v.union(
       barWeightKg: v.union(v.number(), v.null()),
       activeWorkoutMode: activeWorkoutModeValidator,
       restTimerEnabled: v.boolean(),
+      operationId: v.optional(v.string()),
     }),
     templates: v.array(
       v.object({
@@ -168,6 +169,7 @@ export const get = query({
         barWeightKg: user.barWeightKg ?? null,
         activeWorkoutMode: user.activeWorkoutMode ?? "list",
         restTimerEnabled: user.restTimerEnabled ?? true,
+        operationId: user.iosPreferencesOperationId,
       },
       templates: templatesWithExercises,
       places: places.map((place) => ({

@@ -14,10 +14,12 @@ import { watchHealthUuidKey, watchRecordedKey } from "@/health/watch-session";
 import { shouldAdoptCloudExerciseNote } from "@/data/local/exercise-notes-sync";
 import {
   GENERAL_PREFS_ECHO_PENDING_KEY,
+  GENERAL_PREFS_OPERATION_KEY,
   generalPreferenceBindValues,
   mergeEchoPendingPatch,
   mergeGeneralPreferences,
   normalizeCloudGeneralPreferences,
+  normalizeGeneralPreferencePatch,
   parseEchoPendingPatch,
   pickGeneralPreferences,
   resolveBootstrappedGeneralPreferences,
@@ -30,7 +32,6 @@ import type {
   LocalActiveWorkout,
   LocalCustomExercise,
   LocalGeneralPreferencePatch,
-  LocalGeneralPreferences,
   LocalHealthSummary,
   LocalMuscleGroup,
   LocalNotificationPreferences,
@@ -78,6 +79,10 @@ import {
 } from "./template-sync-storage";
 import { sessionMatchesPlace } from "@shared/place-memory";
 import { buildCatalog } from "@shared/exercises";
+import {
+  MAX_EXERCISE_NOTE_LENGTH,
+  normalizeExerciseNote,
+} from "@shared/exercise-notes";
 import {
   confirmNoteConversion,
   type NoteConversionPreview,
@@ -1003,7 +1008,7 @@ export async function saveLocalExerciseNote(
 ) {
   const now = Date.now();
   const normalized = normalizedSlug(slug);
-  const trimmed = notes.trim();
+  const trimmed = normalizeExerciseNote(notes);
   await db.withExclusiveTransactionAsync(async (txn) => {
     await txn.runAsync(
       `INSERT INTO local_exercise_notes (slug, notes, updated_at)
@@ -1035,15 +1040,25 @@ async function queueExerciseNoteSnapshot(
   now: number,
 ) {
   const snapshot: ExerciseNoteSyncSnapshot = { slug, notes };
+  const entityType =
+    notes.length > MAX_EXERCISE_NOTE_LENGTH
+      ? "exercise_note_rejected"
+      : "exercise_note";
+  await db.runAsync(
+    "DELETE FROM local_sync_outbox WHERE entity_type IN ('exercise_note', 'exercise_note_rejected') AND entity_id = ? AND entity_type != ?",
+    slug,
+    entityType,
+  );
   await db.runAsync(
     `INSERT INTO local_sync_outbox (
        entity_type, entity_id, operation_id, payload_json, created_at, attempt_count
-     ) VALUES ('exercise_note', ?, ?, ?, ?, 0)
+     ) VALUES (?, ?, ?, ?, ?, 0)
      ON CONFLICT(entity_type, entity_id) DO UPDATE SET
        operation_id = excluded.operation_id,
        payload_json = excluded.payload_json,
        created_at = excluded.created_at,
        attempt_count = 0`,
+    entityType,
     slug,
     randomUUID(),
     JSON.stringify(snapshot),
@@ -1051,11 +1066,12 @@ async function queueExerciseNoteSnapshot(
   );
 }
 
-async function queuePreferencesSnapshot(
+async function queuePreferencePatch(
   db: SQLiteDatabase,
-  snapshot: LocalGeneralPreferences,
+  snapshot: LocalGeneralPreferencePatch,
   now: number,
 ) {
+  const operationId = randomUUID();
   await db.runAsync(
     `INSERT INTO local_sync_outbox (
        entity_type, entity_id, operation_id, payload_json, created_at, attempt_count
@@ -1065,10 +1081,35 @@ async function queuePreferencesSnapshot(
        payload_json = excluded.payload_json,
        created_at = excluded.created_at,
        attempt_count = 0`,
-    randomUUID(),
+    operationId,
     JSON.stringify(snapshot),
     now,
   );
+  await db.runAsync(
+    `INSERT INTO local_metadata (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    GENERAL_PREFS_OPERATION_KEY,
+    operationId,
+  );
+}
+
+// Rapid taps and cloud bootstraps must not overlap exclusive SQLite writes.
+const preferenceWrites = new WeakMap<SQLiteDatabase, Promise<void>>();
+
+async function withPreferencesTransaction(
+  db: SQLiteDatabase,
+  operation: (txn: SQLiteDatabase) => Promise<void>,
+) {
+  const previous = preferenceWrites.get(db) ?? Promise.resolve();
+  const write = previous
+    .catch(() => {})
+    .then(() => db.withExclusiveTransactionAsync(operation));
+  preferenceWrites.set(db, write);
+  try {
+    await write;
+  } finally {
+    if (preferenceWrites.get(db) === write) preferenceWrites.delete(db);
+  }
 }
 
 /** Full authenticated remote detail needed for explicit note-edit adoption. */
@@ -1675,6 +1716,16 @@ export async function importLocalBundle(
 ): Promise<LocalImportResult> {
   const { includeNotes = true } = options;
 
+  // Validate before any local inserts: an oversized import must not partly
+  // succeed or silently cut its notes. Old portable bundle shapes still work.
+  if (includeNotes) {
+    for (const template of bundle.templates) {
+      for (const exercise of template.exercises) {
+        if (exercise.notes) normalizeExerciseNote(exercise.notes);
+      }
+    }
+  }
+
   if (bundle.templates.length === 0) {
     throw new Error("This export contains no templates");
   }
@@ -1839,7 +1890,7 @@ export async function importLocalBundle(
         normalizedSlug(slug),
       );
       if (existing?.notes?.trim()) continue;
-      await saveLocalExerciseNote(db, slug, notes.slice(0, 500));
+      await saveLocalExerciseNote(db, slug, notes);
       notesImported++;
     }
   }
@@ -2492,17 +2543,17 @@ async function remapCustomSlug(
   );
   const pendingOldNote = await txn.getFirstAsync<{ payload_json: string }>(
     `SELECT payload_json FROM local_sync_outbox
-      WHERE entity_type = 'exercise_note' AND entity_id = ?`,
+      WHERE entity_type IN ('exercise_note', 'exercise_note_rejected') AND entity_id = ?`,
     oldSlug,
   );
   const pendingNewNote = await txn.getFirstAsync<{ entity_id: string }>(
     `SELECT entity_id FROM local_sync_outbox
-      WHERE entity_type = 'exercise_note' AND entity_id = ?`,
+      WHERE entity_type IN ('exercise_note', 'exercise_note_rejected') AND entity_id = ?`,
     newSlug,
   );
   await txn.runAsync(
     `DELETE FROM local_sync_outbox
-      WHERE entity_type = 'exercise_note' AND entity_id = ?`,
+      WHERE entity_type IN ('exercise_note', 'exercise_note_rejected') AND entity_id = ?`,
     oldSlug,
   );
   if (pendingOldNote || pendingNewNote) {
@@ -2634,16 +2685,25 @@ export async function applyIosBootstrap(
 ) {
   const remapTargets: SlugRemapTargets = { sessionIds: [], templateIds: [] };
 
-  await db.withExclusiveTransactionAsync(async (txn) => {
+  await withPreferencesTransaction(db, async (txn) => {
     const local = pickGeneralPreferences(await getLocalPreferences(txn));
     const pendingRow = await txn.getFirstAsync<{ value: string }>(
       "SELECT value FROM local_metadata WHERE key = ?",
       GENERAL_PREFS_ECHO_PENDING_KEY,
     );
+    const operationRow = await txn.getFirstAsync<{ value: string }>(
+      "SELECT value FROM local_metadata WHERE key = ?",
+      GENERAL_PREFS_OPERATION_KEY,
+    );
+    const queued = await getPendingPreferencesSync(txn);
+    const operationId = operationRow?.value ?? queued?.operationId;
     const { next, remainingPending } = resolveBootstrappedGeneralPreferences({
       pending: parseEchoPendingPatch(pendingRow?.value),
       local,
       cloud: normalizeCloudGeneralPreferences(payload.preferences),
+      // Legacy guards with no operation or upload left can be retired too.
+      acknowledged:
+        !operationId || payload.preferences.operationId === operationId,
     });
     await txn.runAsync(
       `UPDATE local_preferences
@@ -2819,13 +2879,36 @@ export async function applyIosBootstrap(
     await applyPlacesBootstrap(txn, payload);
 
     const pendingNoteRows = await txn.getAllAsync<{ entity_id: string }>(
-      "SELECT entity_id FROM local_sync_outbox WHERE entity_type = 'exercise_note'",
+      "SELECT entity_id FROM local_sync_outbox WHERE entity_type IN ('exercise_note', 'exercise_note_rejected')",
     );
     const pendingNoteSlugs = new Set(
       pendingNoteRows.map((row) => row.entity_id),
     );
     for (const note of payload.exerciseNotes) {
       if (!shouldAdoptCloudExerciseNote(pendingNoteSlugs.has(note.slug))) {
+        continue;
+      }
+      const localNote = await txn.getFirstAsync<{ notes: string }>(
+        "SELECT notes FROM local_exercise_notes WHERE slug = ?",
+        note.slug,
+      );
+      if ((localNote?.notes.length ?? 0) > MAX_EXERCISE_NOTE_LENGTH) {
+        continue;
+      }
+      // Older servers cut notes at 500 characters. Restore that missing tail
+      // from the phone rather than adopting a known truncated cloud prefix.
+      if (
+        localNote &&
+        note.notes.length === 500 &&
+        localNote.notes.length > 500 &&
+        localNote.notes.startsWith(note.notes)
+      ) {
+        await queueExerciseNoteSnapshot(
+          txn,
+          note.slug,
+          localNote.notes,
+          Date.now(),
+        );
         continue;
       }
       await txn.runAsync(
@@ -2889,15 +2972,20 @@ export async function patchLocalPreferences(
   db: SQLiteDatabase,
   patch: LocalGeneralPreferencePatch,
 ) {
-  await db.withExclusiveTransactionAsync(async (txn) => {
-    const next = mergeGeneralPreferences(await getLocalPreferences(txn), patch);
+  const normalized = normalizeGeneralPreferencePatch(patch);
+  if (Object.keys(normalized).length === 0) return;
+  await withPreferencesTransaction(db, async (txn) => {
+    const next = mergeGeneralPreferences(
+      await getLocalPreferences(txn),
+      normalized,
+    );
     const pendingRow = await txn.getFirstAsync<{ value: string }>(
       "SELECT value FROM local_metadata WHERE key = ?",
       GENERAL_PREFS_ECHO_PENDING_KEY,
     );
     const pending = mergeEchoPendingPatch(
       parseEchoPendingPatch(pendingRow?.value),
-      patch,
+      normalized,
     );
     await txn.runAsync(
       `UPDATE local_preferences
@@ -2915,11 +3003,7 @@ export async function patchLocalPreferences(
         serializedPending,
       );
     }
-    await queuePreferencesSnapshot(
-      txn,
-      pickGeneralPreferences(next),
-      Date.now(),
-    );
+    await queuePreferencePatch(txn, pending, Date.now());
   });
 }
 
@@ -3138,6 +3222,17 @@ export async function completeExerciseNoteSync(
   );
 }
 
+/** Preserve legacy oversized notes locally without blocking other uploads. */
+export async function quarantineExerciseNoteSync(
+  db: SQLiteDatabase,
+  operationId: string,
+) {
+  await db.runAsync(
+    "UPDATE OR REPLACE local_sync_outbox SET entity_type = 'exercise_note_rejected' WHERE operation_id = ?",
+    operationId,
+  );
+}
+
 export async function getPendingPreferencesSync(
   db: SQLiteDatabase,
 ): Promise<PendingPreferencesSync | null> {
@@ -3154,9 +3249,23 @@ export async function getPendingPreferencesSync(
       LIMIT 1`,
   );
   if (!row) return null;
+  // Older app builds queued all fields, while metadata recorded the actual
+  // edits. Project those legacy snapshots so untouched defaults do not upload.
+  const operationRow = await db.getFirstAsync<{ value: string }>(
+    "SELECT value FROM local_metadata WHERE key = ?",
+    GENERAL_PREFS_OPERATION_KEY,
+  );
+  const pendingRow = !operationRow
+    ? await db.getFirstAsync<{ value: string }>(
+        "SELECT value FROM local_metadata WHERE key = ?",
+        GENERAL_PREFS_ECHO_PENDING_KEY,
+      )
+    : null;
   return {
     operationId: row.operation_id,
-    snapshot: JSON.parse(row.payload_json) as LocalGeneralPreferences,
+    snapshot:
+      parseEchoPendingPatch(pendingRow?.value) ??
+      (JSON.parse(row.payload_json) as LocalGeneralPreferencePatch),
     createdAt: row.created_at,
     attemptCount: row.attempt_count,
   };
