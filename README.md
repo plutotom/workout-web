@@ -118,6 +118,11 @@ This project uses [`next/font`](https://nextjs.org/docs/app/building-your-applic
 
 ## iOS Development
 
+The retained offline/account merge release gate is `pnpm test:offline-accounts`.
+It exercises real SQLite persistence and Convex handlers with isolated synthetic
+accounts. Run it alongside `pnpm test` before shipping account or sync changes;
+see [coverage, setup, and current data-preservation failures](tests/offline-accounts/README.md).
+
 Run the iOS app from the `workout-ios-v1` worktree with two terminals. The mobile app uses a custom Expo development client rather than Expo Go.
 
 ### To load onto your or your friends phone:
