@@ -1,4 +1,5 @@
 import type { Infer } from "convex/values";
+import { normalizeExerciseNote } from "../../src/lib/exercise-notes";
 
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
@@ -358,7 +359,7 @@ export async function importBundle(
       await ctx.db.insert("exerciseNotes", {
         userId,
         exerciseSlug: slug,
-        notes: notes.slice(0, 500),
+        notes: normalizeExerciseNote(notes),
       });
       notesImported++;
     }

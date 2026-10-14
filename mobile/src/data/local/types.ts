@@ -214,6 +214,38 @@ export type LocalNotificationPreferences = Pick<
   "restTimerNotificationsEnabled" | "appleHealthImportNotificationsEnabled"
 >;
 
+/** Fields the in-progress workout reads from SQLite, not Convex. */
+export type LocalGeneralPreferences = Pick<
+  LocalPreferences,
+  | "unit"
+  | "barWeightLb"
+  | "barWeightKg"
+  | "activeWorkoutMode"
+  | "restTimerEnabled"
+>;
+
+export type LocalGeneralPreferencePatch = Partial<LocalGeneralPreferences>;
+
+export type ExerciseNoteSyncSnapshot = {
+  slug: string;
+  notes: string;
+};
+
+export type PendingExerciseNoteSync = {
+  operationId: string;
+  slug: string;
+  snapshot: ExerciseNoteSyncSnapshot;
+  createdAt: number;
+  attemptCount: number;
+};
+
+export type PendingPreferencesSync = {
+  operationId: string;
+  snapshot: LocalGeneralPreferencePatch;
+  createdAt: number;
+  attemptCount: number;
+};
+
 export type PlaceSyncSnapshot = {
   clientId: string;
   name: string;
@@ -276,6 +308,7 @@ export type IosBootstrapPayload = {
     barWeightKg: number | null;
     activeWorkoutMode: "list" | "focus";
     restTimerEnabled: boolean;
+    operationId?: string;
   };
   templates: Array<{
     remoteId: string;

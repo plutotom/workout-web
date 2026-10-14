@@ -14,6 +14,11 @@ const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   complete: vi.fn(),
   quarantine: vi.fn(),
+  pendingNotes: [] as Array<{
+    operationId: string;
+    snapshot: { slug: string; notes: string };
+  }>,
+  quarantineNote: vi.fn(),
   alert: vi.fn(),
   appState: { currentState: "active" },
   stateListener: null as null | ((state: string) => void),
@@ -29,6 +34,8 @@ vi.mock("@backend/api", () => ({
           pushCustomExercise: "custom",
           pushPlace: "place",
           pushMachine: "machine",
+          pushPreferences: "preferences",
+          pushExerciseNote: "note",
           pushTemplate: "template",
         },
       },
@@ -66,6 +73,9 @@ vi.mock("@/data/local/provider", () => ({
     getPendingPlace: async () => null,
     getPendingMachine: async () => null,
     getPendingCustomExercise: async () => null,
+    getPendingPreferences: async () => null,
+    getPendingExerciseNote: async () => mocks.pendingNotes[0] ?? null,
+    quarantineExerciseNote: mocks.quarantineNote,
     getPendingSessionDelete: async () => null,
     getPendingSession: async () => null,
     getPendingTemplate: async () => mocks.pending[0] ?? null,
@@ -109,6 +119,10 @@ beforeEach(async () => {
   mocks.bootstrap = { serverTime: 1, templates: [] };
   mocks.revision = 0;
   mocks.pending = [queued("op-1")];
+  mocks.pendingNotes = [];
+  mocks.quarantineNote
+    .mockReset()
+    .mockImplementation(async () => mocks.pendingNotes.shift());
   mocks.appState.currentState = "active";
   mocks.applyBootstrap.mockReset().mockResolvedValue(undefined);
   mocks.push.mockReset().mockResolvedValue({ remoteTemplateId: "remote-1" });
@@ -218,5 +232,31 @@ describe("sync subscription and outbox coordination", () => {
     await update();
     await tick();
     expect(mocks.applyBootstrap).toHaveBeenCalledTimes(2);
+  });
+
+  it("preserves an oversized legacy note without blocking the remaining uploads", async () => {
+    mocks.pendingNotes = [
+      {
+        operationId: "legacy-note",
+        snapshot: { slug: "bench", notes: "x".repeat(10_001) },
+      },
+    ];
+    await mount();
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+    expect(mocks.quarantineNote).toHaveBeenCalledExactlyOnceWith("legacy-note");
+    expect(mocks.pendingNotes).toHaveLength(0);
+    expect(mocks.pending).toHaveLength(0);
+    expect(mocks.push).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        operationId: "op-1",
+        template: expect.anything(),
+      }),
+    );
+    expect(mocks.alert).toHaveBeenCalledWith(
+      "Exercise note saved on this phone",
+      expect.stringContaining("full text is safe"),
+    );
   });
 });

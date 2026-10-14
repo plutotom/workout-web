@@ -34,6 +34,7 @@ import { openSocialPost } from "@/lib/social-navigation";
 import { AiPromptModal } from "@/components/ai-prompt-modal";
 import { ExercisePicker } from "@/components/exercise-picker";
 import { KeyboardAwareFooterLayout } from "@/components/keyboard-aware-scroll";
+import { ExerciseNoteEditor } from "@/components/exercise-note-editor";
 import { KeyboardStickyFooter } from "@/components/keyboard-sticky-footer";
 import {
   Button,
@@ -60,6 +61,7 @@ import { useSessionAi } from "@/components/workout/use-session-ai";
 import { appleGenerateSheetCopy } from "@/lib/ai-copy";
 import { formatDate, formatDuration, formatWeight } from "@/lib/format";
 import { formatHealthDistance, formatHealthEnergy } from "@/health/mapping";
+import { inProgressWorkoutLayout } from "@/data/local/preferences";
 import {
   useLocalData,
   useLocalLastSet,
@@ -169,23 +171,27 @@ export function WorkoutScreen({ sessionId }: { sessionId: string }) {
   // The controller stays mounted across the finish transition: its post-finish
   // prompts open once the session is already `completed`, and unmounting here
   // would tear them down before the user could answer.
+  const layout =
+    session.status === "in_progress"
+      ? inProgressWorkoutLayout(session.inputMode, user.activeWorkoutMode)
+      : "completed";
   return (
     <>
       <WorkoutFinishController />
-      {session.status !== "in_progress" ? (
+      {layout === "completed" ? (
         <CompletedWorkout
           session={session}
           canDelete
           prepareNoteEdit={prepareNoteEdit}
         />
-      ) : session.inputMode === "note" ? (
+      ) : layout === "note" ? (
         <NoteWorkoutEditor
           key={session._id}
           session={session}
           subtitle={<ElapsedSubtitle startedAt={session.startedAt} />}
           placeControls={<SessionPlaceControls session={session} />}
         />
-      ) : user.activeWorkoutMode === "focus" ? (
+      ) : layout === "focus" ? (
         <FocusWorkout session={session} user={user} />
       ) : (
         <ListWorkout session={session} user={user} />
@@ -461,9 +467,10 @@ function ListWorkout({
                   </Pressable>
                 </View>
                 {collapsed[exercise._id] ? null : (
-                  <NoteField
+                  <ExerciseNoteEditor
                     initial={exercise.notes ?? ""}
                     onSave={(notes) => saveNote(exercise.slug, notes)}
+                    multiline={false}
                   />
                 )}
               </View>
@@ -734,24 +741,6 @@ function SetRow({
         }}
       />
     </>
-  );
-}
-
-function NoteField({
-  initial,
-  onSave,
-}: {
-  initial: string;
-  onSave: (notes: string) => Promise<unknown>;
-}) {
-  const [value, setValue] = useState(initial);
-  return (
-    <Field
-      value={value}
-      onChangeText={setValue}
-      onBlur={() => void onSave(value)}
-      placeholder="Exercise note"
-    />
   );
 }
 

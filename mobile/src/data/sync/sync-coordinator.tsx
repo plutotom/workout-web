@@ -16,6 +16,7 @@ import {
 } from "./template-sync-policy";
 
 import { SyncWorker } from "./sync-worker";
+import { MAX_EXERCISE_NOTE_LENGTH } from "@shared/exercise-notes";
 
 const MAX_PUSHES_PER_PASS = 20;
 
@@ -37,11 +38,14 @@ export function SyncCoordinator() {
   );
   const pushPlace = useMutation(api.routes.ios.sync.pushPlace);
   const pushMachine = useMutation(api.routes.ios.sync.pushMachine);
+  const pushPreferences = useMutation(api.routes.ios.sync.pushPreferences);
+  const pushExerciseNote = useMutation(api.routes.ios.sync.pushExerciseNote);
   const pushTemplate = useMutation(api.routes.ios.sync.pushTemplate);
   const { applyBootstrap } = useLocalData();
   const syncStore = useLocalSyncStore();
   const appliedBootstrap = useRef<typeof bootstrap>(undefined);
   const templateLimitAlertShown = useRef(false);
+  const noteLimitAlertShown = useRef(false);
 
   useEffect(() => {
     if ((bootstrap?.templates.length ?? 0) < 100) {
@@ -122,6 +126,47 @@ export function SyncCoordinator() {
           result.remoteExerciseId,
           result.slug,
         );
+        if (!canContinue()) return "idle" as const;
+        continue;
+      }
+
+      const pendingPreferences = await syncStore.getPendingPreferences();
+      if (!canContinue()) return "idle" as const;
+      if (pendingPreferences) {
+        await syncStore.notePreferencesAttempt(pendingPreferences.operationId);
+        if (!canContinue()) return "idle" as const;
+        await pushPreferences({
+          operationId: pendingPreferences.operationId,
+          deviceId,
+          preferences: pendingPreferences.snapshot,
+        });
+        await syncStore.completePreferences(pendingPreferences.operationId);
+        if (!canContinue()) return "idle" as const;
+        continue;
+      }
+
+      const pendingNote = await syncStore.getPendingExerciseNote();
+      if (!canContinue()) return "idle" as const;
+      if (pendingNote) {
+        if (pendingNote.snapshot.notes.length > MAX_EXERCISE_NOTE_LENGTH) {
+          await syncStore.quarantineExerciseNote(pendingNote.operationId);
+          if (canContinue() && !noteLimitAlertShown.current) {
+            noteLimitAlertShown.current = true;
+            Alert.alert(
+              "Exercise note saved on this phone",
+              "An older exercise note is longer than 10,000 characters. Its full text is safe on this phone. Shorten it to sync; your other changes will keep syncing.",
+            );
+          }
+          continue;
+        }
+        await syncStore.noteExerciseNoteAttempt(pendingNote.operationId);
+        if (!canContinue()) return "idle" as const;
+        await pushExerciseNote({
+          operationId: pendingNote.operationId,
+          deviceId,
+          note: pendingNote.snapshot,
+        });
+        await syncStore.completeExerciseNote(pendingNote.operationId);
         if (!canContinue()) return "idle" as const;
         continue;
       }

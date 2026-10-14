@@ -9,8 +9,10 @@ import { api } from "@backend/api";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-
-const MAX_NOTE_LENGTH = 500;
+import {
+  exerciseNoteLengthHint,
+  MAX_EXERCISE_NOTE_LENGTH,
+} from "@/lib/exercise-notes";
 
 export function ExerciseNoteField({
   exerciseSlug,
@@ -51,16 +53,17 @@ export function ExerciseNoteField({
 
   const trimmed = value.trim();
   const hasNote = trimmed.length > 0;
+  const overLimit = value.length > MAX_EXERCISE_NOTE_LENGTH;
+  const hint = exerciseNoteLengthHint(value);
 
   async function commit() {
-    if (trimmed === initial || saving) return;
+    if (trimmed === initial || saving || overLimit) return;
 
     setSaving(true);
     try {
       await upsertNote({ exerciseSlug, notes: value });
       if (compact && !trimmed) setExpanded(false);
     } catch {
-      setValue(initialNotes ?? "");
       toast.error("Couldn't save note");
     } finally {
       setSaving(false);
@@ -115,21 +118,36 @@ export function ExerciseNoteField({
   }
 
   return (
-    <Textarea
-      ref={textareaRef}
-      id={`note-${exerciseSlug}`}
-      value={value}
-      maxLength={MAX_NOTE_LENGTH}
-      placeholder="What is this exercise? Add cues for next time."
-      disabled={!editable || saving}
-      rows={2}
-      aria-label="Exercise note"
-      className="min-h-0"
-      onChange={(e) => setValue(e.target.value)}
-      onBlur={() => {
-        void commit();
-        if (compact) setExpanded(false);
-      }}
-    />
+    <div className="flex flex-col gap-1">
+      <Textarea
+        ref={textareaRef}
+        id={`note-${exerciseSlug}`}
+        value={value}
+        placeholder="What is this exercise? Add cues for next time."
+        disabled={!editable || saving}
+        rows={2}
+        aria-label="Exercise note"
+        aria-invalid={overLimit || undefined}
+        aria-describedby={hint ? `note-${exerciseSlug}-hint` : undefined}
+        className="min-h-0"
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={() => {
+          void commit();
+          if (compact && !overLimit) setExpanded(false);
+        }}
+      />
+      {hint ? (
+        <p
+          id={`note-${exerciseSlug}-hint`}
+          role="status"
+          className={cn(
+            "text-xs",
+            overLimit ? "text-destructive" : "text-muted-foreground",
+          )}
+        >
+          {hint}
+        </p>
+      ) : null}
+    </div>
   );
 }

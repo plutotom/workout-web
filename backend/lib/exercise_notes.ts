@@ -1,13 +1,9 @@
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
+import { normalizeExerciseNote } from "../../src/lib/exercise-notes";
 
-const MAX_NOTE_LENGTH = 500;
 const MAX_SLUG_LENGTH = 64;
 const MAX_SLUGS_PER_READ = 100;
-
-function normalizeNote(notes: string): string {
-  return notes.trim().slice(0, MAX_NOTE_LENGTH);
-}
 
 export async function getNotesBySlugs(
   ctx: QueryCtx,
@@ -53,7 +49,7 @@ export async function upsertExerciseNote(
     );
   }
 
-  const normalized = normalizeNote(notes);
+  const normalized = normalizeExerciseNote(notes);
   const existing = await ctx.db
     .query("exerciseNotes")
     .withIndex("by_user_slug", (q) =>

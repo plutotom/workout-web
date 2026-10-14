@@ -144,6 +144,25 @@ describe("portable import database work", () => {
   });
 });
 
+describe("exercise notes in portable imports", () => {
+  it("imports a full 10,000-character note and leaves an existing note alone", async () => {
+    const h = importHarness();
+    const payload = bundle();
+    const note = "x".repeat(10_000);
+    payload.templates[0].exercises[0].notes = note;
+    const user = "user_1" as Id<"users">;
+    expect(await importBundle(h.ctx, user, payload)).toMatchObject({
+      notesImported: 1,
+    });
+    expect(h.rows.exerciseNotes[0].notes).toBe(note);
+    payload.templates[0].exercises[0].notes = "other cue";
+    expect(await importBundle(h.ctx, user, payload)).toMatchObject({
+      notesImported: 0,
+    });
+    expect(h.rows.exerciseNotes[0].notes).toBe(note);
+  });
+});
+
 describe("convertWeight", () => {
   it("matches the shared client helper — web and iOS must convert the same way", () => {
     const cases = [

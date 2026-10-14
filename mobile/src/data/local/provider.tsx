@@ -29,8 +29,11 @@ import {
   attachExportedHealthUuid,
   attachStoredWatchHealthUuid,
   completeCustomExerciseSync,
+  completeExerciseNoteSync,
+  quarantineExerciseNoteSync,
   completeMachineSync,
   completePlaceSync,
+  completePreferencesSync,
   completeSessionDeleteSync,
   completeSessionSync,
   completeTemplateSync,
@@ -56,6 +59,8 @@ import {
   getOrCreateDeviceId,
   restoreLocalCustomExercise,
   getPendingCustomExerciseSync,
+  getPendingExerciseNoteSync,
+  getPendingPreferencesSync,
   getPendingSessionDelete,
   getPendingSessionSync,
   getPendingTemplateSync,
@@ -70,6 +75,8 @@ import {
   localSessionTemplateDiffers,
   moveLocalExercise,
   noteCustomExerciseSyncAttempt,
+  noteExerciseNoteSyncAttempt,
+  notePreferencesSyncAttempt,
   noteSessionSyncAttempt,
   noteTemplateSyncAttempt,
   queueHealthExportIfEnabled,
@@ -82,6 +89,7 @@ import {
   setHealthAuthRequested,
   setHealthAutoImportPrefs as writeHealthAutoImportPrefs,
   setHealthExportEnabled as writeHealthExportEnabled,
+  patchLocalPreferences,
   setLocalNotificationPreferences as writeLocalNotificationPreferences,
   setLocalSessionMachine,
   setLocalSessionPlace,
@@ -118,6 +126,7 @@ import type {
   LocalActiveWorkout,
   LocalCustomExercise,
   LocalMachine,
+  LocalGeneralPreferencePatch,
   LocalNotificationPreferences,
   LocalPlace,
   LocalPreferences,
@@ -264,6 +273,7 @@ type LocalDataContextValue = {
   setNotificationPreferences: (
     preferences: LocalNotificationPreferences,
   ) => Promise<void>;
+  setGeneralPreferences: (patch: LocalGeneralPreferencePatch) => Promise<void>;
   applyBootstrap: (payload: IosBootstrapPayload) => Promise<void>;
 };
 
@@ -408,6 +418,8 @@ function LocalDataState({ children }: { children: ReactNode }) {
         run(() => writeHealthAutoImportPrefs(db, prefs)),
       setNotificationPreferences: (preferences) =>
         run(() => writeLocalNotificationPreferences(db, preferences)),
+      setGeneralPreferences: (patch) =>
+        run(() => patchLocalPreferences(db, patch)),
       applyBootstrap: (payload) => run(() => applyIosBootstrap(db, payload)),
     }),
     [db, finishTracked, refresh, revision, run],
@@ -593,6 +605,8 @@ export function useLocalSyncStore() {
       getPendingCustomExercise: () => getPendingCustomExerciseSync(db),
       getPendingPlace: () => getPendingPlaceSync(db),
       getPendingMachine: () => getPendingMachineSync(db),
+      getPendingPreferences: () => getPendingPreferencesSync(db),
+      getPendingExerciseNote: () => getPendingExerciseNoteSync(db),
       noteSessionAttempt: (operationId: string) =>
         noteSessionSyncAttempt(db, operationId),
       noteTemplateAttempt: (operationId: string) =>
@@ -607,6 +621,10 @@ export function useLocalSyncStore() {
         notePlaceSyncAttempt(db, operationId),
       noteMachineAttempt: (operationId: string) =>
         noteMachineSyncAttempt(db, operationId),
+      notePreferencesAttempt: (operationId: string) =>
+        notePreferencesSyncAttempt(db, operationId),
+      noteExerciseNoteAttempt: (operationId: string) =>
+        noteExerciseNoteSyncAttempt(db, operationId),
       completePlace: async (
         operationId: string,
         placeId: string,
@@ -621,6 +639,18 @@ export function useLocalSyncStore() {
         remoteMachineId: string,
       ) => {
         await completeMachineSync(db, operationId, machineId, remoteMachineId);
+        refresh();
+      },
+      completePreferences: async (operationId: string) => {
+        await completePreferencesSync(db, operationId);
+        refresh();
+      },
+      completeExerciseNote: async (operationId: string) => {
+        await completeExerciseNoteSync(db, operationId);
+        refresh();
+      },
+      quarantineExerciseNote: async (operationId: string) => {
+        await quarantineExerciseNoteSync(db, operationId);
         refresh();
       },
       completeCustomExercise: async (

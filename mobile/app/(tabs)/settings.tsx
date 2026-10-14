@@ -17,21 +17,14 @@ import {
   Shield,
   Trash2,
 } from "lucide-react-native";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { Alert, Modal, Pressable, Text, View } from "react-native";
 
 import { useMobileAuth } from "@/auth/auth-provider";
-import {
-  Button,
-  Card,
-  Field,
-  FullScreenLoader,
-  Screen,
-  SectionTitle,
-  Segmented,
-} from "@/components/ui";
+import { Button, Card, Field, Screen, SectionTitle } from "@/components/ui";
 import { DescribeWithAiButton } from "@/components/describe-with-ai-button";
 import { DevProOverrideCard } from "@/components/settings/dev-pro-override-card";
+import { GeneralPreferencesCard } from "@/components/settings/general-preferences-card";
 import { NotificationSettingsCard } from "@/components/settings/notification-settings-card";
 import { useEntitlement } from "@/hooks/use-entitlement";
 import { PlacesSettingsCard } from "@/components/settings/places-settings-card";
@@ -45,35 +38,45 @@ import { pickBackupFile, shareBackupFile } from "@/lib/workout-transfer";
 import { HealthSettingsCard } from "@/health/health-settings-card";
 import { colors } from "@/theme";
 
-const unitOptions = [
-  { value: "lb", label: "lb" },
-  { value: "kg", label: "kg" },
-] as const;
-const modeOptions = [
-  { value: "list", label: "List", hint: "All sets" },
-  { value: "focus", label: "Focus", hint: "One at a time" },
-] as const;
-const restOptions = [
-  { value: "on", label: "On" },
-  { value: "off", label: "Off" },
-] as const;
-
 export default function SettingsScreen() {
-  const { isAuthenticated, accountStatus } = useMobileAuth();
-  if (accountStatus === "connecting")
-    return <FullScreenLoader label="Loading settings…" />;
-  if (!isAuthenticated) return <OfflineSettingsScreen />;
-  return <AuthenticatedSettingsScreen />;
+  const { isAuthenticated } = useMobileAuth();
+  const user = useQuery(
+    api.routes.auth.users.current,
+    isAuthenticated ? {} : "skip",
+  );
+
+  // These local controls stay mounted while auth connects or reconnects.
+  return (
+    <Screen>
+      {isAuthenticated ? (
+        <Card>
+          <Settings2 color={colors.text} size={22} />
+          <Text style={{ color: colors.text, fontSize: 30, fontWeight: "700" }}>
+            App controls
+          </Text>
+          {user ? (
+            <Field label="Email" value={user.email} editable={false} />
+          ) : (
+            <Text style={{ color: colors.dim, fontSize: 13 }}>
+              Loading account…
+            </Text>
+          )}
+        </Card>
+      ) : (
+        <OfflineAccountCard />
+      )}
+      <GeneralPreferencesCard />
+      <PlacesSettingsCard />
+      <HealthSettingsCard />
+      <NotificationSettingsCard />
+      <BackupCard signedIn={isAuthenticated} />
+      <DevProOverrideCard />
+      {isAuthenticated && user ? <SettingsContent /> : null}
+    </Screen>
+  );
 }
 
-function AuthenticatedSettingsScreen() {
-  const user = useQuery(api.routes.auth.users.current);
-  if (user === undefined) return <FullScreenLoader label="Loading settings…" />;
-  if (!user) return <OfflineSettingsScreen />;
-  return <SettingsContent user={user} />;
-}
-
-function OfflineSettingsScreen() {
+function OfflineAccountCard() {
   const { signIn, signOut, user, accountStatus, retryAccountConnection } =
     useMobileAuth();
   const [connecting, setConnecting] = useState(false);
@@ -94,242 +97,47 @@ function OfflineSettingsScreen() {
   }
 
   return (
-    <Screen>
-      <Card>
-        <Settings2 color={colors.text} size={22} />
-        <Text style={{ color: colors.text, fontSize: 28, fontWeight: "700" }}>
-          {accountStatus === "connecting"
-            ? "Connecting account…"
+    <Card>
+      <Settings2 color={colors.text} size={22} />
+      <Text style={{ color: colors.text, fontSize: 28, fontWeight: "700" }}>
+        {accountStatus === "connecting"
+          ? "Connecting account…"
+          : user
+            ? "Account unavailable"
+            : "Offline mode"}
+      </Text>
+      <Text style={{ color: colors.dim, fontSize: 13, lineHeight: 19 }}>
+        {user
+          ? "Your account connection isn’t ready. Workouts remain saved on this phone, and cloud sync will resume when your account connects."
+          : "Workouts are saved on this phone. Connect your account whenever you want to synchronize them with Grayed Lift on the web."}
+      </Text>
+      <Button
+        label={
+          connecting
+            ? "Connecting…"
             : user
-              ? "Account unavailable"
-              : "Offline mode"}
-        </Text>
-        <Text style={{ color: colors.dim, fontSize: 13, lineHeight: 19 }}>
-          {user
-            ? "Your account connection isn’t ready. Workouts remain saved on this phone, and cloud sync will resume when your account connects."
-            : "Workouts are saved on this phone. Connect your account whenever you want to synchronize them with Grayed Lift on the web."}
-        </Text>
+              ? "Retry connection"
+              : "Connect account"
+        }
+        disabled={connecting || accountStatus === "connecting"}
+        onPress={() => void connectAccount()}
+      />
+      {user ? (
         <Button
-          label={
-            connecting
-              ? "Connecting…"
-              : user
-                ? "Retry connection"
-                : "Connect account"
-          }
-          disabled={connecting || accountStatus === "connecting"}
-          onPress={() => void connectAccount()}
+          label="Sign out"
+          variant="ghost"
+          onPress={() => void signOut()}
         />
-        {user ? (
-          <Button
-            label="Sign out"
-            variant="ghost"
-            onPress={() => void signOut()}
-          />
-        ) : null}
-      </Card>
-      <HealthSettingsCard />
-      <NotificationSettingsCard />
-      <PlacesSettingsCard />
-      <BackupCard signedIn={false} />
-      <DevProOverrideCard />
-    </Screen>
+      ) : null}
+    </Card>
   );
 }
 
-function SettingsContent({
-  user,
-}: {
-  user: NonNullable<
-    ReturnType<typeof useQuery<typeof api.routes.auth.users.current>>
-  >;
-}) {
-  const [unit, setUnitValue] = useState<"lb" | "kg">(user.unit);
-  const [bar, setBarValue] = useState(
-    String(
-      user.unit === "lb" ? (user.barWeightLb ?? 45) : (user.barWeightKg ?? 20),
-    ),
-  );
-  const [mode, setMode] = useState<"list" | "focus">(
-    user.activeWorkoutMode ?? "list",
-  );
-  const [rest, setRest] = useState<"on" | "off">(
-    (user.restTimerEnabled ?? true) ? "on" : "off",
-  );
-  const [saveState, setSaveState] = useState<
-    "idle" | "saving" | "saved" | "error"
-  >("idle");
-  const saveSequence = useRef(0);
-  const barSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const setUnit = useMutation(api.routes.auth.users.setUnit);
-  const setBar = useMutation(api.routes.auth.users.setBar);
-  const setActiveWorkoutMode = useMutation(
-    api.routes.auth.users.setActiveWorkoutMode,
-  );
-  const setRestTimerEnabled = useMutation(
-    api.routes.auth.users.setRestTimerEnabled,
-  );
+function SettingsContent() {
   const { signOut } = useMobileAuth();
 
-  async function persist(change: () => Promise<unknown>) {
-    const sequence = ++saveSequence.current;
-    setSaveState("saving");
-    try {
-      await change();
-      if (sequence === saveSequence.current) setSaveState("saved");
-    } catch {
-      if (sequence === saveSequence.current) setSaveState("error");
-    }
-  }
-
-  function clearQueuedBarSave() {
-    if (barSaveTimer.current) {
-      clearTimeout(barSaveTimer.current);
-      barSaveTimer.current = null;
-    }
-  }
-
-  function saveBarValue(value: string) {
-    clearQueuedBarSave();
-    void persist(() =>
-      setBar({ unit, barWeight: value === "" ? 0 : Number(value) }),
-    );
-  }
-
-  function queueBarSave(value: string) {
-    clearQueuedBarSave();
-    if (value === "") return;
-    barSaveTimer.current = setTimeout(() => {
-      barSaveTimer.current = null;
-      void persist(() => setBar({ unit, barWeight: Number(value) }));
-    }, 450);
-  }
-
   return (
-    <Screen>
-      <Card>
-        <Settings2 color={colors.text} size={22} />
-        <Text
-          style={{
-            color: colors.dim,
-            fontSize: 11,
-            fontWeight: "700",
-            letterSpacing: 2,
-          }}
-        >
-          SETTINGS
-        </Text>
-        <Text style={{ color: colors.text, fontSize: 30, fontWeight: "700" }}>
-          App controls
-        </Text>
-        <Text style={{ color: colors.dim, fontSize: 13 }}>
-          Units, bar defaults, plan, and external access.
-        </Text>
-      </Card>
-      <Card>
-        <SectionTitle title="General" />
-        <Field label="Email" value={user.email} editable={false} />
-        <View style={{ gap: 7 }}>
-          <Text style={{ color: colors.text, fontSize: 13, fontWeight: "600" }}>
-            Default unit
-          </Text>
-          <Segmented
-            value={unit}
-            options={unitOptions}
-            onChange={(next) => {
-              clearQueuedBarSave();
-              setUnitValue(next);
-              setBarValue(
-                String(
-                  next === "lb"
-                    ? (user.barWeightLb ?? 45)
-                    : (user.barWeightKg ?? 20),
-                ),
-              );
-              void persist(() => setUnit({ unit: next }));
-            }}
-          />
-          <Text style={{ color: colors.dim, fontSize: 11 }}>
-            New weights are entered in this unit.
-          </Text>
-        </View>
-        <View style={{ gap: 7 }}>
-          <Text style={{ color: colors.text, fontSize: 13, fontWeight: "600" }}>
-            Active workout view
-          </Text>
-          <Segmented
-            value={mode}
-            options={modeOptions}
-            onChange={(next) => {
-              setMode(next);
-              void persist(() => setActiveWorkoutMode({ mode: next }));
-            }}
-          />
-          <Text style={{ color: colors.dim, fontSize: 11 }}>
-            Switching during a workout is safe; both views share the same
-            session.
-          </Text>
-        </View>
-        <View style={{ gap: 7 }}>
-          <Text style={{ color: colors.text, fontSize: 13, fontWeight: "600" }}>
-            Rest timer
-          </Text>
-          <Segmented
-            value={rest}
-            options={restOptions}
-            onChange={(next) => {
-              setRest(next);
-              void persist(() =>
-                setRestTimerEnabled({ enabled: next === "on" }),
-              );
-            }}
-          />
-        </View>
-        <Field
-          label={`Default bar (${unit})`}
-          value={bar}
-          onChangeText={(value) => {
-            const next = value.replace(/\D/g, "");
-            setBarValue(next);
-            queueBarSave(next);
-          }}
-          onBlur={() => {
-            if (barSaveTimer.current || bar === "") saveBarValue(bar);
-          }}
-          keyboardType="number-pad"
-        />
-        <View style={{ flexDirection: "row", gap: 8 }}>
-          {(unit === "lb" ? [35, 45] : [15, 20]).map((preset) => (
-            <Button
-              key={preset}
-              label={`${preset} ${unit}`}
-              variant={Number(bar) === preset ? "primary" : "outline"}
-              size="sm"
-              onPress={() => {
-                const next = String(preset);
-                setBarValue(next);
-                saveBarValue(next);
-              }}
-            />
-          ))}
-        </View>
-        <Text
-          accessibilityLiveRegion="polite"
-          style={{
-            color: saveState === "error" ? colors.danger : colors.dim,
-            fontSize: 11,
-          }}
-        >
-          {saveState === "saving"
-            ? "Saving changes…"
-            : saveState === "error"
-              ? "Couldn’t save. Check your connection and try again."
-              : saveState === "saved"
-                ? "Changes saved automatically."
-                : "Changes save automatically."}
-        </Text>
-      </Card>
-      <PlacesSettingsCard />
+    <>
       <Card>
         <Share2 color={colors.text} size={22} strokeWidth={2.3} />
         <SectionTitle title="Share with someone" />
@@ -351,10 +159,6 @@ function SettingsContent({
         />
         <RemoveDuplicateTemplatesButton />
       </Card>
-      <HealthSettingsCard />
-      <NotificationSettingsCard />
-      <BackupCard signedIn />
-      <DevProOverrideCard />
       <PlanCard />
       <AdminCard />
       <McpCard />
@@ -374,7 +178,7 @@ function SettingsContent({
           ])
         }
       />
-    </Screen>
+    </>
   );
 }
 

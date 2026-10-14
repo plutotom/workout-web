@@ -9,19 +9,18 @@ import {
   Platform,
   Pressable,
   Text,
-  TextInput,
   View,
 } from "react-native";
 
 import { muscleGroupLabel } from "@shared/exercise-browser";
 
 import { useMobileAuth } from "@/auth/auth-provider";
+import { ExerciseNoteEditor } from "@/components/exercise-note-editor";
 import {
   CustomExerciseEditor,
   type EditableCustomExercise,
 } from "@/components/custom-exercise-editor";
 import {
-  Button,
   Card,
   FullScreenLoader,
   PageHeader,
@@ -87,7 +86,6 @@ export default function ExerciseDetailScreen() {
   const [tab, setTab] = useState<Tab>("summary");
   const [metric, setMetric] = useState<ChartMetric>("weight");
   const [editOpen, setEditOpen] = useState(false);
-  const [noteDraft, setNoteDraft] = useState<string | null>(null);
 
   const remoteHistory = useQuery(
     api.routes.insights.queries.exerciseHistory,
@@ -123,9 +121,6 @@ export default function ExerciseDetailScreen() {
     const chronological = [...history.sessions].reverse().slice(-16);
     return chronological.map((session) => sessionMetric(session, metric));
   }, [history, metric]);
-
-  const savedNote = notes?.[slug] ?? "";
-  const noteValue = noteDraft ?? savedNote;
 
   const editExercise: EditableCustomExercise | undefined = customRow
     ? {
@@ -186,12 +181,6 @@ export default function ExerciseDetailScreen() {
             onPress: () => void archiveCustomExercise(customRow._id),
           },
     ]);
-  }
-
-  async function commitNote() {
-    if (noteDraft === null || noteDraft === savedNote) return;
-    await saveNote(slug, noteDraft);
-    setNoteDraft(null);
   }
 
   if (!slug) return <FullScreenLoader label="Loading exercise…" />;
@@ -318,23 +307,11 @@ export default function ExerciseDetailScreen() {
           </Card>
 
           <SectionTitle title="Your notes" />
-          <TextInput
-            value={noteValue}
-            onChangeText={setNoteDraft}
-            onBlur={() => void commitNote()}
+          <ExerciseNoteEditor
+            key={slug}
+            initial={notes?.[slug] ?? ""}
+            onSave={(note) => saveNote(slug, note)}
             placeholder="What is this exercise? Add cues for next time."
-            placeholderTextColor={colors.faint}
-            multiline
-            style={{
-              minHeight: 88,
-              borderWidth: 1,
-              borderColor: colors.input,
-              borderRadius: radius.md,
-              color: colors.text,
-              padding: 12,
-              fontSize: 15,
-              textAlignVertical: "top",
-            }}
           />
 
           <SectionTitle title="Used in templates" />

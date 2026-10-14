@@ -25,8 +25,13 @@ import {
   exerciseInputValidator,
   updateTemplate as updateTemplateLib,
 } from "../../lib/templates";
+import { upsertExerciseNote } from "../../lib/exercise_notes";
 import { deleteWorkout } from "../../lib/workouts";
-import { muscleGroupValidator } from "../../schemas/exercises";
+import {
+  exerciseSlugValidator,
+  muscleGroupValidator,
+} from "../../schemas/exercises";
+import { activeWorkoutModeValidator, unitValidator } from "../../schemas/users";
 import {
   healthSegmentValidator,
   sessionKindValidator,
@@ -325,6 +330,76 @@ export const pushCustomExercise = mutation({
       slug: result.slug,
       serverTime: Date.now(),
     };
+  },
+});
+
+/**
+ * Upload one per-lift note authored on the phone. Empty notes clear the
+ * Convex row. Receipts make retries idempotent.
+ */
+export const pushExerciseNote = mutation({
+  args: {
+    operationId: v.string(),
+    deviceId: v.string(),
+    note: v.object({
+      slug: exerciseSlugValidator,
+      notes: v.string(),
+    }),
+  },
+  returns: v.object({
+    serverTime: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const user = await requireUser(ctx);
+    const duplicate = await findReceipt(ctx, user._id, args.operationId);
+    if (duplicate) return { serverTime: duplicate.appliedAt };
+    await upsertExerciseNote(ctx, user._id, args.note.slug, args.note.notes);
+    await writeReceipt(ctx, user._id, args);
+
+    return { serverTime: Date.now() };
+  },
+});
+
+/**
+ * Upload only general Settings fields edited on the phone. Local edits win;
+ * receipts keep a lost acknowledgment from applying the same edit twice.
+ */
+export const pushPreferences = mutation({
+  args: {
+    operationId: v.string(),
+    deviceId: v.string(),
+    preferences: v.object({
+      unit: v.optional(unitValidator),
+      barWeightLb: v.optional(v.number()),
+      barWeightKg: v.optional(v.number()),
+      activeWorkoutMode: v.optional(activeWorkoutModeValidator),
+      restTimerEnabled: v.optional(v.boolean()),
+    }),
+  },
+  returns: v.object({
+    serverTime: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const user = await requireUser(ctx);
+    const duplicate = await findReceipt(ctx, user._id, args.operationId);
+    if (duplicate) return { serverTime: duplicate.appliedAt };
+
+    const preferences = { ...args.preferences };
+    for (const key of ["barWeightLb", "barWeightKg"] as const) {
+      const weight = preferences[key];
+      if (weight === undefined) continue;
+      if (!Number.isFinite(weight) || weight < 0) {
+        throw new Error("Bar weight must be a finite, non-negative number");
+      }
+      preferences[key] = Math.round(weight);
+    }
+    await ctx.db.patch(user._id, {
+      ...preferences,
+      iosPreferencesOperationId: args.operationId,
+    });
+    await writeReceipt(ctx, user._id, args);
+
+    return { serverTime: Date.now() };
   },
 });
 
