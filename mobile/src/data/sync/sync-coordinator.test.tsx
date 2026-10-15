@@ -66,8 +66,12 @@ vi.mock("react-native", () => ({
   },
 }));
 vi.mock("@/data/local/provider", () => ({
-  useLocalData: () => ({ applyBootstrap: mocks.applyBootstrap }),
+  useLocalData: () => ({
+    applyBootstrap: mocks.applyBootstrap,
+    owner: "user-1",
+  }),
   useLocalSyncStore: () => ({
+    ownsAccount: async () => true,
     revision: mocks.revision,
     getDeviceId: async () => "device-1",
     getPendingPlace: async () => null,

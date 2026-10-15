@@ -25,6 +25,7 @@ import { Button, Card, Field, Screen, SectionTitle } from "@/components/ui";
 import { DescribeWithAiButton } from "@/components/describe-with-ai-button";
 import { DevProOverrideCard } from "@/components/settings/dev-pro-override-card";
 import { GeneralPreferencesCard } from "@/components/settings/general-preferences-card";
+import { DataRecoveryCard } from "@/components/settings/data-recovery-card";
 import { NotificationSettingsCard } from "@/components/settings/notification-settings-card";
 import { useEntitlement } from "@/hooks/use-entitlement";
 import { PlacesSettingsCard } from "@/components/settings/places-settings-card";
@@ -70,6 +71,7 @@ export default function SettingsScreen() {
       <HealthSettingsCard />
       <NotificationSettingsCard />
       <BackupCard signedIn={isAuthenticated} />
+      <DataRecoveryCard />
       <DevProOverrideCard />
       {isAuthenticated && user ? <SettingsContent /> : null}
     </Screen>

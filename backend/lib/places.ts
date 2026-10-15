@@ -201,11 +201,12 @@ export async function upsertPlaceFromClient(
   const normalized = normalizePlaceName(args.name);
   const places = await userPlaces(ctx, userId);
   const byClient = places.find((place) => place.clientId === args.clientId);
+  const byRemote = places.find((place) => place._id === args.clientId);
   const byName = places.find(
     (place) =>
       !place.archived && placeNameKey(place.name) === placeNameKey(normalized),
   );
-  const existing = byClient ?? byName ?? null;
+  const existing = byClient ?? byRemote ?? byName ?? null;
 
   if (existing) {
     const starred = args.archived ? false : args.starred || existing.starred;
@@ -282,6 +283,16 @@ export async function upsertMachineFromClient(
       q.eq("userId", userId).eq("clientId", args.clientId),
     )
     .first();
+  const remoteMachineId = ctx.db.normalizeId("machines", args.clientId);
+  const remoteMachine = remoteMachineId
+    ? await ctx.db.get(remoteMachineId)
+    : null;
+  const existingByRemote =
+    remoteMachine?.userId === userId &&
+    remoteMachine.placeId === place._id &&
+    remoteMachine.exerciseSlug === args.exerciseSlug
+      ? remoteMachine
+      : null;
   const siblings = await listMachinesForLift(
     ctx,
     userId,
@@ -290,6 +301,7 @@ export async function upsertMachineFromClient(
   );
   const existing =
     existingByClient ??
+    existingByRemote ??
     siblings.find(
       (machine) => placeNameKey(machine.name) === placeNameKey(normalized),
     ) ??

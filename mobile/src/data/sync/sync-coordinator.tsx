@@ -27,9 +27,11 @@ const MAX_PUSHES_PER_PASS = 20;
  */
 export function SyncCoordinator() {
   const { isAuthenticated, user } = useMobileAuth();
+  const { applyBootstrap, owner } = useLocalData();
+  const scopeReady = isAuthenticated && owner === user?.id;
   const bootstrap = useQuery(
     api.routes.ios.bootstrap.get,
-    isAuthenticated ? {} : "skip",
+    scopeReady ? {} : "skip",
   );
   const pushSession = useMutation(api.routes.ios.sync.pushSession);
   const deleteSession = useMutation(api.routes.ios.sync.deleteSession);
@@ -41,7 +43,6 @@ export function SyncCoordinator() {
   const pushPreferences = useMutation(api.routes.ios.sync.pushPreferences);
   const pushExerciseNote = useMutation(api.routes.ios.sync.pushExerciseNote);
   const pushTemplate = useMutation(api.routes.ios.sync.pushTemplate);
-  const { applyBootstrap } = useLocalData();
   const syncStore = useLocalSyncStore();
   const appliedBootstrap = useRef<typeof bootstrap>(undefined);
   const templateLimitAlertShown = useRef(false);
@@ -54,7 +55,15 @@ export function SyncCoordinator() {
   }, [bootstrap?.templates.length]);
 
   async function drain(canContinue: () => boolean) {
-    if (!canContinue()) return "idle" as const;
+    if (
+      !canContinue() ||
+      !owner ||
+      owner !== user?.id ||
+      !(await syncStore.ownsAccount(owner))
+    )
+      return "idle" as const;
+    if (bootstrap?.ownerWorkosId && bootstrap.ownerWorkosId !== owner)
+      return "idle" as const;
     // Pull and acknowledge are serialized: a cloud echo cannot insert a
     // second local identity while an upload's acknowledgment is in flight.
     if (bootstrap && appliedBootstrap.current !== bootstrap) {
@@ -74,6 +83,7 @@ export function SyncCoordinator() {
         await syncStore.notePlaceAttempt(pendingPlace.operationId);
         if (!canContinue()) return "idle" as const;
         const result = await pushPlace({
+          ownerWorkosId: owner,
           operationId: pendingPlace.operationId,
           deviceId,
           place: pendingPlace.snapshot,
@@ -93,6 +103,7 @@ export function SyncCoordinator() {
         await syncStore.noteMachineAttempt(pendingMachine.operationId);
         if (!canContinue()) return "idle" as const;
         const result = await pushMachine({
+          ownerWorkosId: owner,
           operationId: pendingMachine.operationId,
           deviceId,
           machine: pendingMachine.snapshot,
@@ -116,6 +127,7 @@ export function SyncCoordinator() {
         await syncStore.noteCustomExerciseAttempt(pendingExercise.operationId);
         if (!canContinue()) return "idle" as const;
         const result = await pushCustomExercise({
+          ownerWorkosId: owner,
           operationId: pendingExercise.operationId,
           deviceId,
           exercise: pendingExercise.snapshot,
@@ -136,6 +148,7 @@ export function SyncCoordinator() {
         await syncStore.notePreferencesAttempt(pendingPreferences.operationId);
         if (!canContinue()) return "idle" as const;
         await pushPreferences({
+          ownerWorkosId: owner,
           operationId: pendingPreferences.operationId,
           deviceId,
           preferences: pendingPreferences.snapshot,
@@ -161,12 +174,16 @@ export function SyncCoordinator() {
         }
         await syncStore.noteExerciseNoteAttempt(pendingNote.operationId);
         if (!canContinue()) return "idle" as const;
-        await pushExerciseNote({
+        const result = await pushExerciseNote({
+          ownerWorkosId: owner,
           operationId: pendingNote.operationId,
           deviceId,
           note: pendingNote.snapshot,
         });
-        await syncStore.completeExerciseNote(pendingNote.operationId);
+        await syncStore.completeExerciseNote(
+          pendingNote.operationId,
+          result.revision,
+        );
         if (!canContinue()) return "idle" as const;
         continue;
       }
@@ -177,6 +194,7 @@ export function SyncCoordinator() {
         await syncStore.noteSessionAttempt(pendingDelete.operationId);
         if (!canContinue()) return "idle" as const;
         await deleteSession({
+          ownerWorkosId: owner,
           operationId: pendingDelete.operationId,
           deviceId,
           session: pendingDelete.snapshot,
@@ -192,6 +210,7 @@ export function SyncCoordinator() {
         await syncStore.noteSessionAttempt(pendingSession.operationId);
         if (!canContinue()) return "idle" as const;
         const result = await pushSession({
+          ownerWorkosId: owner,
           operationId: pendingSession.operationId,
           deviceId,
           session: {
@@ -246,6 +265,7 @@ export function SyncCoordinator() {
           continue;
         }
         const result = await pushTemplate({
+          ownerWorkosId: owner,
           operationId: pendingTemplate.operationId,
           deviceId,
           template: {
@@ -303,15 +323,15 @@ export function SyncCoordinator() {
       );
     workerRef.current = worker;
     appliedBootstrap.current = undefined;
-    worker.setEnabled(isAuthenticated && AppState.currentState === "active");
+    worker.setEnabled(scopeReady && AppState.currentState === "active");
     const subscription = AppState.addEventListener("change", (state) => {
-      worker.setEnabled(isAuthenticated && state === "active");
+      worker.setEnabled(scopeReady && state === "active");
     });
     return () => {
       worker.setEnabled(false);
       subscription.remove();
     };
-  }, [isAuthenticated, user?.id]);
+  }, [scopeReady, user?.id]);
 
   useEffect(() => {
     workerRef.current?.wake();

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync, backup } from "node:sqlite";
 import { setImmediate as nextTurn } from "node:timers/promises";
 import { getFunctionName } from "convex/server";
 import { convexTest } from "convex-test";
@@ -22,6 +22,12 @@ vi.mock("expo-sqlite", async () => {
   const React = await import("react");
   const context = React.createContext(null);
   return {
+    openDatabaseAsync: async (name) => native.phone.database(name).db,
+    backupDatabaseAsync: async ({ sourceDatabase, destDatabase }) =>
+      backup(
+        sourceDatabase.testSql,
+        destDatabase.testSql.prepare("PRAGMA database_list").get().file,
+      ),
     SQLiteProvider: ({ children, databaseName, onInit }) => {
       const phone = native.phone;
       const record = React.useMemo(
@@ -70,6 +76,14 @@ vi.mock("@/health/watch-bridge", () => ({
 vi.mock("@/auth/auth-provider", async () => {
   const React = await import("react");
   return {
+    useAuthCredentials: () => {
+      const phone = native.phone;
+      const state = React.useSyncExternalStore(
+        phone.auth.subscribe,
+        phone.auth.getSnapshot,
+      );
+      return state;
+    },
     useMobileAuth: () => {
       const phone = native.phone;
       const state = React.useSyncExternalStore(
@@ -126,6 +140,8 @@ function sqliteAdapter(sql) {
   const bindings = (args) =>
     args.length === 1 && Array.isArray(args[0]) ? args[0] : args;
   const db = {
+    testSql: sql,
+    closeAsync: async () => {}, // Connections are closed by PhoneScenario lifecycle.
     execAsync: async (query) => sql.exec(query),
     runAsync: async (query, ...args) =>
       sql.prepare(query).run(...bindings(args)),
@@ -377,7 +393,14 @@ export class PhoneScenario {
     if (!this.online) throw new TypeError("Network request failed");
     this.inflight++;
     try {
-      const work = this.as(subject).mutation(reference, args);
+      const index = this.faults.findIndex((fault) => fault.name === name);
+      const fault = index < 0 ? null : this.faults.splice(index, 1)[0];
+      if (fault?.beforeCommit) await fault.beforeCommit(call);
+      const dispatchedSubject = fault?.routeToCurrentIdentity
+        ? this.auth.getSnapshot().user?.id
+        : subject;
+      call.dispatchedSubject = dispatchedSubject;
+      const work = this.as(dispatchedSubject).mutation(reference, args);
       this.serverWork.add(work);
       let result;
       try {
@@ -386,8 +409,6 @@ export class PhoneScenario {
         this.serverWork.delete(work);
       }
       call.committed = true;
-      const index = this.faults.findIndex((fault) => fault.name === name);
-      const fault = index < 0 ? null : this.faults.splice(index, 1)[0];
       if (fault?.afterCommit) await fault.afterCommit(call, result);
       if (fault?.loseResponse)
         throw new TypeError("Response lost after server commit");
@@ -421,6 +442,27 @@ export class PhoneScenario {
     });
     return {
       committed: committed.promise,
+      release: () => {
+        this.heldResponses.delete(release.resolve);
+        release.resolve();
+      },
+    };
+  }
+
+  holdNextRequest(name) {
+    const started = deferred();
+    const release = deferred();
+    this.heldResponses.add(release.resolve);
+    this.faults.push({
+      name,
+      routeToCurrentIdentity: true,
+      beforeCommit: async (call) => {
+        started.resolve(call);
+        await release.promise;
+      },
+    });
+    return {
+      started: started.promise,
       release: () => {
         this.heldResponses.delete(release.resolve);
         release.resolve();

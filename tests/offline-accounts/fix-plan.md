@@ -1,121 +1,80 @@
-# Data preservation fixes
+# Account data preservation: implementation and rollout
 
-The six failing lifecycle cases cover five defects in existing sync/storage
-behavior. Fix the implementation while keeping the assertions strict. Account
-isolation comes first because it affects every other migration and merge.
+## Agreed behavior
 
-## 1. Isolate accounts and guest storage
+- Genuine guest workouts merge automatically on sign-in or account creation.
+- Signed-out account data and unsynced changes stay privately on the phone and
+  resume only when that account returns.
+- When older phone/cloud notes disagree without reliable ordering, phone text
+  wins and cloud text remains recoverable.
+- Existing account units govern guest merges. Distinct templates are additive;
+  ambiguous historical ownership is never assigned to the next login.
 
-`LocalDatabaseProvider` currently mounts one database for everyone. Sign-out
-clears credentials, while pending rows remain available to the next account's
-coordinator. Backend authorization correctly identifies the current account; it
-cannot infer that a client payload actually belonged to someone else.
+## Implemented protections
 
-- Give the guest and each WorkOS user a separate durable storage partition.
-  Persist ownership independently of tokens, which can expire or be removed.
-- Gate sync on agreement between the loaded partition owner, authenticated
-  subject, and bootstrapped account. Key the coordinator to that ownership scope.
-- Stop the old worker before changing partitions. Old responses may acknowledge
-  only their original partition and generation; they must never affect B's state.
-- Treat guest adoption as an explicit, resumable merge with a durable journal and
-  stable operation IDs. Copy genuine guest data into the destination account;
-  keep the source until the destination's durable writes are confirmed.
-- Back up the legacy database before migration. Where existing ownership can be
-  established, migrate to that account without losing rows or pending operations.
-  A legacy database with no trustworthy owner must remain recoverable and must
-  not silently become guest data or upload into the next account.
+`storage-scopes.ts` partitions guest and account SQLite files, persists ownership,
+and journals guest transfers with stable IDs. Destination writes and an immutable
+source snapshot commit before guest cleanup. A crash resumes the claimed owner's
+transfer rather than adopting it into whichever account next signs in.
 
-Expand the account-switch case to cover session/template data, in-flight uploads,
-offline switching, migration interruption, and recovery of both partitions.
+Sync checks the loaded partition, authenticated subject, and bootstrap owner.
+Every iOS mutation also accepts an optional expected WorkOS subject and rejects
+mismatches. Optional fields preserve old-client/schema compatibility. An in-flight
+request or acknowledgment remains bound to its original partition.
 
-## 2. Preserve the physical meaning of weights
+Unstamped old shared databases remain untouched and recoverable. A last-used login
+is not proof of who authored offline rows. Explicitly owned legacy files migrate
+only to their owner and retain the original file. Settings exports an in-memory
+migrated clone for manual recovery without modifying the source. Backup restores trust remote IDs only when already present in the current
+account partition and consistently remap custom lifts before merging. Data and
+upload intent commit together. Restores into an established different-unit
+account convert prescriptions, so another account's backup cannot disappear,
+block the upload queue, or silently reinterpret weights.
 
-Bootstrap currently changes a global unit preference without converting bare
-numbers in workouts/templates. A guest unit preference can also relabel existing
-account data. Preference acknowledgments alone cannot solve this.
+Guest merging converts workouts, target weights, template presets, gym/machine
+memories, and queued/quarantined snapshots into the account unit. Only imported
+rows convert when an account already has local state. Zero presets and captured
+free-text note units retain their meaning. This fixes guest/bootstrap conversion;
+it is not a redesign of historical units throughout web and mobile. Already
+mislabelled historical numbers need evidence-backed recovery, not guessed backfills.
 
-- Capture the source unit before bootstrap/merge. Persist it with queued
-  snapshots and stored workout/template data, rather than inferring it later from
-  whichever account is signed in.
-- Keep an existing account's display unit during guest adoption. Convert guest
-  copies into that unit, or store an explicit source unit and convert for display.
-  Do not let guest preferences silently change the existing account's unit.
-- Make unit changes a consistent web/mobile data contract: recorded weights
-  retain their original meaning, and display preferences change their rendering.
-  Cover target weights, completed sets, template presets, gym/machine memories,
-  and custom lifts. Preserve zero presets and captured `noteUnit` values.
-- Add new Convex/wire fields as optional. Deploy server support before clients
-  emit them. Define an explicit fallback for legacy clients/rows and retain old
-  import fixtures. Backfill only from trustworthy unit information; do not
-  blindly multiply existing production weights.
+Template adoption requires the full ordered prescription to match. Different
+same-name templates create suffixed names. Place/machine acknowledgments consolidate
+aliases and their references in a SQLite transaction, preserving pending changes
+and remembered prescriptions.
 
-Already relabeled historical data may need an audited recovery from backups or
-known original units. Current numbers alone do not identify the original intent.
+Legacy notes are reconciled before bootstrap can replace them. A baseline and
+server revision distinguish clean cloud updates from pending phone edits. Phone
+text wins uncertain conflicts; alternatives are included in backups and can be
+reviewed/restored from Settings. Empty server tombstones retain revision ordering;
+older subscriptions and acknowledgments cannot resurrect discarded text.
 
-## 3. Make guest template merges additive
+## Required verification
 
-`adoptCloudTemplateId` currently treats a unique matching name as identity, even
-when the exercises and weights differ.
+Run `pnpm test:review` without skips or filters and report **both** unit and
+lifecycle results. The lifecycle harness uses temporary real SQLite files and
+synthetic Convex/WorkOS accounts. Its README documents the simulated boundaries.
+Also run web/mobile typechecks, import compatibility checks, relevant lint, and
+web/iOS bundle builds after implementation changes.
 
-- Existing remote IDs or confirmed receipts establish identity; names do not.
-- Keep distinct guest/cloud templates. Resolve names with a suffix, following
-  the existing portable import behavior, and persist the source-to-target mapping
-  so retries do not create another copy.
-- If identical-content deduplication is retained, compare the full normalized
-  definition, including weights and reps, and avoid overwriting the cloud row.
-- Preserve references from sessions to the chosen target template.
+The two GitHub checks, `Unit tests` and `Offline account lifecycle`, are required
+on the current integration commit for `main` and `staging`. Keep those job names
+and the ruleset synchronized. Do not turn regressions into expected failures.
 
-Add same-name/same-slug/different-weight and lost-response retry cases, alongside
-the existing same-name/different-exercise requirement.
+## Rollout order and remaining device checks
 
-## 4. Consolidate duplicate local place identities atomically
+1. Deploy backend code first: optional expected-owner fields, bootstrap owner,
+   optional note revisions/receipt revisions, and revision-preserving note clears.
+   Older clients may omit all new fields; no destructive schema migration occurs.
+2. On an isolated staging backend, exercise old and new clients against the new
+   schema, including old user documents and legacy note rows with no revision.
+3. On a simulator/device, verify real WorkOS sign-in and token refresh, SQLite
+   provider remounts, sign-out/sign-in across two synthetic accounts, offline
+   restart/reconnect, Settings recovery export/restore, and keyboard visibility.
+   Node SQLite and the test transport cannot establish these native boundaries.
+4. Distribute the mobile update only after those checks pass. Retain old database
+   files and recovery snapshots. Do not deploy clients before backend support:
+   older validators reject the client's new expected-owner argument.
 
-The server can adopt an existing same-name gym while bootstrap has already
-inserted that remote gym into SQLite. `completePlaceSync` then assigns the same
-unique remote ID to the guest row and fails, blocking every later upload.
-
-- In one SQLite transaction, detect both local identities for the returned
-  remote ID and select a canonical row.
-- Repoint session places, template last-place references, machines, weight-memory
-  rows, and queued snapshots before removing the redundant local identity.
-- Preserve local pending edits during bootstrap; account for named/default
-  machine identity collisions as well as place collisions.
-- Acknowledge only the completed operation. Make the consolidation idempotent
-  when replayed after a lost response or interrupted transaction.
-
-Test subscription-before-ack and ack-before-subscription, duplicate machine names,
-pending gym edits, and restart during consolidation.
-
-## 5. Recover pre-outbox local notes before applying bootstrap
-
-Older builds saved local exercise notes without upload entries. Their
-`updated_at` values alone cannot establish a shared ordering with cloud notes;
-the server currently exposes no comparable note revision history.
-
-- Before the first cloud bootstrap, migrate legacy notes into a recoverable
-  reconciliation set without discarding their original text.
-- If only one side has text, preserve and synchronize it. If texts are equal,
-  acknowledge the match. If both differ and there is no trustworthy common base,
-  preserve both versions for conflict resolution rather than silently replacing
-  either with a timestamp-based guess.
-- Persist a sync baseline/revision for future edits, so dirty local changes,
-  cloud deletions, and genuine conflicts can be distinguished.
-- Keep oversized note protection and truncated-prefix recovery working.
-
-Add conflicting notes, deletion versus offline edit, interrupted migration, and
-repeated bootstrap cases. The original legacy-note requirement must stay green
-without sacrificing the cloud version.
-
-## Rollout order
-
-1. Implement storage ownership and safe legacy migration.
-2. Establish compatible unit/revision fields on the backend, then client support.
-3. Implement additive guest template merging, place/machine consolidation, and
-   legacy-note reconciliation against the new ownership model.
-4. Run `pnpm test:review`, typechecks, and relevant migration/import tests. Verify
-   real account-provider/token/subscription behavior on a device and staging.
-5. Exercise interrupted upgrades and old clients against the new backend before
-   rolling out the mobile update. Retain recovery snapshots until verified.
-
-Do not automatically rewrite real account data to make the tests pass. Existing
-corruption, if any, needs a separate evidence-backed recovery plan.
+No production users, production credentials, or real data belong in the lifecycle
+harness. Historical corruption requires a separate reviewed recovery plan.

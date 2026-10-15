@@ -42,6 +42,9 @@ export const exerciseTables = {
     userId: v.id("users"),
     exerciseSlug: exerciseSlugValidator,
     notes: v.string(),
+    // Optional for documents written by older releases. Empty text is a
+    // tombstone so clearing a note cannot reset its monotonically rising revision.
+    revision: v.optional(v.number()),
   })
     .index("by_user", ["userId"])
     .index("by_user_slug", ["userId", "exerciseSlug"]),

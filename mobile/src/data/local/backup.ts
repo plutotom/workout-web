@@ -1,4 +1,6 @@
 import type { SQLiteDatabase } from "expo-sqlite";
+import { convertPrescriptionJson } from "./weight-units";
+import { listNoteAlternatives, keepNoteAlternative } from "./note-recovery";
 import {
   normalizeSessionInputMode,
   type NoteUnit,
@@ -7,6 +9,7 @@ import {
 import {
   getLocalPreferences,
   queueCustomExerciseSnapshot,
+  queueExerciseNoteSnapshot,
   queueSessionSnapshot,
   queueTemplateSnapshot,
 } from "@/data/local/repository";
@@ -21,6 +24,7 @@ import {
   convexWorkoutTemplateId,
   isUnsyncedTemplateRemoteId,
   localTemplateRemoteId,
+  localCustomSlug,
 } from "@/data/local/types";
 import {
   BACKUP_FORMAT,
@@ -271,12 +275,14 @@ export async function createLocalBackup(
   const setsByExercise = groupBy(setRows, (row) =>
     String(row.session_exercise_id),
   );
+  const alternatives = await listNoteAlternatives(db);
 
   return {
     format: BACKUP_FORMAT,
     version: BACKUP_VERSION,
     createdAt: Date.now(),
     preferences,
+    ...(alternatives.length ? { noteAlternatives: alternatives } : {}),
     customExercises: customRows.map((row) => ({
       id: row.id,
       remoteId: row.remote_id,
@@ -436,6 +442,134 @@ export type LocalRestoreResult = {
   skipped: number;
 };
 
+/** Backup remote IDs are trusted only when already present in this account's partition. */
+async function normalizeBackupIdentities(
+  db: SQLiteDatabase,
+  source: WorkoutBackupSnapshot,
+): Promise<WorkoutBackupSnapshot> {
+  const owner = await db.getFirstAsync<{ value: string }>(
+    "SELECT value FROM local_metadata WHERE key = 'storage:owner'",
+  );
+  type Identity = { id: string; remote_id: string | null; slug?: string };
+  async function identities(
+    table:
+      | "local_custom_exercises"
+      | "local_places"
+      | "local_machines"
+      | "local_templates"
+      | "local_sessions",
+  ) {
+    const rows = await db.getAllAsync<Identity>(`SELECT * FROM ${table}`);
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    const byRemote = new Map(
+      rows.filter((row) => row.remote_id).map((row) => [row.remote_id, row]),
+    );
+    return (row: { id: string; remoteId?: string | null }) =>
+      byId.get(row.id) ??
+      (owner?.value.startsWith("account:") && row.remoteId
+        ? byRemote.get(row.remoteId)
+        : undefined);
+  }
+  const customIdentity = await identities("local_custom_exercises");
+  const placeIdentity = await identities("local_places");
+  const machineIdentity = await identities("local_machines");
+  const templateIdentity = await identities("local_templates");
+  const sessionIdentity = await identities("local_sessions");
+  const slugs = new Map<string, string>();
+  const places = new Map<string, string>();
+  const machines = new Map<string, string>();
+  const templates = new Map<string, string>();
+  const customExercises = source.customExercises.map((lift) => {
+    const existing = customIdentity(lift);
+    const id = existing?.id ?? lift.id;
+    const slug = existing?.slug ?? localCustomSlug(id);
+    slugs.set(lift.slug, slug);
+    return { ...lift, id, slug, remoteId: existing?.remote_id ?? null };
+  });
+  const slug = (value: string) => slugs.get(value) ?? value;
+  const placeRows = source.places?.map((place) => {
+    const existing = placeIdentity(place);
+    const id = existing?.id ?? place.id;
+    places.set(place.id, id);
+    return { ...place, id, remoteId: existing?.remote_id ?? null };
+  });
+  const machineRows = source.machines?.map((machine) => {
+    const existing = machineIdentity(machine);
+    const id = existing?.id ?? machine.id;
+    machines.set(machine.id, id);
+    return {
+      ...machine,
+      id,
+      remoteId: existing?.remote_id ?? null,
+      placeId: places.get(machine.placeId) ?? machine.placeId,
+      exerciseSlug: slug(machine.exerciseSlug),
+    };
+  });
+  const templateRows = source.templates.map((template) => {
+    const existing = templateIdentity(template);
+    const id = existing?.id ?? template.id;
+    templates.set(template.id, id);
+    if (template.remoteId) templates.set(template.remoteId, id);
+    return {
+      ...template,
+      id,
+      remoteId: existing?.remote_id ?? null,
+      lastPlaceId: template.lastPlaceId
+        ? (places.get(template.lastPlaceId) ?? template.lastPlaceId)
+        : null,
+      exercises: template.exercises.map((exercise) => ({
+        ...exercise,
+        slug: slug(exercise.slug),
+      })),
+    };
+  });
+  return {
+    ...source,
+    customExercises,
+    places: placeRows,
+    machines: machineRows,
+    templates: templateRows,
+    placeWeights: source.placeWeights?.map((memory) => ({
+      ...memory,
+      placeId: places.get(memory.placeId) ?? memory.placeId,
+      machineKey: machines.get(memory.machineKey) ?? memory.machineKey,
+      exerciseSlug: slug(memory.exerciseSlug),
+    })),
+    exerciseNotes: source.exerciseNotes.map((note) => ({
+      ...note,
+      slug: slug(note.slug),
+    })),
+    noteAlternatives: source.noteAlternatives?.map((note) => ({
+      ...note,
+      slug: slug(note.slug),
+    })),
+    sessions: source.sessions.map((session) => {
+      const existing = sessionIdentity(session);
+      const templateId =
+        (session.templateId && templates.get(session.templateId)) ||
+        (session.remoteTemplateId && templates.get(session.remoteTemplateId)) ||
+        null;
+      return {
+        ...session,
+        id: existing?.id ?? session.id,
+        remoteId: existing?.remote_id ?? null,
+        templateId,
+        remoteTemplateId: null,
+        placeId: session.placeId
+          ? (places.get(session.placeId) ?? session.placeId)
+          : null,
+        exercises: session.exercises.map((exercise) => ({
+          ...exercise,
+          slug: slug(exercise.slug),
+          machineId: exercise.machineId
+            ? (machines.get(exercise.machineId) ?? exercise.machineId)
+            : null,
+        })),
+      };
+    }),
+  };
+}
+
 /**
  * Merge a snapshot into local SQLite. Nothing is deleted and nothing is
  * overwritten: `INSERT OR IGNORE` keyed on the original row ids means a row
@@ -452,7 +586,6 @@ export async function restoreLocalBackup(
   const validated = validateBackup(snapshot);
   if (!validated.ok) throw new Error(validated.error);
   snapshot = validated.snapshot;
-
   const addedTemplateIds: string[] = [];
   const addedSessionIds: string[] = [];
   const addedCustomIds: string[] = [];
@@ -465,13 +598,29 @@ export async function restoreLocalBackup(
   let skipped = 0;
 
   await db.withExclusiveTransactionAsync(async (txn) => {
+    snapshot = await normalizeBackupIdentities(txn, snapshot);
+    for (const version of snapshot.noteAlternatives ?? [])
+      await keepNoteAlternative(txn, version.slug, version.notes);
     // Preferences are only adopted on a phone that has never had them set —
     // `updated_at` stays 0 until a sign-in bootstrap writes real ones. A
     // restore shouldn't quietly flip the units on an established install, and
     // leaving `updated_at` at 0 keeps a later bootstrap authoritative.
-    const preferences = await txn.getFirstAsync<{ updated_at: number }>(
-      "SELECT updated_at FROM local_preferences WHERE id = 1",
-    );
+    const preferences = await txn.getFirstAsync<{
+      updated_at: number;
+      unit: "lb" | "kg";
+    }>("SELECT updated_at, unit FROM local_preferences WHERE id = 1");
+    if (
+      preferences &&
+      preferences.updated_at !== 0 &&
+      preferences.unit !== snapshot.preferences.unit
+    )
+      snapshot = JSON.parse(
+        convertPrescriptionJson(
+          JSON.stringify(snapshot),
+          snapshot.preferences.unit,
+          preferences.unit,
+        ),
+      ) as WorkoutBackupSnapshot;
     if ((preferences?.updated_at ?? 0) === 0) {
       await txn.runAsync(
         `UPDATE local_preferences
@@ -610,8 +759,10 @@ export async function restoreLocalBackup(
         note.notes,
         note.updatedAt,
       );
-      if (result.changes > 0) notesAdded++;
-      else skipped++;
+      if (result.changes > 0) {
+        notesAdded++;
+        await queueExerciseNoteSnapshot(txn, note.slug, note.notes, Date.now());
+      } else skipped++;
     }
 
     // The app assumes at most one workout is in progress, so a backed-up
@@ -723,18 +874,16 @@ export async function restoreLocalBackup(
         }
       }
     }
+    // Data and its upload intent commit together; a crash cannot strand rows.
+    const now = Date.now();
+    for (const id of placeIdsToSync) await queuePlaceSnapshot(txn, id, now);
+    for (const id of machineIdsToSync) await queueMachineSnapshot(txn, id, now);
+    for (const id of customIdsToSync)
+      await queueCustomExerciseSnapshot(txn, id, now);
+    for (const id of templateIdsToSync)
+      await queueTemplateSnapshot(txn, id, now);
+    for (const id of sessionIdsToSync) await queueSessionSnapshot(txn, id, now);
   });
-
-  // Queued outside the transaction, like `applyIosBootstrap` does: the queue
-  // helpers read back through `db`. Local-only rows still need uploading;
-  // account-backed rows keep their real remote ids and must not be recreated.
-  const now = Date.now();
-  for (const id of placeIdsToSync) await queuePlaceSnapshot(db, id, now);
-  for (const id of machineIdsToSync) await queueMachineSnapshot(db, id, now);
-  for (const id of customIdsToSync)
-    await queueCustomExerciseSnapshot(db, id, now);
-  for (const id of templateIdsToSync) await queueTemplateSnapshot(db, id, now);
-  for (const id of sessionIdsToSync) await queueSessionSnapshot(db, id, now);
 
   return {
     sessionsAdded: addedSessionIds.length,

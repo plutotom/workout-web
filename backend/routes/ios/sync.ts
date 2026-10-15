@@ -26,6 +26,7 @@ import {
   updateTemplate as updateTemplateLib,
 } from "../../lib/templates";
 import { upsertExerciseNote } from "../../lib/exercise_notes";
+import { uniqueName } from "../../lib/portableTemplates";
 import { deleteWorkout } from "../../lib/workouts";
 import {
   exerciseSlugValidator,
@@ -99,6 +100,13 @@ const resultValidator = v.object({
   serverTime: v.number(),
 });
 
+async function requireSyncUser(ctx: MutationCtx, ownerWorkosId?: string) {
+  const user = await requireUser(ctx);
+  if (ownerWorkosId !== undefined && ownerWorkosId !== user.workosId)
+    throw new Error("This upload belongs to another account");
+  return user;
+}
+
 const MAX_EXERCISES = 50;
 const MAX_SETS_PER_EXERCISE = 20;
 
@@ -122,6 +130,7 @@ async function writeReceipt(
     operationId: string;
     deviceId: string;
     targetId?: string;
+    noteRevision?: number;
   },
 ) {
   const duplicate = await findReceipt(ctx, userId, args.operationId);
@@ -137,6 +146,7 @@ async function writeReceipt(
     deviceId: args.deviceId,
     appliedAt: Date.now(),
     targetId: args.targetId,
+    noteRevision: args.noteRevision,
   });
 }
 
@@ -182,6 +192,7 @@ async function findSessionsForPush(
  */
 export const pushPlace = mutation({
   args: {
+    ownerWorkosId: v.optional(v.string()),
     operationId: v.string(),
     deviceId: v.string(),
     place: v.object({
@@ -196,7 +207,7 @@ export const pushPlace = mutation({
     serverTime: v.number(),
   }),
   handler: async (ctx, args) => {
-    const user = await requireUser(ctx);
+    const user = await requireSyncUser(ctx, args.ownerWorkosId);
     const remotePlaceId = await upsertPlaceFromClient(ctx, user._id, {
       clientId: args.place.clientId,
       name: args.place.name,
@@ -229,6 +240,7 @@ export const pushPlace = mutation({
  */
 export const pushMachine = mutation({
   args: {
+    ownerWorkosId: v.optional(v.string()),
     operationId: v.string(),
     deviceId: v.string(),
     machine: v.object({
@@ -245,7 +257,7 @@ export const pushMachine = mutation({
     serverTime: v.number(),
   }),
   handler: async (ctx, args) => {
-    const user = await requireUser(ctx);
+    const user = await requireSyncUser(ctx, args.ownerWorkosId);
     const remoteMachineId = await upsertMachineFromClient(ctx, user._id, {
       clientId: args.machine.clientId,
       placeClientId: args.machine.placeClientId,
@@ -281,6 +293,7 @@ export const pushMachine = mutation({
  */
 export const pushCustomExercise = mutation({
   args: {
+    ownerWorkosId: v.optional(v.string()),
     operationId: v.string(),
     deviceId: v.string(),
     exercise: v.object({
@@ -298,7 +311,7 @@ export const pushCustomExercise = mutation({
     serverTime: v.number(),
   }),
   handler: async (ctx, args) => {
-    const user = await requireUser(ctx);
+    const user = await requireSyncUser(ctx, args.ownerWorkosId);
     // The upsert is keyed by clientId, so a replayed operation is already
     // idempotent; the receipt still records the attempt for auditing.
     const result = await upsertCustomExerciseFromClient(ctx, user._id, {
@@ -339,6 +352,7 @@ export const pushCustomExercise = mutation({
  */
 export const pushExerciseNote = mutation({
   args: {
+    ownerWorkosId: v.optional(v.string()),
     operationId: v.string(),
     deviceId: v.string(),
     note: v.object({
@@ -348,15 +362,25 @@ export const pushExerciseNote = mutation({
   },
   returns: v.object({
     serverTime: v.number(),
+    revision: v.optional(v.number()),
   }),
   handler: async (ctx, args) => {
-    const user = await requireUser(ctx);
+    const user = await requireSyncUser(ctx, args.ownerWorkosId);
     const duplicate = await findReceipt(ctx, user._id, args.operationId);
-    if (duplicate) return { serverTime: duplicate.appliedAt };
-    await upsertExerciseNote(ctx, user._id, args.note.slug, args.note.notes);
-    await writeReceipt(ctx, user._id, args);
+    if (duplicate)
+      return {
+        serverTime: duplicate.appliedAt,
+        revision: duplicate.noteRevision,
+      };
+    const revision = await upsertExerciseNote(
+      ctx,
+      user._id,
+      args.note.slug,
+      args.note.notes,
+    );
+    await writeReceipt(ctx, user._id, { ...args, noteRevision: revision });
 
-    return { serverTime: Date.now() };
+    return { serverTime: Date.now(), revision };
   },
 });
 
@@ -366,6 +390,7 @@ export const pushExerciseNote = mutation({
  */
 export const pushPreferences = mutation({
   args: {
+    ownerWorkosId: v.optional(v.string()),
     operationId: v.string(),
     deviceId: v.string(),
     preferences: v.object({
@@ -380,7 +405,7 @@ export const pushPreferences = mutation({
     serverTime: v.number(),
   }),
   handler: async (ctx, args) => {
-    const user = await requireUser(ctx);
+    const user = await requireSyncUser(ctx, args.ownerWorkosId);
     const duplicate = await findReceipt(ctx, user._id, args.operationId);
     if (duplicate) return { serverTime: duplicate.appliedAt };
 
@@ -410,6 +435,7 @@ export const pushPreferences = mutation({
  */
 export const pushTemplate = mutation({
   args: {
+    ownerWorkosId: v.optional(v.string()),
     operationId: v.string(),
     deviceId: v.string(),
     template: v.object({
@@ -423,7 +449,7 @@ export const pushTemplate = mutation({
     serverTime: v.number(),
   }),
   handler: async (ctx, args) => {
-    const user = await requireUser(ctx);
+    const user = await requireSyncUser(ctx, args.ownerWorkosId);
     const receipt = await findReceipt(ctx, user._id, args.operationId);
     const receiptTemplateId = receipt?.targetId
       ? (receipt.targetId as Id<"workoutTemplates">)
@@ -457,8 +483,15 @@ export const pushTemplate = mutation({
       return { remoteTemplateId, serverTime: Date.now() };
     }
 
+    const existingTemplates = await ctx.db
+      .query("workoutTemplates")
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .take(100);
     const createdId = await createTemplateLib(ctx, user._id, {
-      name: args.template.name,
+      name: uniqueName(
+        args.template.name,
+        new Set(existingTemplates.map((row) => row.name.toLowerCase())),
+      ),
       exercises: args.template.exercises,
     });
     await writeReceipt(ctx, user._id, {
@@ -476,13 +509,14 @@ export const pushTemplate = mutation({
  */
 export const pushSession = mutation({
   args: {
+    ownerWorkosId: v.optional(v.string()),
     operationId: v.string(),
     deviceId: v.string(),
     session: sessionSnapshotValidator,
   },
   returns: resultValidator,
   handler: async (ctx, args) => {
-    const user = await requireUser(ctx);
+    const user = await requireSyncUser(ctx, args.ownerWorkosId);
     const duplicate = await ctx.db
       .query("iosSyncReceipts")
       .withIndex("by_user_operation_id", (q) =>
@@ -778,6 +812,7 @@ const deleteSnapshotValidator = v.object({
  */
 export const deleteSession = mutation({
   args: {
+    ownerWorkosId: v.optional(v.string()),
     operationId: v.string(),
     deviceId: v.string(),
     session: deleteSnapshotValidator,
@@ -787,7 +822,7 @@ export const deleteSession = mutation({
     serverTime: v.number(),
   }),
   handler: async (ctx, args) => {
-    const user = await requireUser(ctx);
+    const user = await requireSyncUser(ctx, args.ownerWorkosId);
     const duplicate = await ctx.db
       .query("iosSyncReceipts")
       .withIndex("by_user_operation_id", (q) =>

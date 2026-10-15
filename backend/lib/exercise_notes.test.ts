@@ -35,6 +35,7 @@ describe("exercise note storage", () => {
         userId: user,
         exerciseSlug: "bench-press",
         notes: note,
+        revision: 1,
       });
     },
   );
@@ -51,8 +52,12 @@ describe("exercise note storage", () => {
     expect(remove).not.toHaveBeenCalled();
   });
   it("still clears a saved note when its text is empty", async () => {
-    const { ctx, remove } = fixture({ _id: "note-1", notes: "original" });
+    const { ctx, patch, remove } = fixture({
+      _id: "note-1",
+      notes: "original",
+    });
     await upsertExerciseNote(ctx, user, "bench-press", " \n");
-    expect(remove).toHaveBeenCalledWith("note-1");
+    expect(patch).toHaveBeenCalledWith("note-1", { notes: "", revision: 1 });
+    expect(remove).not.toHaveBeenCalled();
   });
 });

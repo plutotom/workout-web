@@ -1,4 +1,9 @@
-import { SQLiteProvider, useSQLiteContext } from "expo-sqlite";
+import {
+  SQLiteProvider,
+  useSQLiteContext,
+  openDatabaseAsync,
+  backupDatabaseAsync,
+} from "expo-sqlite";
 import {
   createContext,
   useCallback,
@@ -8,6 +13,19 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useAuthCredentials } from "@/auth/auth-provider";
+import {
+  accountDatabaseName,
+  prepareScopedDatabase,
+  trackLocalWrite,
+  databaseBelongsTo,
+  LEGACY_DATABASE,
+} from "./storage-scopes";
+import {
+  listNoteAlternatives,
+  keepNoteAlternative,
+  type NoteAlternative,
+} from "./note-recovery";
 
 import {
   BACKUP_STALE_AFTER_MS,
@@ -156,6 +174,9 @@ type LocalCustomExerciseInput = {
 };
 
 type LocalDataContextValue = {
+  owner: string | null;
+  restoreNoteVersion: (version: NoteAlternative) => Promise<void>;
+  legacyBackup: () => Promise<WorkoutBackupSnapshot>;
   revision: number;
   refresh: () => void;
   startBlank: (
@@ -280,28 +301,48 @@ type LocalDataContextValue = {
 const LocalDataContext = createContext<LocalDataContextValue | null>(null);
 
 export function LocalDatabaseProvider({ children }: { children: ReactNode }) {
+  const { user, loading } = useAuthCredentials();
+  const owner = user?.id ?? null;
+  const databaseName = accountDatabaseName(owner);
+  const initialize = useCallback(
+    (db: Parameters<typeof migrateLocalDatabase>[0]) =>
+      prepareScopedDatabase(db, owner),
+    [owner],
+  );
+  if (loading && !user) return null;
   return (
     <SQLiteProvider
-      databaseName="workout-local-v1.db"
-      onInit={migrateLocalDatabase}
+      key={databaseName}
+      databaseName={databaseName}
+      onInit={initialize}
     >
-      <LocalDataState>{children}</LocalDataState>
+      <LocalDataState owner={owner} databaseName={databaseName}>
+        {children}
+      </LocalDataState>
     </SQLiteProvider>
   );
 }
 
-function LocalDataState({ children }: { children: ReactNode }) {
+function LocalDataState({
+  children,
+  owner,
+  databaseName,
+}: {
+  children: ReactNode;
+  owner: string | null;
+  databaseName: string;
+}) {
   const db = useSQLiteContext();
   const [revision, setRevision] = useState(0);
   const refresh = useCallback(() => setRevision((value) => value + 1), []);
 
   const run = useCallback(
     async <T,>(operation: () => Promise<T>) => {
-      const result = await operation();
+      const result = await trackLocalWrite(databaseName, operation);
       refresh();
       return result;
     },
-    [refresh],
+    [databaseName, refresh],
   );
 
   // Both input modes end Watch recording and use the same Health deduplication.
@@ -333,6 +374,51 @@ function LocalDataState({ children }: { children: ReactNode }) {
 
   const value = useMemo<LocalDataContextValue>(
     () => ({
+      owner,
+      restoreNoteVersion: (version) =>
+        run(async () => {
+          const versions = await listNoteAlternatives(db);
+          if (
+            !versions.some(
+              (saved) =>
+                saved.slug === version.slug && saved.notes === version.notes,
+            )
+          )
+            throw new Error("That saved note version is unavailable");
+          const current = await getLocalExerciseNotes(db, [version.slug]);
+          if (current[version.slug] !== undefined)
+            await keepNoteAlternative(db, version.slug, current[version.slug]);
+          await saveLocalExerciseNote(db, version.slug, version.notes);
+        }),
+      legacyBackup: async () => {
+        const legacy = await openDatabaseAsync(LEGACY_DATABASE, {
+          useNewConnection: true,
+        });
+        const copy = await openDatabaseAsync(":memory:", {
+          useNewConnection: true,
+        });
+        try {
+          const stamp = await legacy.getFirstAsync<{ value: string }>(
+            "SELECT value FROM local_metadata WHERE key = 'storage:owner'",
+          );
+          if (
+            stamp?.value.startsWith("account:") &&
+            stamp.value !== `account:${owner}`
+          )
+            throw new Error(
+              "Sign in to the account that owns these older workouts",
+            );
+          await backupDatabaseAsync({
+            sourceDatabase: legacy,
+            destDatabase: copy,
+          });
+          await migrateLocalDatabase(copy);
+          return await createLocalBackup(copy);
+        } finally {
+          await copy.closeAsync();
+          await legacy.closeAsync();
+        }
+      },
       revision,
       refresh,
       startBlank: (abandonExisting, placeId) =>
@@ -422,7 +508,7 @@ function LocalDataState({ children }: { children: ReactNode }) {
         run(() => patchLocalPreferences(db, patch)),
       applyBootstrap: (payload) => run(() => applyIosBootstrap(db, payload)),
     }),
-    [db, finishTracked, refresh, revision, run],
+    [db, owner, finishTracked, refresh, revision, run],
   );
 
   return (
@@ -547,6 +633,22 @@ export function useLocalExerciseNotes(slugs: string[]) {
   );
 }
 
+export function useDataRecovery() {
+  const db = useSQLiteContext();
+  const { revision } = useLocalData();
+  return useLocalValue(
+    async () => ({
+      alternatives: await listNoteAlternatives(db),
+      legacyAvailable: Boolean(
+        await db.getFirstAsync(
+          "SELECT value FROM local_metadata WHERE key = 'recovery:legacy-available'",
+        ),
+      ),
+    }),
+    [db, revision],
+  );
+}
+
 export function useLocalPlaces() {
   const db = useSQLiteContext();
   const { revision } = useLocalData();
@@ -595,10 +697,12 @@ export function useLocalLastSet(
 
 export function useLocalSyncStore() {
   const db = useSQLiteContext();
-  const { refresh, revision } = useLocalData();
+  const { refresh, revision, owner } = useLocalData();
   return useMemo(
     () => ({
       revision,
+      owner,
+      ownsAccount: (subject: string) => databaseBelongsTo(db, subject),
       getPendingSession: () => getPendingSessionSync(db),
       getPendingSessionDelete: () => getPendingSessionDelete(db),
       getPendingTemplate: () => getPendingTemplateSync(db),
@@ -645,8 +749,8 @@ export function useLocalSyncStore() {
         await completePreferencesSync(db, operationId);
         refresh();
       },
-      completeExerciseNote: async (operationId: string) => {
-        await completeExerciseNoteSync(db, operationId);
+      completeExerciseNote: async (operationId: string, revision?: number) => {
+        await completeExerciseNoteSync(db, operationId, revision);
         refresh();
       },
       quarantineExerciseNote: async (operationId: string) => {
@@ -695,7 +799,7 @@ export function useLocalSyncStore() {
       },
       getDeviceId: () => getOrCreateDeviceId(db),
     }),
-    [db, refresh, revision],
+    [db, owner, refresh, revision],
   );
 }
 

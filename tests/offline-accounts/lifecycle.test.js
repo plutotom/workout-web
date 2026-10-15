@@ -1,4 +1,6 @@
 import { act } from "react-test-renderer";
+import { renameSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { api } from "../../backend/_generated/api";
 import { convertWeight } from "../../src/lib/workout-export";
@@ -7,10 +9,41 @@ import {
   installTestEnvironment,
   restoreTestEnvironment,
 } from "./harness";
+import {
+  accountDatabaseName,
+  prepareScopedDatabase,
+  LEGACY_DATABASE,
+} from "@/data/local/storage-scopes";
+import {
+  listNoteAlternatives,
+  keepNoteAlternative,
+} from "@/data/local/note-recovery";
+import { SESSION_KEY, USER_KEY } from "@/auth/session-controller";
+import {
+  parseBackup,
+  serializeBackup,
+  restoreLocalBackup,
+} from "@/data/local/backup";
+import { migrateLocalDatabase } from "@/data/local/migrations";
 
 let phone;
 const ALICE = "user_test_alice";
 const BOB = "user_test_bob";
+
+async function moveCurrentDatabaseToLegacy(stamped) {
+  const name = phone.databaseName;
+  if (!stamped)
+    phone.sql.exec(
+      "DELETE FROM local_metadata WHERE key LIKE 'storage:%' OR key LIKE 'note:%' OR key LIKE 'recovery:%'",
+    );
+  await phone.unmount();
+  for (const { sql } of phone.databases.values()) sql.close();
+  phone.databases.clear();
+  renameSync(
+    join(phone.directory, name),
+    join(phone.directory, LEGACY_DATABASE),
+  );
+}
 beforeEach(async () => {
   installTestEnvironment();
   phone = await new PhoneScenario().open();
@@ -710,7 +743,623 @@ describe("offline account lifecycle with SQLite and Convex", () => {
   );
 });
 
-describe("data preservation requirements (release blockers until fixed)", () => {
+describe("data preservation requirements", () => {
+  it.each([
+    "pushPlace",
+    "pushMachine",
+    "pushCustomExercise",
+    "pushPreferences",
+    "pushExerciseNote",
+    "pushTemplate",
+    "pushSession",
+    "deleteSession",
+  ])(
+    "the real %s handler rejects a payload scoped to another account",
+    async (name) => {
+      const before = await seedExistingAccount(BOB);
+      const local = await seedOfflineData();
+      const payload = (type) =>
+        JSON.parse(
+          phone.outbox().find((row) => row.entity_type === type).payload_json,
+        );
+      const template = payload("template");
+      const data = {
+        pushPlace: { place: payload("place") },
+        pushMachine: { machine: payload("machine") },
+        pushCustomExercise: { exercise: payload("custom_exercise") },
+        pushPreferences: { preferences: payload("preferences") },
+        pushExerciseNote: { note: { slug: "bench", notes: "A private cue" } },
+        pushTemplate: {
+          template: {
+            remoteId: null,
+            name: template.name,
+            exercises: template.exercises,
+          },
+        },
+        pushSession: { session: payload("session") },
+        deleteSession: {
+          session: {
+            clientId: local.sessionId,
+            remoteId: null,
+            externalProvider: null,
+            externalId: null,
+          },
+        },
+      };
+      await expect(
+        phone.as(BOB).mutation(api.routes.ios.sync[name], {
+          ownerWorkosId: ALICE,
+          operationId: `wrong-owner-${name}`,
+          deviceId: "another-device",
+          ...data[name],
+        }),
+      ).rejects.toThrow("belongs to another account");
+      expect(await phone.records(BOB)).toEqual(before);
+    },
+  );
+
+  it("recovers cloud alternatives through backups and restore, while ignoring an older cloud response after acknowledgment", async () => {
+    await seedExistingAccount();
+    await phone.connect();
+    await phone.signIn(ALICE);
+    await phone.settle();
+    await phone.offline();
+    phone.sql
+      .prepare("UPDATE local_exercise_notes SET notes = ? WHERE slug = 'ohp'")
+      .run("Phone legacy cue");
+    await phone.connect();
+    await phone.settle();
+    const alternatives = await listNoteAlternatives(phone.db);
+    const cloud = alternatives.find(
+      (version) => version.notes === "Existing cloud cue",
+    );
+    expect(cloud).toMatchObject({ slug: "ohp" });
+    const backup = await phone.local.createBackup();
+    const parsed = parseBackup(serializeBackup(backup));
+    expect(parsed.ok).toBe(true);
+    expect(parsed.snapshot.noteAlternatives).toContainEqual(cloud);
+    const restored = phone.database("restored-backup.db").db;
+    await migrateLocalDatabase(restored);
+    await restoreLocalBackup(restored, parsed.snapshot);
+    expect(await listNoteAlternatives(restored)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ slug: "ohp", notes: "Existing cloud cue" }),
+      ]),
+    );
+    const older = await phone.as(ALICE).query(api.routes.ios.bootstrap.get, {});
+    await phone.signOut();
+    await phone.signIn(BOB);
+    await phone.settle();
+    expect(await listNoteAlternatives(phone.db)).toHaveLength(0);
+    await phone.signOut();
+    await phone.signIn(ALICE);
+    await phone.settle();
+    await phone.edit((local) => local.restoreNoteVersion(cloud));
+    await phone.settle();
+    expect((await phone.notes(["ohp"])).ohp).toBe("Existing cloud cue");
+    expect(await listNoteAlternatives(phone.db)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ notes: "Phone legacy cue" }),
+      ]),
+    );
+    await act(async () => {
+      phone.bootstrap = older;
+      phone.notify();
+    });
+    await phone.tick();
+    expect((await phone.notes(["ohp"])).ohp).toBe("Existing cloud cue");
+    expect(phone.outbox()).toHaveLength(0);
+  });
+
+  it("a cleared note keeps its revision so an older subscription cannot resurrect it", async () => {
+    await phone.connect();
+    await phone.signIn(ALICE);
+    await phone.edit((local) => local.saveNote("bench", "Before clearing"));
+    await phone.settle();
+    const older = await phone.as(ALICE).query(api.routes.ios.bootstrap.get, {});
+    await phone.edit((local) => local.saveNote("bench", ""));
+    await phone.settle();
+    await act(async () => {
+      phone.bootstrap = older;
+      phone.notify();
+    });
+    await phone.tick();
+    expect((await phone.notes(["bench"])).bench).toBeUndefined();
+    expect(
+      phone.sql
+        .prepare("SELECT notes FROM local_exercise_notes WHERE slug = 'bench'")
+        .get().notes,
+    ).toBe("");
+    await phone.as(ALICE).mutation(api.routes.ios.sync.pushExerciseNote, {
+      operationId: "fresh-after-clear",
+      deviceId: "other-device",
+      note: { slug: "bench", notes: "New cloud revision" },
+    });
+    await act(async () => phone.pull());
+    await phone.tick();
+    expect((await phone.notes(["bench"])).bench).toBe("New cloud revision");
+  });
+
+  it("exports an old version-7 recovery file without migrating or clearing the retained source", async () => {
+    await seedOfflineData();
+    phone.sql.exec(
+      "ALTER TABLE local_sessions DROP COLUMN input_mode; ALTER TABLE local_sessions DROP COLUMN note_body; ALTER TABLE local_sessions DROP COLUMN note_unit; PRAGMA user_version = 7;",
+    );
+    await moveCurrentDatabaseToLegacy(false);
+    await phone.reopen();
+    const legacy = phone.database(LEGACY_DATABASE).sql;
+    expect(legacy.prepare("PRAGMA user_version").get().user_version).toBe(7);
+    const backup = await phone.local.legacyBackup();
+    expect(backup.sessions).toHaveLength(1);
+    expect(backup.sessions[0].inputMode).toBe("list");
+    expect(legacy.prepare("PRAGMA user_version").get().user_version).toBe(7);
+    expect(
+      legacy.prepare("SELECT COUNT(*) AS count FROM local_sync_outbox").get()
+        .count,
+    ).toBeGreaterThan(0);
+  });
+
+  it("a returning account keeps a newly merged guest note active and its previous text recoverable", async () => {
+    await phone.connect();
+    await phone.signIn(ALICE);
+    await phone.edit((local) => local.saveNote("bench", "Earlier account cue"));
+    await phone.settle();
+    await phone.signOut();
+    await phone.offline();
+    await phone.continueOffline();
+    await phone.edit((local) => local.saveNote("bench", "New guest cue"));
+    await phone.connect();
+    await phone.signIn(ALICE);
+    await phone.settle();
+    expect((await phone.notes(["bench"])).bench).toBe("New guest cue");
+    expect((await phone.records(ALICE)).exerciseNotes).toMatchObject([
+      { notes: "New guest cue" },
+    ]);
+    expect(await listNoteAlternatives(phone.db)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          slug: "bench",
+          notes: "Earlier account cue",
+        }),
+      ]),
+    );
+  });
+
+  it.each([
+    ["lb", "kg"],
+    ["kg", "lb"],
+  ])(
+    "converts %s guest gym/machine memories into a populated %s account before uploads",
+    async (guestUnit, accountUnit) => {
+      await seedExistingAccount(ALICE, accountUnit);
+      await phone.connect();
+      await phone.signIn(ALICE);
+      await phone.settle();
+      await phone.signOut();
+      await phone.offline();
+      await seedOfflineData(guestUnit);
+      await phone.connect();
+      await phone.signIn(ALICE);
+      const memory = phone.sql
+        .prepare(
+          "SELECT sets_json FROM local_exercise_place_weights WHERE exercise_slug = 'bench'",
+        )
+        .get();
+      expect(JSON.parse(memory.sets_json)[0].weight).toBe(
+        convertWeight(150, guestUnit, accountUnit),
+      );
+      await phone.settle();
+      expect(
+        (await phone.records(ALICE)).sets.find((row) => row.reps === 6).weight,
+      ).toBe(convertWeight(150, guestUnit, accountUnit));
+    },
+  );
+
+  it("converts an imported memory after its gym and machine alias existing account identities", async () => {
+    await seedExistingAccount(ALICE, "kg");
+    await phone.connect();
+    await phone.signIn(ALICE);
+    const place = await phone.edit((local) => local.createPlace("Shared gym"));
+    const machine = await phone.edit((local) =>
+      local.createMachine({
+        placeId: place._id,
+        exerciseSlug: "bench",
+        name: "Bench",
+      }),
+    );
+    await phone.settle();
+    const targetPlace = phone.sql
+      .prepare("SELECT * FROM local_places WHERE id = ?")
+      .get(place._id);
+    const targetMachine = phone.sql
+      .prepare("SELECT * FROM local_machines WHERE id = ?")
+      .get(machine._id);
+    await phone.signOut();
+    await phone.offline();
+    await phone.continueOffline();
+    phone.sql
+      .prepare(
+        "INSERT INTO local_places (id, remote_id, name, updated_at) VALUES (?, ?, ?, ?)",
+      )
+      .run("source-place", targetPlace.remote_id, "Shared gym", 1);
+    phone.sql
+      .prepare(
+        "INSERT INTO local_machines (id, remote_id, place_id, exercise_slug, name, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        "source-machine",
+        targetMachine.remote_id,
+        "source-place",
+        "bench",
+        "Bench",
+        1,
+      );
+    phone.sql
+      .prepare(
+        "INSERT INTO local_exercise_place_weights VALUES (?, ?, ?, ?, ?)",
+      )
+      .run(
+        "source-place",
+        "bench",
+        "source-machine",
+        JSON.stringify([{ weight: 150, reps: 6 }]),
+        1,
+      );
+    await phone.connect();
+    await phone.signIn(ALICE);
+    const memory = phone.sql
+      .prepare(
+        "SELECT * FROM local_exercise_place_weights WHERE exercise_slug = 'bench'",
+      )
+      .get();
+    expect(memory).toMatchObject({
+      place_id: place._id,
+      machine_key: machine._id,
+    });
+    expect(JSON.parse(memory.sets_json)).toEqual([
+      { weight: convertWeight(150, "lb", "kg"), reps: 6 },
+    ]);
+    await phone.settle();
+  });
+
+  it.each([ALICE, BOB])(
+    "restores a synced backup while signed out and merges it safely into %s",
+    async (destination) => {
+      await seedOfflineData();
+      await phone.connect();
+      await phone.signIn(ALICE);
+      await phone.settle();
+      const custom = (await phone.records(ALICE)).customExercises[0];
+      await phone.edit(() =>
+        keepNoteAlternative(
+          phone.db,
+          `custom:${custom._id}`,
+          "Recoverable custom cue",
+        ),
+      );
+      const backup = parseBackup(
+        serializeBackup(await phone.local.createBackup()),
+      ).snapshot;
+      const original = await phone.records(ALICE);
+      await phone.signOut();
+      await phone.offline();
+      await phone.continueOffline();
+      const restored = await phone.edit((local) => local.restoreBackup(backup));
+      expect(restored.sessionsAdded).toBe(1);
+      expect(
+        (await phone.edit((local) => local.restoreBackup(backup)))
+          .sessionsAdded,
+      ).toBe(0);
+      await phone.reopen();
+      await phone.connect();
+      phone.faults.push({ name: "pushSession", loseResponse: true });
+      await phone.signIn(destination);
+      await phone.settle();
+      await phone.reopen();
+      await phone.connect();
+      await phone.settle();
+      const result = await phone.records(destination);
+      expect(result.workoutSessions).toHaveLength(1);
+      expect(result.workoutTemplates).toHaveLength(1);
+      expect(result.customExercises).toHaveLength(1);
+      expect(result.sets).toHaveLength(2);
+      expect(result.sessionExercises.map((row) => row.exerciseSlug)).toContain(
+        `custom:${result.customExercises[0]._id}`,
+      );
+      expect(result.exerciseNotes.map((row) => row.exerciseSlug)).toContain(
+        `custom:${result.customExercises[0]._id}`,
+      );
+      const alternative = (await listNoteAlternatives(phone.db)).find(
+        (version) => version.notes === "Recoverable custom cue",
+      );
+      expect(alternative.slug).toBe(`custom:${result.customExercises[0]._id}`);
+      await phone.edit((local) => local.restoreNoteVersion(alternative));
+      await phone.settle();
+      expect(
+        (await phone.records(destination)).exerciseNotes.find(
+          (row) => row.exerciseSlug === alternative.slug,
+        ).notes,
+      ).toBe("Recoverable custom cue");
+      expect(phone.outbox()).toHaveLength(0);
+      if (destination === BOB)
+        expect(await phone.records(ALICE)).toEqual(original);
+    },
+  );
+
+  it("restores A's synced backup directly into signed-in B without touching A", async () => {
+    await seedOfflineData();
+    await phone.connect();
+    await phone.signIn(ALICE);
+    await phone.settle();
+    const backup = await phone.local.createBackup();
+    const original = await phone.records(ALICE);
+    await seedExistingAccount(BOB, "kg");
+    await phone.signOut();
+    await phone.signIn(BOB);
+    await phone.settle();
+    await phone.offline();
+    await phone.edit((local) => local.restoreBackup(backup));
+    await phone.reopen();
+    await phone.connect();
+    await phone.settle();
+    const result = await phone.records(BOB);
+    expect(result.workoutSessions).toHaveLength(2);
+    expect(result.workoutTemplates).toHaveLength(2);
+    expect(result.customExercises).toHaveLength(1);
+    expect(result.sets.find((set) => set.reps === 6).weight).toBe(
+      convertWeight(150, "lb", "kg"),
+    );
+    const customSlug = `custom:${result.customExercises[0]._id}`;
+    expect(result.sessionExercises.map((row) => row.exerciseSlug)).toContain(
+      customSlug,
+    );
+    expect(result.exerciseNotes.map((row) => row.exerciseSlug)).toContain(
+      customSlug,
+    );
+    expect(phone.outbox()).toHaveLength(0);
+    expect(await phone.records(ALICE)).toEqual(original);
+  });
+
+  it("rolls back restored data if saving its upload intent fails, then restores safely after restart", async () => {
+    await seedOfflineData();
+    await phone.connect();
+    await phone.signIn(ALICE);
+    await phone.settle();
+    const backup = await phone.local.createBackup();
+    await phone.signOut();
+    await phone.offline();
+    await phone.continueOffline();
+    const run = phone.db.runAsync;
+    let rowsBeforeQueueFailure = 0;
+    phone.db.runAsync = async (query, ...args) => {
+      if (
+        query.includes("INSERT INTO local_sync_outbox") &&
+        args[0] === "place"
+      ) {
+        rowsBeforeQueueFailure = phone.sql
+          .prepare("SELECT COUNT(*) AS count FROM local_sessions")
+          .get().count;
+        throw new Error("Interrupted restore queue write");
+      }
+      return run(query, ...args);
+    };
+    try {
+      await expect(
+        phone.edit((local) => local.restoreBackup(backup)),
+      ).rejects.toThrow("Interrupted restore queue write");
+    } finally {
+      phone.db.runAsync = run;
+    }
+    expect(rowsBeforeQueueFailure).toBe(1);
+    expect(
+      phone.sql.prepare("SELECT COUNT(*) AS count FROM local_sessions").get()
+        .count,
+    ).toBe(0);
+    expect(
+      phone.sql.prepare("SELECT COUNT(*) AS count FROM local_templates").get()
+        .count,
+    ).toBe(0);
+    expect(phone.outbox()).toHaveLength(0);
+    await phone.reopen();
+    await phone.edit((local) => local.restoreBackup(backup));
+    await phone.connect();
+    await phone.signIn(BOB);
+    await phone.settle();
+    const result = await phone.records(BOB);
+    expect(result.workoutSessions).toHaveLength(1);
+    expect(result.workoutTemplates).toHaveLength(1);
+    expect(result.customExercises).toHaveLength(1);
+    expect(result.sets).toHaveLength(2);
+    expect(phone.outbox()).toHaveLength(0);
+  });
+
+  it("converts a quarantined guest template without dropping it or retrying it automatically", async () => {
+    await seedExistingAccount(ALICE, "kg");
+    await phone.connect();
+    await phone.signIn(ALICE);
+    await phone.settle();
+    await phone.signOut();
+    await phone.offline();
+    await phone.edit((local) => local.setGeneralPreferences({ unit: "lb" }));
+    const id = await phone.edit((local) =>
+      local.saveTemplate({
+        name: "Quarantined guest",
+        exercises: [{ slug: "bench", sets: [{ weight: 135, reps: 5 }] }],
+      }),
+    );
+    phone.sql
+      .prepare(
+        "UPDATE local_sync_outbox SET entity_type = 'template_quarantined' WHERE entity_type = 'template'",
+      )
+      .run();
+    const operation = phone
+      .outbox()
+      .find((row) => row.entity_type === "template_quarantined").operation_id;
+    await phone.connect();
+    await phone.signIn(ALICE);
+    await phone.window(125_000);
+    expect(phone.outbox()).toMatchObject([
+      { entity_type: "template_quarantined", operation_id: operation },
+    ]);
+    expect(
+      JSON.parse(phone.outbox()[0].payload_json).exercises[0].sets[0].weight,
+    ).toBe(convertWeight(135, "lb", "kg"));
+    expect(
+      JSON.parse(
+        phone.sql
+          .prepare(
+            "SELECT sets_json FROM local_template_exercises WHERE template_id = ?",
+          )
+          .get(id).sets_json,
+      )[0].weight,
+    ).toBe(convertWeight(135, "lb", "kg"));
+    expect((await phone.records(ALICE)).workoutTemplates).toHaveLength(1);
+  });
+
+  it.each(["target-write", "source-cleanup"])(
+    "resumes an interrupted guest transfer at %s without giving its data to the next account",
+    async (phase) => {
+      const local = await seedOfflineData();
+      const pending = phone.outbox();
+      const source = phone.db;
+      const target = phone.database(accountDatabaseName(ALICE)).db;
+      const failingDb = phase === "target-write" ? target : source;
+      const original = failingDb.runAsync;
+      let failed = false;
+      failingDb.runAsync = async (sql, ...args) => {
+        if (
+          !failed &&
+          (phase === "target-write"
+            ? sql.startsWith("INSERT OR IGNORE INTO local_sets")
+            : sql === "DELETE FROM local_sets")
+        ) {
+          failed = true;
+          throw new Error("Simulated power loss");
+        }
+        return original(sql, ...args);
+      };
+      await expect(prepareScopedDatabase(target, ALICE)).rejects.toThrow(
+        "Simulated power loss",
+      );
+      failingDb.runAsync = original;
+      expect(phone.outbox()).toEqual(pending);
+      await phone.reopen();
+      expect(phone.outbox()).toHaveLength(0);
+      await phone.connect();
+      await phone.signIn(BOB);
+      await phone.settle();
+      expect((await phone.records(BOB)).workoutSessions).toHaveLength(0);
+      await phone.signOut();
+      await phone.signIn(ALICE);
+      await phone.settle();
+      await assertOfflineDataMerged(local);
+    },
+  );
+
+  it("retains unowned legacy data without assigning A's pending rows to restored account B", async () => {
+    await phone.connect();
+    await phone.signIn(ALICE);
+    await phone.settle();
+    await phone.offline();
+    const session = await phone.edit((local) => local.startNote());
+    await phone.edit((local) =>
+      local.saveWorkoutNote(session, "A private legacy workout"),
+    );
+    await phone.edit((local) =>
+      local.saveNote("bench", "A private legacy cue"),
+    );
+    const pending = phone.outbox();
+    await moveCurrentDatabaseToLegacy(false);
+    phone.keys.set(SESSION_KEY, phone.token(BOB).session);
+    phone.keys.set(USER_KEY, JSON.stringify(phone.token(BOB).user));
+    await phone.reopen();
+    expect(phone.outbox()).toHaveLength(0);
+    expect(
+      phone.sql
+        .prepare(
+          "SELECT value FROM local_metadata WHERE key = 'recovery:legacy-available'",
+        )
+        .get().value,
+    ).toBe("1");
+    await phone.connect();
+    await phone.settle();
+    const b = await phone.records(BOB);
+    expect(b.workoutSessions).toHaveLength(0);
+    expect(b.exerciseNotes).toHaveLength(0);
+    const legacy = phone.database(LEGACY_DATABASE).sql;
+    expect(
+      legacy
+        .prepare("SELECT note_body FROM local_sessions WHERE id = ?")
+        .get(session).note_body,
+    ).toBe("A private legacy workout");
+    expect(
+      legacy
+        .prepare(
+          "SELECT operation_id FROM local_sync_outbox ORDER BY operation_id",
+        )
+        .all()
+        .map((row) => row.operation_id),
+    ).toEqual(pending.map((row) => row.operation_id).sort());
+  });
+
+  it("migrates an explicitly owned legacy database into its owner even when a different account is restored", async () => {
+    await phone.connect();
+    await phone.signIn(ALICE);
+    await phone.settle();
+    await phone.offline();
+    await phone.edit((local) =>
+      local.saveNote("bench", "A stamped legacy cue"),
+    );
+    await moveCurrentDatabaseToLegacy(true);
+    phone.keys.set(SESSION_KEY, phone.token(BOB).session);
+    phone.keys.set(USER_KEY, JSON.stringify(phone.token(BOB).user));
+    await phone.reopen();
+    await phone.connect();
+    await phone.settle();
+    expect((await phone.records(BOB)).exerciseNotes).toHaveLength(0);
+    await phone.signOut();
+    await phone.signIn(ALICE);
+    await phone.settle();
+    expect((await phone.notes(["bench"])).bench).toBe("A stamped legacy cue");
+    expect((await phone.records(ALICE)).exerciseNotes).toMatchObject([
+      { notes: "A stamped legacy cue" },
+    ]);
+    expect(
+      phone
+        .database(LEGACY_DATABASE)
+        .sql.prepare(
+          "SELECT notes FROM local_exercise_notes WHERE slug = 'bench'",
+        )
+        .get().notes,
+    ).toBe("A stamped legacy cue");
+  });
+
+  it("rejects an A upload delivered under B's authentication and retries it only after A returns", async () => {
+    await phone.connect();
+    await phone.signIn(ALICE);
+    await phone.settle();
+    const held = phone.holdNextRequest("pushExerciseNote");
+    await phone.edit((local) => local.saveNote("bench", "A in-flight cue"));
+    await phone.tick();
+    const call = await held.started;
+    await phone.signOut();
+    await phone.signIn(BOB);
+    await act(async () => held.release());
+    await phone.tick();
+    await phone.settle();
+    expect(call.dispatchedSubject).toBe(BOB);
+    expect(call.committed).toBe(false);
+    expect((await phone.records(BOB)).exerciseNotes).toHaveLength(0);
+    expect((await phone.records(ALICE)).exerciseNotes).toHaveLength(0);
+    await phone.signOut();
+    await phone.signIn(ALICE);
+    await phone.settle();
+    expect((await phone.records(ALICE)).exerciseNotes).toMatchObject([
+      { notes: "A in-flight cue" },
+    ]);
+    expect((await phone.records(BOB)).exerciseNotes).toHaveLength(0);
+  });
+
   it.each([
     ["lb", "kg"],
     ["kg", "lb"],

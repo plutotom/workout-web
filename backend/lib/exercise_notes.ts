@@ -26,7 +26,7 @@ export async function getNotesBySlugs(
           q.eq("userId", userId).eq("exerciseSlug", exerciseSlug),
         )
         .unique();
-      return doc ? ([exerciseSlug, doc.notes] as const) : null;
+      return doc?.notes ? ([exerciseSlug, doc.notes] as const) : null;
     }),
   );
 
@@ -57,19 +57,17 @@ export async function upsertExerciseNote(
     )
     .unique();
 
-  if (!normalized) {
-    if (existing) await ctx.db.delete(existing._id);
-    return;
-  }
-
+  const revision = (existing?.revision ?? 0) + 1;
   if (existing) {
-    await ctx.db.patch(existing._id, { notes: normalized });
-    return;
+    await ctx.db.patch(existing._id, { notes: normalized, revision });
+    return revision;
   }
 
   await ctx.db.insert("exerciseNotes", {
     userId,
     exerciseSlug: slug,
     notes: normalized,
+    revision,
   });
+  return revision;
 }

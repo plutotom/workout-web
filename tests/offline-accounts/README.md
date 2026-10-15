@@ -23,10 +23,10 @@ command-line flag. No simulator, development server, credentials, internet
 connection, or existing account is needed. The SQLite experimental warning on
 Node 22 is expected.
 
-This is a separate release gate from `pnpm test`. It deliberately asserts correct
-data preservation, including requirements the current app fails. Do not skip the
-failing cases, mark them as expected failures, or use a name filter as release
-approval. Run both commands before shipping changes to account or sync behavior.
+This is a separate release gate from `pnpm test`. It asserts data preservation
+across account boundaries. Do not skip failing cases, mark them as expected
+failures, or use a name filter as release approval. Run both suites before
+shipping changes to account or sync behavior.
 
 ## What stays real
 
@@ -94,26 +94,41 @@ are still required for those boundaries.
 - Account switching, unit mismatches, template/place name collisions, and legacy
   notes are checked as strict data-preservation requirements.
 
-## Current release blockers
+## Preservation coverage
 
-Validated on the merged PR branch: **19 of 25 cases pass; six remain failing**.
-The ordinary unit suite also passes (745 tests). A green unit suite alone does
-not satisfy this release gate.
+The implementation adds regressions for the defects originally exposed by this
+suite: cross-account pending uploads, both guest/account weight-unit directions,
+same-name distinct templates, duplicate gym/machine identities, and legacy notes.
+Additional cases cover interrupted guest transfers at both commit boundaries,
+known versus unknown legacy ownership, every sync mutation's subject guard,
+aliased gym memories, quarantined template prescriptions, note deletion revisions,
+recoverable note alternatives, and restores of previously synced backups into the original or a different
+account (signed out and already signed in), with interrupted restore rollback.
 
-The initial implementation exposes six failing cases across five bug classes:
+The strict suite currently contains **50 lifecycle cases**. Report its result
+separately from the ordinary unit suite; neither replaces device/staging checks.
 
-| Requirement                            | Observed behavior                                                                                                                         |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| Account ownership                      | A's offline note and preference upload into B after sign-out/sign-in; A loses its pending changes.                                        |
-| Weight meaning (both unit directions)  | A guest lb workout becomes numerically unchanged kg data, or a guest kg preference relabels existing lb cloud presets without conversion. |
-| Different templates with the same name | The guest template replaces the existing cloud template's exercises and weights.                                                          |
-| Same-name guest/cloud gym              | Local acknowledgment hits `UNIQUE constraint failed: local_places.remote_id`; remaining uploads stall.                                    |
-| Legacy offline exercise note           | Reconnecting replaces a newer pre-outbox local note with the older cloud note.                                                            |
+## Upgrade and recovery behavior
 
-These exercise existing storage/sync paths also present on `main`, rather than
-the keyboard layout changes alone. Keep the requirements enabled until the
-implementations satisfy them. When fixing a failure, run the entire gate: a merge
-fix can affect acknowledgments, idempotency, references, and account ownership.
+Guest data moves automatically into the signed-in account. Account data remains
+in its own SQLite file across sign-out, including pending edits. Interrupted
+transfers resume for the originally claimed account, even if another account
+signs in next. Source cleanup happens only after the destination transaction
+commits, with the original transfer retained as a recovery snapshot.
 
-See [the implementation and migration plan](fix-plan.md) for the recommended
-fix order and additional regression cases.
+The old shared database is retained. Only an explicit persisted account owner
+permits automatic migration; last-used credentials alone cannot prove ownership.
+Unconfirmed older data stays on the phone and can be exported from **Settings →
+Data recovery**. Export migrates a temporary copy, never the retained source.
+Restore that file only into the correct account. Restores preserve remote IDs only when already known in the current account
+partition; otherwise they create independent local identities. Restored rows and
+their upload intent commit atomically. Repeated restores retain stable local IDs.
+
+When phone and cloud notes differ without a reliable common baseline, phone text
+wins and the other version remains reviewable/restorable in Settings and included
+in backups. Note revisions and empty tombstones prevent stale subscriptions from
+resurrecting cleared text. Existing account units govern guest merges; conversion
+includes workout sets/targets, template presets, gym memories, and pending payloads.
+
+Deploy the additive backend validators and note revisions **before** distributing
+the updated mobile client. See [implementation and rollout notes](fix-plan.md).
