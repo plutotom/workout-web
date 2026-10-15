@@ -19,7 +19,9 @@ transfer rather than adopting it into whichever account next signs in.
 
 Sync checks the loaded partition, authenticated subject, and bootstrap owner.
 Every iOS mutation also accepts an optional expected WorkOS subject and rejects
-mismatches. Optional fields preserve old-client/schema compatibility. An in-flight
+mismatches. Uploads wait for the initial owner-matched bootstrap transaction to
+commit, independently of when authentication becomes ready. Optional fields
+preserve old-client/schema compatibility. An in-flight
 request or acknowledgment remains bound to its original partition.
 
 Unstamped old shared databases remain untouched and recoverable. A last-used login
@@ -39,7 +41,10 @@ it is not a redesign of historical units throughout web and mobile. Already
 mislabelled historical numbers need evidence-backed recovery, not guessed backfills.
 
 Template adoption requires the full ordered prescription to match. Different
-same-name templates create suffixed names. Place/machine acknowledgments consolidate
+same-name templates create suffixed names within the 100-character limit,
+including multi-digit suffixes. Restored sessions derive template links from
+verified destination templates; transfer repairs and queued payloads commit
+together after weight conversion. Place/machine acknowledgments consolidate
 aliases and their references in a SQLite transaction, preserving pending changes
 and remembered prescriptions.
 
@@ -47,7 +52,9 @@ Legacy notes are reconciled before bootstrap can replace them. A baseline and
 server revision distinguish clean cloud updates from pending phone edits. Phone
 text wins uncertain conflicts; alternatives are included in backups and can be
 reviewed/restored from Settings. Empty server tombstones retain revision ordering;
-older subscriptions and acknowledgments cannot resurrect discarded text.
+older subscriptions and acknowledgments cannot resurrect discarded text. Explicit
+portable imports may fill cleared notes through the same revision-aware writer;
+nonempty notes and opting out of note import remain unchanged.
 
 ## Required verification
 

@@ -104,13 +104,18 @@ known versus unknown legacy ownership, every sync mutation's subject guard,
 aliased gym memories, quarantined template prescriptions, note deletion revisions,
 recoverable note alternatives, and restores of previously synced backups into the original or a different
 account (signed out and already signed in), with interrupted restore rollback.
+Initial bootstrap delivery is independent of account readiness: delayed and
+wrong-owner snapshots cannot start uploads. Restored workouts retain trusted
+template links through unit conversion, lost responses, and restart. Maximum
+length name collisions and importing over cleared notes are also covered.
 
-The strict suite currently contains **50 lifecycle cases**. Report its result
+The strict suite currently contains **57 lifecycle cases**. Report its result
 separately from the ordinary unit suite; neither replaces device/staging checks.
 
 ## Upgrade and recovery behavior
 
-Guest data moves automatically into the signed-in account. Account data remains
+Guest data moves automatically into the signed-in account. Uploads wait for an
+owner-matched initial bootstrap to reconcile units and note alternatives. Account data remains
 in its own SQLite file across sign-out, including pending edits. Interrupted
 transfers resume for the originally claimed account, even if another account
 signs in next. Source cleanup happens only after the destination transaction
@@ -122,7 +127,9 @@ Unconfirmed older data stays on the phone and can be exported from **Settings â†
 Data recovery**. Export migrates a temporary copy, never the retained source.
 Restore that file only into the correct account. Restores preserve remote IDs only when already known in the current account
 partition; otherwise they create independent local identities. Restored rows and
-their upload intent commit atomically. Repeated restores retain stable local IDs.
+their upload intent commit atomically. Repeated restores retain stable local IDs
+and verified destination template links. Explicit note imports may fill empty
+tombstones while preserving increasing revisions.
 
 When phone and cloud notes differ without a reliable common baseline, phone text
 wins and the other version remains reviewable/restorable in Settings and included

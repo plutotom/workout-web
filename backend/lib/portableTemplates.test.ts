@@ -145,6 +145,77 @@ describe("portable import database work", () => {
 });
 
 describe("exercise notes in portable imports", () => {
+  it("fills a cleared note with an increasing revision and preserves nonempty notes", async () => {
+    const h = importHarness();
+    h.rows.exerciseNotes.push({
+      _id: "cleared-note",
+      userId: "user_1",
+      exerciseSlug: "squat",
+      notes: "",
+      revision: 4,
+    });
+    const payload = bundle();
+    payload.templates[0].exercises[0].notes = "Imported cue";
+    expect(
+      await importBundle(h.ctx, "user_1" as Id<"users">, payload, {
+        includeNotes: true,
+      }),
+    ).toMatchObject({ notesImported: 1 });
+    expect(h.rows.exerciseNotes).toEqual([
+      expect.objectContaining({
+        _id: "cleared-note",
+        notes: "Imported cue",
+        revision: 5,
+      }),
+    ]);
+    payload.templates[0].exercises[0].notes = "Another cue";
+    expect(
+      await importBundle(h.ctx, "user_1" as Id<"users">, payload, {
+        includeNotes: true,
+      }),
+    ).toMatchObject({ notesImported: 0 });
+    expect(h.rows.exerciseNotes[0]).toMatchObject({
+      notes: "Imported cue",
+      revision: 5,
+    });
+  });
+
+  it("leaves an empty legacy note untouched when note import is disabled", async () => {
+    const h = importHarness();
+    h.rows.exerciseNotes.push({
+      _id: "legacy-empty",
+      userId: "user_1",
+      exerciseSlug: "squat",
+      notes: "",
+    });
+    const payload = bundle();
+    payload.templates[0].exercises[0].notes = "Opted-out cue";
+    expect(
+      await importBundle(h.ctx, "user_1" as Id<"users">, payload, {
+        includeNotes: false,
+      }),
+    ).toMatchObject({ notesImported: 0 });
+    expect(h.rows.exerciseNotes[0]).toEqual({
+      _id: "legacy-empty",
+      userId: "user_1",
+      exerciseSlug: "squat",
+      notes: "",
+    });
+  });
+
+  it("imports colliding maximum-length names without changing existing templates", async () => {
+    const h = importHarness();
+    const name = "x".repeat(100);
+    h.rows.workoutTemplates[0].name = name;
+    const payload = bundle();
+    payload.templates[0].name = name;
+    const result = await importBundle(h.ctx, "user_1" as Id<"users">, payload, {
+      includeNotes: false,
+    });
+    expect(result.names).toEqual([`${"x".repeat(96)} (2)`]);
+    expect(h.rows.workoutTemplates[0].name).toBe(name);
+  });
+
   it("imports a full 10,000-character note and leaves an existing note alone", async () => {
     const h = importHarness();
     const payload = bundle();
@@ -211,6 +282,36 @@ describe("convertWeight", () => {
 });
 
 describe("uniqueName", () => {
+  it.each([97, 98, 99, 100])(
+    "reserves suffix space for a %s-character name",
+    (length) => {
+      const name = "x".repeat(length);
+      const taken = new Set([name]);
+      const next = uniqueName(name, taken);
+      expect(next).toBe(`${"x".repeat(96)} (2)`);
+      expect(next.length).toBe(100);
+      expect(taken.has(next)).toBe(true);
+    },
+  );
+
+  it("checks truncated candidates and reserves space for multi-digit suffixes", () => {
+    const name = "x".repeat(100);
+    const taken = new Set([
+      name,
+      ...Array.from({ length: 8 }, (_, i) => `${"x".repeat(96)} (${i + 2})`),
+    ]);
+    expect(uniqueName(name, taken)).toBe(`${"x".repeat(95)} (10)`);
+  });
+
+  it("keeps emoji intact when a multi-digit suffix changes the available length", () => {
+    const name = "💪".repeat(50);
+    const taken = new Set([
+      name,
+      ...Array.from({ length: 8 }, (_, i) => `${"💪".repeat(48)} (${i + 2})`),
+    ]);
+    expect(uniqueName(name, taken)).toBe(`${"💪".repeat(47)} (10)`);
+  });
+
   it("keeps a free name as-is", () => {
     expect(uniqueName("Push Day", new Set())).toBe("Push Day");
   });

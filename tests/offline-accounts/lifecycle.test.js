@@ -745,6 +745,265 @@ describe("offline account lifecycle with SQLite and Convex", () => {
 
 describe("data preservation requirements", () => {
   it.each([
+    ["lb", "kg"],
+    ["kg", "lb"],
+  ])(
+    "waits for initial bootstrap before merging %s guest weights and notes into a %s account",
+    async (guestUnit, accountUnit) => {
+      await seedExistingAccount(ALICE, accountUnit);
+      await phone.as(ALICE).mutation(api.routes.ios.sync.pushExerciseNote, {
+        operationId: "initial-cloud-note",
+        deviceId: "another-device",
+        note: { slug: "bench", notes: "Cloud bench alternative" },
+      });
+      const local = await seedOfflineData(guestUnit);
+      await phone.connect();
+      phone.subscriptionOrder = "after-ack";
+      const held = phone.holdNextBootstrap();
+      await phone.signIn(ALICE);
+      expect((await held.requested).subject).toBe(ALICE);
+      expect(phone.readySubject).toBe(ALICE);
+      await phone.window(5_000);
+      expect(phone.bootstrap).toBeUndefined();
+      expect(phone.calls).toHaveLength(0);
+      expect(phone.outbox().length).toBeGreaterThan(0);
+      const before = await phone.records(ALICE);
+      expect(before.workoutSessions).toHaveLength(1);
+      expect(
+        before.exerciseNotes.find((row) => row.exerciseSlug === "bench").notes,
+      ).toBe("Cloud bench alternative");
+
+      await act(async () => held.release());
+      await phone.settle();
+      const records = await phone.records(ALICE);
+      const session = records.workoutSessions.find(
+        (row) => row.clientId === local.sessionId,
+      );
+      const exercise = records.sessionExercises.find(
+        (row) => row.sessionId === session._id && row.exerciseSlug === "bench",
+      );
+      expect(records.user.unit).toBe(accountUnit);
+      expect(
+        records.sets.find((row) => row.sessionExerciseId === exercise._id)
+          .weight,
+      ).toBe(convertWeight(150, guestUnit, accountUnit));
+      expect(
+        (await phone.workout(local.sessionId)).exercises[0].sets[0].weight,
+      ).toBe(convertWeight(150, guestUnit, accountUnit));
+      expect(
+        records.exerciseNotes.find((row) => row.exerciseSlug === "bench").notes,
+      ).toBe("Pause at the bottom");
+      expect(await listNoteAlternatives(phone.db)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            slug: "bench",
+            notes: "Cloud bench alternative",
+          }),
+        ]),
+      );
+      expect(phone.outbox()).toHaveLength(0);
+    },
+  );
+
+  it("rejects delayed bootstrap from A after switching to B and resumes each owner's uploads", async () => {
+    await seedExistingAccount(ALICE, "kg");
+    await seedExistingAccount(BOB);
+    const localA = await seedOfflineData();
+    await phone.connect();
+    phone.subscriptionOrder = "after-ack";
+    const heldA = phone.holdNextBootstrap();
+    await phone.signIn(ALICE);
+    await heldA.requested;
+    await phone.tick();
+    expect(phone.calls).toHaveLength(0);
+    await phone.signOut();
+    await phone.continueOffline();
+    await phone.edit((local) => local.saveNote("bench", "B private guest cue"));
+    const heldB = phone.holdNextBootstrap();
+    await phone.signIn(BOB);
+    await heldB.requested;
+    await act(async () => heldA.release());
+    await phone.window(5_000);
+    expect(phone.bootstrap.ownerWorkosId).toBe(ALICE);
+    expect(phone.local.owner).toBe(BOB);
+    expect(phone.calls).toHaveLength(0);
+    expect(
+      phone.sql.prepare("SELECT COUNT(*) AS count FROM local_templates").get()
+        .count,
+    ).toBe(0);
+    expect((await phone.notes(["bench"])).bench).toBe("B private guest cue");
+
+    await act(async () => heldB.release());
+    await phone.settle();
+    expect((await phone.records(BOB)).exerciseNotes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          exerciseSlug: "bench",
+          notes: "B private guest cue",
+        }),
+      ]),
+    );
+    expect((await phone.records(BOB)).workoutSessions).toHaveLength(1);
+    expect((await phone.records(ALICE)).workoutSessions).toHaveLength(1);
+    await phone.signOut();
+    await phone.signIn(ALICE);
+    await phone.settle();
+    expect(
+      (await phone.records(ALICE)).workoutSessions.some(
+        (row) => row.clientId === localA.sessionId,
+      ),
+    ).toBe(true);
+    expect((await phone.records(BOB)).workoutSessions).toHaveLength(1);
+  });
+
+  it("restores trusted template links on a fresh device through a lost reply and restart", async () => {
+    const local = await seedOfflineData();
+    await phone.connect();
+    await phone.signIn(ALICE);
+    await phone.settle();
+    const before = await phone.records(ALICE);
+    const original = before.workoutSessions.find(
+      (row) => row.clientId === local.sessionId,
+    );
+    expect(original.templateId).toBe(before.workoutTemplates[0]._id);
+    const backup = await phone.local.createBackup();
+    const accountFile = join(phone.directory, phone.databaseName);
+    await phone.unmount();
+    for (const { sql } of phone.databases.values()) sql.close();
+    phone.databases.clear();
+    renameSync(accountFile, `${accountFile}.old`);
+    await phone.reopen();
+    await phone.connect();
+    await phone.settle();
+    expect(
+      phone.sql.prepare("SELECT COUNT(*) AS count FROM local_sessions").get()
+        .count,
+    ).toBe(0);
+    phone.faults.push({ name: "pushSession", loseResponse: true });
+    await phone.edit((data) => data.restoreBackup(backup));
+    const pending = phone.outbox().find((row) => row.entity_type === "session");
+    expect(JSON.parse(pending.payload_json).remoteTemplateId).toBe(
+      original.templateId,
+    );
+    expect((await phone.workout(local.sessionId)).remoteTemplateId).toBe(
+      original.templateId,
+    );
+    await phone.tick();
+    expect(
+      phone.calls.find((call) => call.operationId === pending.operation_id)
+        .committed,
+    ).toBe(true);
+    await phone.offline();
+    await phone.reopen();
+    expect(
+      phone.outbox().find((row) => row.entity_type === "session").operation_id,
+    ).toBe(pending.operation_id);
+    await phone.connect();
+    await phone.settle();
+    const after = await phone.records(ALICE);
+    expect(after.workoutSessions).toHaveLength(1);
+    expect(after.workoutSessions[0]).toMatchObject({
+      _id: original._id,
+      templateId: original.templateId,
+    });
+    expect((await phone.workout(local.sessionId)).remoteTemplateId).toBe(
+      original.templateId,
+    );
+    expect(phone.outbox()).toHaveLength(0);
+  });
+
+  it("remaps a new guest child to its reused account template after mixed-unit conversion, retries and restart", async () => {
+    await seedExistingAccount(ALICE, "kg");
+    const originalLocal = await seedOfflineData();
+    await phone.connect();
+    await phone.signIn(ALICE);
+    await phone.settle();
+    const original = await phone.records(ALICE);
+    const template = original.workoutTemplates.find(
+      (row) => row.name === "Offline push",
+    );
+    const backup = await phone.local.createBackup();
+    await phone.signOut();
+    await phone.offline();
+    await phone.continueOffline();
+    await phone.edit((local) => local.setGeneralPreferences({ unit: "lb" }));
+    await phone.edit((local) => local.restoreBackup(backup));
+    const sessionId = await phone.edit((local) =>
+      local.startFromTemplate(originalLocal.templateId),
+    );
+    const workout = await phone.workout(sessionId);
+    await phone.edit((local) =>
+      local.updateSet(workout.exercises[0].sets[0]._id, {
+        weight: 150,
+        reps: 6,
+        completed: true,
+      }),
+    );
+    await phone.edit((local) => local.finish(sessionId));
+    const operation = phone
+      .outbox()
+      .find(
+        (row) => row.entity_type === "session" && row.entity_id === sessionId,
+      );
+    expect(JSON.parse(operation.payload_json).remoteTemplateId).toBeNull();
+    await phone.reopen();
+    await phone.connect();
+    phone.faults.push({ name: "pushSession", loseResponse: true });
+    await phone.signIn(ALICE);
+    const transferred = phone
+      .outbox()
+      .find(
+        (row) => row.entity_type === "session" && row.entity_id === sessionId,
+      );
+    expect(transferred.operation_id).toBe(operation.operation_id);
+    expect(JSON.parse(transferred.payload_json)).toMatchObject({
+      remoteTemplateId: template._id,
+      exercises: [
+        expect.objectContaining({
+          sets: [
+            expect.objectContaining({ weight: convertWeight(150, "lb", "kg") }),
+          ],
+        }),
+        expect.anything(),
+      ],
+    });
+    expect((await phone.workout(sessionId)).remoteTemplateId).toBe(
+      template._id,
+    );
+    await phone.tick();
+    await phone.offline();
+    await phone.reopen();
+    await phone.connect();
+    await phone.settle();
+    const records = await phone.records(ALICE);
+    expect(records.workoutTemplates).toHaveLength(
+      original.workoutTemplates.length,
+    );
+    expect(records.workoutSessions).toHaveLength(
+      original.workoutSessions.length + 1,
+    );
+    expect(records.workoutSessions).toContainEqual(
+      original.workoutSessions.find(
+        (row) => row.clientId === originalLocal.sessionId,
+      ),
+    );
+    const session = records.workoutSessions.find(
+      (row) => row.clientId === sessionId,
+    );
+    expect(session.templateId).toBe(template._id);
+    const exercise = records.sessionExercises.find(
+      (row) => row.sessionId === session._id && row.exerciseSlug === "bench",
+    );
+    expect(
+      records.sets.find((row) => row.sessionExerciseId === exercise._id).weight,
+    ).toBe(convertWeight(150, "lb", "kg"));
+    expect((await phone.workout(sessionId)).remoteTemplateId).toBe(
+      template._id,
+    );
+    expect(phone.outbox()).toHaveLength(0);
+  });
+
+  it.each([
     "pushPlace",
     "pushMachine",
     "pushCustomExercise",

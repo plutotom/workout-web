@@ -62,11 +62,13 @@ export function SyncCoordinator() {
       !(await syncStore.ownsAccount(owner))
     )
       return "idle" as const;
-    if (bootstrap?.ownerWorkosId && bootstrap.ownerWorkosId !== owner)
-      return "idle" as const;
+    // Account readiness and this query arrive independently. Reconcile guest
+    // units and note conflicts before an upload can overwrite cloud state.
+    // The backend must be deployed first; an unscoped response fails closed.
+    if (!bootstrap || bootstrap.ownerWorkosId !== owner) return "idle" as const;
     // Pull and acknowledge are serialized: a cloud echo cannot insert a
     // second local identity while an upload's acknowledgment is in flight.
-    if (bootstrap && appliedBootstrap.current !== bootstrap) {
+    if (appliedBootstrap.current !== bootstrap) {
       await applyBootstrap(bootstrap as IosBootstrapPayload);
       appliedBootstrap.current = bootstrap;
     }
@@ -242,10 +244,6 @@ export function SyncCoordinator() {
 
       const pendingTemplate = await syncStore.getPendingTemplate();
       if (!canContinue() || !pendingTemplate) return "idle" as const;
-      // Template cap precheck needs the bootstrap snapshot; sessions and
-      // places above can drain without it so a slow/failed bootstrap cannot
-      // stall the rest of the outbox.
-      if (!bootstrap) return "idle" as const;
       await syncStore.noteTemplateAttempt(pendingTemplate.operationId);
       if (!canContinue()) return "idle" as const;
       try {

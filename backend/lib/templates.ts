@@ -17,7 +17,7 @@ export type ExerciseInput = {
 };
 
 const MAX_SLUG_LENGTH = 64;
-const MAX_TEMPLATE_NAME_LENGTH = 100;
+export const MAX_TEMPLATE_NAME_LENGTH = 100;
 const MAX_TEMPLATE_EXERCISES = 50;
 const MAX_SETS_PER_EXERCISE = 20;
 const MAX_TEMPLATES_PER_USER = 100;

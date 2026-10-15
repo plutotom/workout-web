@@ -549,6 +549,20 @@ export async function queueSessionSnapshot(
   );
 }
 
+/** Refresh transferred relationships without changing a retry's operation id. */
+export async function refreshQueuedSessionSnapshot(
+  db: SQLiteDatabase,
+  sessionId: string,
+) {
+  const session = await getLocalWorkout(db, sessionId);
+  if (!session) return;
+  await db.runAsync(
+    "UPDATE local_sync_outbox SET payload_json = ? WHERE entity_type = 'session' AND entity_id = ?",
+    JSON.stringify(await snapshotFromSession(db, session)),
+    sessionId,
+  );
+}
+
 async function markSessionUpdated(
   db: SQLiteDatabase,
   sessionId: string,

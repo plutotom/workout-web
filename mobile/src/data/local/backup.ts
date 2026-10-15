@@ -523,6 +523,9 @@ async function normalizeBackupIdentities(
       })),
     };
   });
+  const templateRemoteIds = new Map(
+    templateRows.map((template) => [template.id, template.remoteId]),
+  );
   return {
     ...source,
     customExercises,
@@ -554,7 +557,12 @@ async function normalizeBackupIdentities(
         id: existing?.id ?? session.id,
         remoteId: existing?.remote_id ?? null,
         templateId,
-        remoteTemplateId: null,
+        // Only the mapped destination row can establish an account-owned id.
+        // A raw backup id may belong to a different account (or a guest).
+        remoteTemplateId:
+          owner?.value.startsWith("account:") && templateId
+            ? convexWorkoutTemplateId(templateRemoteIds.get(templateId))
+            : null,
         placeId: session.placeId
           ? (places.get(session.placeId) ?? session.placeId)
           : null,

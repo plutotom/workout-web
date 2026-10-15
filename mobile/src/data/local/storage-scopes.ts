@@ -2,6 +2,8 @@ import { randomUUID } from "expo-crypto";
 import { openDatabaseAsync, type SQLiteDatabase } from "expo-sqlite";
 import { migrateLocalDatabase } from "./migrations";
 import { keepNoteAlternative } from "./note-recovery";
+import { refreshQueuedSessionSnapshot } from "./repository";
+import { convexWorkoutTemplateId } from "./types";
 import {
   GENERAL_PREFS_ECHO_PENDING_KEY,
   GENERAL_PREFS_OPERATION_KEY,
@@ -202,6 +204,21 @@ async function importTransfer(db: SQLiteDatabase, transfer: Transfer) {
           const id = source[column];
           if (typeof id === "string")
             source[column] = aliases.get(parent)?.get(id) ?? id;
+        }
+        if (
+          table === "local_sessions" &&
+          typeof source.template_id === "string"
+        ) {
+          const template = await txn.getFirstAsync<{ remote_id: string }>(
+            "SELECT remote_id FROM local_templates WHERE id = ?",
+            source.template_id,
+          );
+          // Reusing a destination template will not produce a template ACK
+          // later, so imported children must adopt its trusted identity now.
+          if (template)
+            source.remote_template_id = convexWorkoutTemplateId(
+              template.remote_id,
+            );
         }
         // Existing aggregates win on restore. Their alternative source graph
         // remains in the immutable recovery copy, rather than mixing children.
@@ -412,6 +429,10 @@ async function importTransfer(db: SQLiteDatabase, transfer: Transfer) {
         before.unit,
       );
     }
+    // Rebuild from the remapped rows after unit conversion. The transfer and
+    // its upload intent commit together, preserving operation ids on retry.
+    for (const sessionId of added.get("local_sessions") ?? [])
+      await refreshQueuedSessionSnapshot(txn, sessionId);
     await put(txn, done, "1");
   });
 }

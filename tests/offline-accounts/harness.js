@@ -195,6 +195,7 @@ export class PhoneScenario {
   errors = [];
   alerts = [];
   faults = [];
+  bootstrapHolds = [];
   heldResponses = new Set();
   renderer = null;
   inflight = 0;
@@ -355,6 +356,7 @@ export class PhoneScenario {
     // The real account creation action verifies a synthetic WorkOS response.
     await this.as(subject).action(api.routes.auth.users.getOrCreate, {});
     this.readySubject = subject;
+    this.notify();
     await this.pull();
   }
 
@@ -371,11 +373,35 @@ export class PhoneScenario {
     if (!this.online) throw new TypeError("Network request failed");
     const subject = this.auth.getSnapshot().user?.id;
     if (!subject) return;
-    this.bootstrap = await this.as(subject).query(
+    const payload = await this.as(subject).query(
       api.routes.ios.bootstrap.get,
       {},
     );
-    this.notify();
+    const deliver = () => {
+      this.bootstrap = payload;
+      this.notify();
+    };
+    const held = this.bootstrapHolds.shift();
+    if (held) {
+      // Query delivery does not gate verified account readiness. This also
+      // permits deliberately stale delivery after an account switch.
+      held.requested.resolve({ subject, payload });
+      void held.release.promise.then(deliver);
+    } else deliver();
+  }
+
+  holdNextBootstrap() {
+    const requested = deferred();
+    const release = deferred();
+    this.heldResponses.add(release.resolve);
+    this.bootstrapHolds.push({ requested, release });
+    return {
+      requested: requested.promise,
+      release: () => {
+        this.heldResponses.delete(release.resolve);
+        release.resolve();
+      },
+    };
   }
 
   async mutation(reference, args) {
