@@ -5,7 +5,11 @@ import {
   type StyleProp,
   type ViewStyle,
 } from "react-native";
-import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
+import {
+  KeyboardAwareScrollView,
+  KeyboardChatScrollView,
+} from "react-native-keyboard-controller";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 /**
  * Gap kept between the caret (or focused input) and the keyboard, or a sticky
@@ -16,6 +20,7 @@ export const KEYBOARD_CARET_GAP = 20;
 const FOOTER_HEIGHT_FALLBACK = 88;
 
 type KeyboardAwareScrollProps = ComponentProps<typeof KeyboardAwareScrollView>;
+export type KeyboardScrollMode = "insets" | "layout" | "composer";
 
 /**
  * Scroll view that keeps the focused caret above the iOS keyboard.
@@ -51,25 +56,49 @@ export function KeyboardAwareFooterLayout({
   contentContainerStyle,
   style,
   refreshControl,
+  keyboardMode,
 }: {
   children: ReactNode;
   footer: ReactNode;
   contentContainerStyle?: StyleProp<ViewStyle>;
   style?: StyleProp<ViewStyle>;
   refreshControl?: KeyboardAwareScrollProps["refreshControl"];
+  /** Use `composer` when the focused input lives in the sticky footer. */
+  keyboardMode?: KeyboardScrollMode;
 }) {
   const [footerHeight, setFooterHeight] = useState(FOOTER_HEIGHT_FALLBACK);
+  const insets = useSafeAreaInsets();
   return (
     <>
-      <KeyboardAwareScroll
-        style={[{ flex: 1 }, style]}
-        contentContainerStyle={contentContainerStyle}
-        bottomOffset={footerHeight + KEYBOARD_CARET_GAP}
-        extraKeyboardSpace={footerHeight}
-        refreshControl={refreshControl}
-      >
-        {children}
-      </KeyboardAwareScroll>
+      {keyboardMode === "composer" ? (
+        // Caret tracking only scrolls inputs inside the scroll view. A footer
+        // composer needs keyboard-driven scrolling even though its input is a
+        // sibling. Match KeyboardStickyFooter's safe-area-adjusted movement;
+        // the footer already reserves its own height in the normal layout.
+        <KeyboardChatScrollView
+          style={[{ flex: 1 }, style]}
+          contentContainerStyle={contentContainerStyle}
+          offset={insets.bottom}
+          keyboardLiftBehavior="always"
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+          showsVerticalScrollIndicator={false}
+          refreshControl={refreshControl}
+        >
+          {children}
+        </KeyboardChatScrollView>
+      ) : (
+        <KeyboardAwareScroll
+          style={[{ flex: 1 }, style]}
+          mode={keyboardMode}
+          contentContainerStyle={contentContainerStyle}
+          bottomOffset={footerHeight + KEYBOARD_CARET_GAP}
+          extraKeyboardSpace={footerHeight}
+          refreshControl={refreshControl}
+        >
+          {children}
+        </KeyboardAwareScroll>
+      )}
       <View
         onLayout={(event: LayoutChangeEvent) => {
           const next = Math.ceil(event.nativeEvent.layout.height);

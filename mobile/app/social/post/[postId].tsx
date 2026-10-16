@@ -82,6 +82,7 @@ export default function PostScreen() {
   }
   return (
     <Screen
+      keyboardMode="composer"
       footer={
         post ? (
           <KeyboardStickyFooter
