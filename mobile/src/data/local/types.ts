@@ -301,6 +301,7 @@ export type LocalMachine = {
 };
 
 export type IosBootstrapPayload = {
+  ownerWorkosId?: string;
   serverTime: number;
   preferences: {
     unit: "lb" | "kg";
@@ -354,6 +355,7 @@ export type IosBootstrapPayload = {
   exerciseNotes: Array<{
     slug: string;
     notes: string;
+    revision?: number;
   }>;
 };
 

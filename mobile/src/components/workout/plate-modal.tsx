@@ -20,6 +20,7 @@ import {
   type PlateCount,
   type Unit,
 } from "@shared/plates/solver";
+import { KeyboardAwareFooterLayout } from "@/components/keyboard-aware-scroll";
 import { KeyboardStickyFooter } from "@/components/keyboard-sticky-footer";
 import { Button, Field, Segmented } from "@/components/ui";
 import { colors, radius, space } from "@/theme";
@@ -154,12 +155,28 @@ function PlateCalculator({
 
       <Segmented value={mode} options={modeOptions} onChange={setMode} />
 
-      <ScrollView
-        style={{ flex: 1 }}
+      <KeyboardAwareFooterLayout
         contentContainerStyle={styles.content}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="interactive"
-        showsVerticalScrollIndicator={false}
+        footer={
+          <KeyboardStickyFooter style={styles.footer}>
+            <View>
+              <Text style={styles.footerLabel}>LOADED TOTAL</Text>
+              <Text style={styles.footerTotal}>
+                {formatWeight(activeTotal)}
+                <Text style={styles.footerUnit}> {unit}</Text>
+              </Text>
+            </View>
+            <Button
+              style={{ minWidth: 148 }}
+              size="lg"
+              label={
+                onApply ? `Use ${formatWeight(activeTotal)} ${unit}` : "Done"
+              }
+              disabled={onApply ? !canApply : false}
+              onPress={onApply ? closeWithResult : onClose}
+            />
+          </KeyboardStickyFooter>
+        }
       >
         {mode === "toPlates" ? (
           <WeightToPlates
@@ -238,24 +255,7 @@ function PlateCalculator({
             </>
           ) : null}
         </View>
-      </ScrollView>
-
-      <KeyboardStickyFooter style={styles.footer}>
-        <View>
-          <Text style={styles.footerLabel}>LOADED TOTAL</Text>
-          <Text style={styles.footerTotal}>
-            {formatWeight(activeTotal)}
-            <Text style={styles.footerUnit}> {unit}</Text>
-          </Text>
-        </View>
-        <Button
-          style={{ minWidth: 148 }}
-          size="lg"
-          label={onApply ? `Use ${formatWeight(activeTotal)} ${unit}` : "Done"}
-          disabled={onApply ? !canApply : false}
-          onPress={onApply ? closeWithResult : onClose}
-        />
-      </KeyboardStickyFooter>
+      </KeyboardAwareFooterLayout>
     </SafeAreaView>
   );
 }

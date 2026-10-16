@@ -1,5 +1,6 @@
 import { randomUUID } from "expo-crypto";
 import type { SQLiteDatabase } from "expo-sqlite";
+import { adoptMachineIdentity, adoptPlaceIdentity } from "./place-sync-storage";
 
 import type {
   IosBootstrapPayload,
@@ -588,7 +589,16 @@ export async function getPendingPlaceSync(
   return {
     operationId: row.operation_id,
     placeId: row.entity_id,
-    snapshot: JSON.parse(row.payload_json) as PlaceSyncSnapshot,
+    snapshot: {
+      ...(JSON.parse(row.payload_json) as PlaceSyncSnapshot),
+      clientId:
+        (
+          await db.getFirstAsync<{ remote_id: string | null }>(
+            "SELECT remote_id FROM local_places WHERE id = ?",
+            row.entity_id,
+          )
+        )?.remote_id ?? row.entity_id,
+    },
     createdAt: row.created_at,
     attemptCount: row.attempt_count,
   };
@@ -611,10 +621,26 @@ export async function getPendingMachineSync(
       LIMIT 1`,
   );
   if (!row) return null;
+  const snapshot = JSON.parse(row.payload_json) as MachineSyncSnapshot;
+  const identity = await db.getFirstAsync<{
+    remote_id: string | null;
+    place_id: string;
+  }>(
+    "SELECT remote_id, place_id FROM local_machines WHERE id = ?",
+    row.entity_id,
+  );
+  if (identity) {
+    const place = await db.getFirstAsync<{ remote_id: string | null }>(
+      "SELECT remote_id FROM local_places WHERE id = ?",
+      identity.place_id,
+    );
+    snapshot.clientId = identity.remote_id ?? snapshot.clientId;
+    snapshot.placeClientId = place?.remote_id ?? identity.place_id;
+  }
   return {
     operationId: row.operation_id,
     machineId: row.entity_id,
-    snapshot: JSON.parse(row.payload_json) as MachineSyncSnapshot,
+    snapshot,
     createdAt: row.created_at,
     attemptCount: row.attempt_count,
   };
@@ -982,6 +1008,14 @@ export async function applyPlacesBootstrap(
         : null);
     const localId = existing?.id ?? place.remoteId;
     remoteToLocal.set(place.remoteId, localId);
+    if (existing) {
+      await adoptPlaceIdentity(txn, localId, place.remoteId);
+      const pending = await txn.getFirstAsync(
+        "SELECT entity_id FROM local_sync_outbox WHERE entity_type = 'place' AND entity_id = ?",
+        localId,
+      );
+      if (pending) continue;
+    }
     await txn.runAsync(
       `INSERT INTO local_places (
          id, remote_id, name, starred, archived, last_used_at, updated_at
@@ -1023,6 +1057,14 @@ export async function applyPlacesBootstrap(
       ));
     const localId = existing?.id ?? machine.remoteId;
     machineRemoteToLocal.set(machine.remoteId, localId);
+    if (existing) {
+      await adoptMachineIdentity(txn, localId, machine.remoteId);
+      const pending = await txn.getFirstAsync(
+        "SELECT entity_id FROM local_sync_outbox WHERE entity_type = 'machine' AND entity_id = ?",
+        localId,
+      );
+      if (pending) continue;
+    }
     await txn.runAsync(
       `INSERT INTO local_machines (
          id, remote_id, place_id, exercise_slug, name, is_default, archived,

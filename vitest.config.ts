@@ -14,7 +14,13 @@ export default defineConfig({
         extends: true,
         test: {
           name: "web",
-          exclude: [...configDefaults.exclude, "mobile/**", "**/.worktrees/**"],
+          exclude: [
+            ...configDefaults.exclude,
+            "mobile/**",
+            "**/.worktrees/**",
+            // Separate strict release gate: pnpm test:offline-accounts.
+            "tests/offline-accounts/**",
+          ],
         },
       },
       {

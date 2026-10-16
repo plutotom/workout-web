@@ -9,10 +9,10 @@ import {
   Pressable,
   Text,
   TextInput,
-  View,
 } from "react-native";
 
 import { SocialPost } from "@/components/social-post";
+import { KeyboardStickyFooter } from "@/components/keyboard-sticky-footer";
 import { Button, EmptyState, PageHeader, Screen } from "@/components/ui";
 import { useMobileAuth } from "@/auth/auth-provider";
 import {
@@ -81,7 +81,67 @@ export default function PostScreen() {
     );
   }
   return (
-    <Screen>
+    <Screen
+      keyboardMode="composer"
+      footer={
+        post ? (
+          <KeyboardStickyFooter
+            style={{
+              paddingHorizontal: 16,
+              paddingTop: 12,
+              gap: 10,
+              backgroundColor: colors.bg,
+              borderTopWidth: 1,
+              borderTopColor: colors.line,
+            }}
+          >
+            <TextInput
+              accessibilityLabel="Write a comment"
+              placeholder="Leave a comment"
+              placeholderTextColor={colors.dim}
+              value={message}
+              onChangeText={setMessage}
+              maxLength={500}
+              multiline
+              textAlignVertical="top"
+              style={{
+                color: colors.text,
+                borderColor: colors.line,
+                borderWidth: 1,
+                borderRadius: 12,
+                padding: 14,
+                fontSize: 16,
+                minHeight: 48,
+                maxHeight: 120,
+              }}
+            />
+            <Button
+              label={sending ? "Posting…" : "Post comment"}
+              disabled={
+                !message.trim() || sending || !me || comments === undefined
+              }
+              onPress={async () => {
+                if (sending || !message.trim()) return;
+                const text = message;
+                measureCommentCommit();
+                setSending(true);
+                setMessage("");
+                try {
+                  await measureMobileAsync("social.comment.confirmation", () =>
+                    add({ postId: id, text }),
+                  );
+                } catch (e) {
+                  setMessage((current) => current || text);
+                  Alert.alert("Couldn't comment", String(e));
+                } finally {
+                  setSending(false);
+                }
+              }}
+            />
+          </KeyboardStickyFooter>
+        ) : undefined
+      }
+    >
       <PageHeader
         back
         onBack={goBack}
@@ -181,47 +241,6 @@ export default function PostScreen() {
               ) : null}
             </Pressable>
           ))}
-          <View style={{ gap: 10, marginTop: 16 }}>
-            <TextInput
-              accessibilityLabel="Write a comment"
-              placeholder="Leave a comment"
-              placeholderTextColor={colors.dim}
-              value={message}
-              onChangeText={setMessage}
-              maxLength={500}
-              multiline
-              style={{
-                color: colors.text,
-                borderColor: colors.line,
-                borderWidth: 1,
-                borderRadius: 12,
-                padding: 14,
-              }}
-            />
-            <Button
-              label={sending ? "Posting…" : "Post comment"}
-              disabled={
-                !message.trim() || sending || !me || comments === undefined
-              }
-              onPress={async () => {
-                if (sending || !message.trim()) return;
-                const text = message;
-                measureCommentCommit();
-                setSending(true);
-                setMessage("");
-                try {
-                  await measureMobileAsync("social.comment.confirmation", () =>
-                    add({ postId: id, text }),
-                  );
-                } catch (e) {
-                  setMessage((current) => current || text);
-                  Alert.alert("Couldn't comment", String(e));
-                } finally {
-                  setSending(false);
-                }
-              }}
-            />
-          </View>
         </>
       ) : null}
     </Screen>

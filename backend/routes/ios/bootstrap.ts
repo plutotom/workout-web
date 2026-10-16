@@ -12,6 +12,7 @@ const templateSetValidator = v.object({
 const bootstrapResultValidator = v.union(
   v.null(),
   v.object({
+    ownerWorkosId: v.optional(v.string()),
     serverTime: v.number(),
     preferences: v.object({
       unit: unitValidator,
@@ -82,6 +83,7 @@ const bootstrapResultValidator = v.union(
       v.object({
         slug: v.string(),
         notes: v.string(),
+        revision: v.optional(v.number()),
       }),
     ),
   }),
@@ -156,6 +158,7 @@ export const get = query({
       .take(500);
 
     return {
+      ownerWorkosId: user.workosId,
       serverTime: Math.max(
         0,
         ...templates.map((template) => template.updatedAt),
@@ -209,6 +212,7 @@ export const get = query({
       exerciseNotes: exerciseNotes.map((note) => ({
         slug: note.exerciseSlug,
         notes: note.notes,
+        revision: note.revision,
       })),
     };
   },

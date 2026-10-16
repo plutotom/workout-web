@@ -11,7 +11,10 @@ export type TemplateSyncFailure =
 export type CloudTemplateRef = {
   remoteId: string;
   name: string;
-  exercises: Array<{ slug: string }>;
+  exercises: Array<{
+    slug: string;
+    sets?: Array<{ weight: number; reps: number }>;
+  }>;
 };
 
 /** Substring of the Convex createTemplate rejection (`…templates are allowed`). */
@@ -28,16 +31,19 @@ function templateNameKey(name: string) {
   return name.trim().toLowerCase();
 }
 
-function templateSlugKey(exercises: Array<{ slug: string }>) {
-  return exercises.map((exercise) => exercise.slug).join("\0");
+function templateContentKey(exercises: CloudTemplateRef["exercises"]) {
+  if (!exercises.length || exercises.some((exercise) => !exercise.sets))
+    return null;
+  return JSON.stringify(exercises.map(({ slug, sets }) => ({ slug, sets })));
 }
 
 /**
  * If this unsynced local template is already on the account, reuse that row
- * instead of creating a twin. Unique name wins; otherwise name+slug sequence.
+ * instead of creating a twin. A name alone never establishes identity: the
+ * complete ordered prescriptions must match, and the match must be unique.
  */
 export function adoptCloudTemplateId(
-  local: { name: string; exercises: Array<{ slug: string }> },
+  local: { name: string; exercises: CloudTemplateRef["exercises"] },
   cloud: CloudTemplateRef[],
 ): string | null {
   const name = templateNameKey(local.name);
@@ -45,10 +51,10 @@ export function adoptCloudTemplateId(
   const named = cloud.filter(
     (template) => templateNameKey(template.name) === name,
   );
-  if (named.length === 1) return named[0]?.remoteId ?? null;
-  const slugs = templateSlugKey(local.exercises);
+  const content = templateContentKey(local.exercises);
+  if (content === null) return null;
   const signed = named.filter(
-    (template) => templateSlugKey(template.exercises) === slugs,
+    (template) => templateContentKey(template.exercises) === content,
   );
   if (signed.length === 1) return signed[0]?.remoteId ?? null;
   return null;

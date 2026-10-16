@@ -1,16 +1,18 @@
 import type { Infer } from "convex/values";
-import { normalizeExerciseNote } from "../../src/lib/exercise-notes";
-
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
-import { getNotesBySlugs } from "./exercise_notes";
+import { getNotesBySlugs, upsertExerciseNote } from "./exercise_notes";
 import {
   customSlug,
   MAX_CUSTOM_EXERCISES_PER_USER,
   MAX_NAME_LENGTH,
   normalizeShort,
 } from "./exercises";
-import { createTemplate, type ExerciseInput } from "./templates";
+import {
+  createTemplate,
+  MAX_TEMPLATE_NAME_LENGTH,
+  type ExerciseInput,
+} from "./templates";
 import type { portableBundleValidator } from "../schemas/portable";
 
 export type PortableBundle = Infer<typeof portableBundleValidator>;
@@ -220,19 +222,33 @@ async function adoptOrphanCustom(
 
 /** `Push Day` + an existing `Push Day` becomes `Push Day (2)`. */
 export function uniqueName(name: string, taken: Set<string>): string {
-  const base = name.trim() || "Untitled";
+  const base = boundedName(name.trim() || "Untitled", MAX_TEMPLATE_NAME_LENGTH);
   if (!taken.has(base.toLowerCase())) {
     taken.add(base.toLowerCase());
     return base;
   }
-  for (let n = 2; n < 1000; n++) {
-    const candidate = `${base} (${n})`;
+  // Each suffix is distinct; with at most taken.size occupied candidates,
+  // one of these bounded names must be available.
+  for (let n = 2; n <= taken.size + 2; n++) {
+    const suffix = ` (${n})`;
+    const candidate = `${boundedName(base, MAX_TEMPLATE_NAME_LENGTH - suffix.length).trimEnd()}${suffix}`;
     if (!taken.has(candidate.toLowerCase())) {
       taken.add(candidate.toLowerCase());
       return candidate;
     }
   }
-  return `${base} (${Date.now()})`;
+  throw new Error("Could not allocate a template name");
+}
+
+function boundedName(name: string, limit: number) {
+  // The validator measures UTF-16 length. Keep whole characters when a suffix
+  // leaves an odd number of code units for names containing emoji.
+  let result = "";
+  for (const character of name) {
+    if (result.length + character.length > limit) break;
+    result += character;
+  }
+  return result;
 }
 
 export type ImportResult = {
@@ -355,12 +371,10 @@ export async function importBundle(
           q.eq("userId", userId).eq("exerciseSlug", slug),
         )
         .unique();
-      if (existing) continue;
-      await ctx.db.insert("exerciseNotes", {
-        userId,
-        exerciseSlug: slug,
-        notes: normalizeExerciseNote(notes),
-      });
+      if (existing?.notes) continue;
+      // An explicit import may fill a cleared note. Keep the tombstone's
+      // increasing revision so older subscriptions cannot hide this new text.
+      await upsertExerciseNote(ctx, userId, slug, notes);
       notesImported++;
     }
   }

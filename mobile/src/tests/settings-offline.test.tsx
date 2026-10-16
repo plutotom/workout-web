@@ -27,14 +27,25 @@ const mocks = vi.hoisted(() => ({
   setPreferences:
     vi.fn<(patch: LocalGeneralPreferencePatch) => Promise<void>>(),
   account: undefined as undefined | { email: string },
+  recovery: undefined as
+    | undefined
+    | {
+        legacyAvailable: boolean;
+        alternatives: Array<{ slug: string; notes: string; savedAt: number }>;
+      },
+  restoreNoteVersion: vi.fn(async () => {}),
 }));
 
 vi.mock("@backend/api", async () => import("../../../backend/_generated/api"));
 vi.mock("@/auth/auth-provider", () => ({ useMobileAuth: () => mocks.auth }));
 vi.mock("@/data/local/provider", () => ({
-  useLocalData: () => ({ setGeneralPreferences: mocks.setPreferences }),
+  useLocalData: () => ({
+    setGeneralPreferences: mocks.setPreferences,
+    restoreNoteVersion: mocks.restoreNoteVersion,
+  }),
   useLocalPreferences: () => mocks.preferences,
   useBackupStatus: () => undefined,
+  useDataRecovery: () => mocks.recovery,
 }));
 vi.mock("@/components/ui", async () => {
   const { createElement } = await import("react");
@@ -129,6 +140,8 @@ beforeEach(() => {
     restTimerEnabled: true,
   });
   mocks.account = undefined;
+  mocks.recovery = undefined;
+  mocks.restoreNoteVersion.mockClear();
   mocks.setPreferences.mockReset().mockImplementation(async (patch) => {
     Object.assign(mocks.preferences, patch);
   });
@@ -163,6 +176,25 @@ function deferred() {
 }
 
 describe("local settings while offline or reconnecting", () => {
+  it("offers saved note versions offline and restores the selected alternative", async () => {
+    const version = {
+      slug: "bench",
+      notes: "A saved cloud alternative",
+      savedAt: 1,
+    };
+    mocks.recovery = { legacyAvailable: false, alternatives: [version] };
+    await mount();
+    const button = (label: string) =>
+      renderer!.root
+        .findAll((node) => String(node.type) === "Button")
+        .find((node) => node.children.includes(label))!;
+    await act(async () =>
+      button("Review saved note versions (1)").props.onPress(),
+    );
+    expect(JSON.stringify(renderer!.toJSON())).toContain(version.notes);
+    await act(async () => button("Use this version").props.onPress());
+    expect(mocks.restoreNoteVersion).toHaveBeenCalledWith(version);
+  });
   it("renders working General controls and all device settings during account connection", async () => {
     await mount();
     expect(renderer!.root.findByType(GeneralPreferencesCard)).toBeDefined();

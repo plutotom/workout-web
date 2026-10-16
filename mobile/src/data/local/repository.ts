@@ -13,6 +13,16 @@ import { watchHealthUuidKey, watchRecordedKey } from "@/health/watch-session";
 
 import { shouldAdoptCloudExerciseNote } from "@/data/local/exercise-notes-sync";
 import {
+  keepNoteAlternative,
+  noteBaseline,
+  setNoteBaseline,
+  noteRevision,
+  setNoteRevision,
+  remapNoteRecovery,
+} from "./note-recovery";
+import { convertLocalWeights } from "./weight-units";
+import { adoptMachineIdentity, adoptPlaceIdentity } from "./place-sync-storage";
+import {
   GENERAL_PREFS_ECHO_PENDING_KEY,
   GENERAL_PREFS_OPERATION_KEY,
   generalPreferenceBindValues,
@@ -542,6 +552,20 @@ export async function queueSessionSnapshot(
     randomUUID(),
     JSON.stringify(await snapshotFromSession(db, session)),
     createdAt,
+  );
+}
+
+/** Refresh transferred relationships without changing a retry's operation id. */
+export async function refreshQueuedSessionSnapshot(
+  db: SQLiteDatabase,
+  sessionId: string,
+) {
+  const session = await getLocalWorkout(db, sessionId);
+  if (!session) return;
+  await db.runAsync(
+    "UPDATE local_sync_outbox SET payload_json = ? WHERE entity_type = 'session' AND entity_id = ?",
+    JSON.stringify(await snapshotFromSession(db, session)),
+    sessionId,
   );
 }
 
@@ -1078,7 +1102,7 @@ export async function saveLocalExerciseNote(
     await markSessionUpdated(db, session.session_id, now);
 }
 
-async function queueExerciseNoteSnapshot(
+export async function queueExerciseNoteSnapshot(
   db: SQLiteDatabase,
   slug: string,
   notes: string,
@@ -2831,6 +2855,7 @@ async function remapCustomSlug(
   newSlug: string,
 ): Promise<SlugRemapTargets> {
   if (oldSlug === newSlug) return { sessionIds: [], templateIds: [] };
+  await remapNoteRecovery(txn, oldSlug, newSlug);
 
   const sessionRows = await txn.getAllAsync<{ session_id: string }>(
     "SELECT DISTINCT session_id FROM local_session_exercises WHERE slug = ?",
@@ -2952,15 +2977,13 @@ export async function completePlaceSync(
   placeId: string,
   remoteId: string,
 ) {
-  await db.runAsync(
-    "UPDATE local_places SET remote_id = ? WHERE id = ?",
-    remoteId,
-    placeId,
-  );
-  await db.runAsync(
-    "DELETE FROM local_sync_outbox WHERE operation_id = ?",
-    operationId,
-  );
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    await adoptPlaceIdentity(txn, placeId, remoteId);
+    await txn.runAsync(
+      "DELETE FROM local_sync_outbox WHERE operation_id = ?",
+      operationId,
+    );
+  });
   const sessions = await db.getAllAsync<{ id: string }>(
     "SELECT id FROM local_sessions WHERE place_id = ?",
     placeId,
@@ -2977,15 +3000,13 @@ export async function completeMachineSync(
   machineId: string,
   remoteId: string,
 ) {
-  await db.runAsync(
-    "UPDATE local_machines SET remote_id = ? WHERE id = ?",
-    remoteId,
-    machineId,
-  );
-  await db.runAsync(
-    "DELETE FROM local_sync_outbox WHERE operation_id = ?",
-    operationId,
-  );
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    await adoptMachineIdentity(txn, machineId, remoteId);
+    await txn.runAsync(
+      "DELETE FROM local_sync_outbox WHERE operation_id = ?",
+      operationId,
+    );
+  });
   const sessions = await db.getAllAsync<{ session_id: string }>(
     "SELECT DISTINCT session_id FROM local_session_exercises WHERE machine_id = ?",
     machineId,
@@ -3022,6 +3043,10 @@ export async function applyIosBootstrap(
       acknowledged:
         !operationId || payload.preferences.operationId === operationId,
     });
+    // Account preferences govern display. Guest imports never upload a unit
+    // preference over the account; convert their local numbers before relabeling.
+    if (local.unit !== next.unit)
+      await convertLocalWeights(txn, local.unit, next.unit);
     await txn.runAsync(
       `UPDATE local_preferences
           SET unit = ?, bar_weight_lb = ?, bar_weight_kg = ?,
@@ -3201,14 +3226,52 @@ export async function applyIosBootstrap(
     const pendingNoteSlugs = new Set(
       pendingNoteRows.map((row) => row.entity_id),
     );
-    for (const note of payload.exerciseNotes) {
-      if (!shouldAdoptCloudExerciseNote(pendingNoteSlugs.has(note.slug))) {
+    const allLocalNotes = await txn.getAllAsync<{
+      slug: string;
+      notes: string;
+    }>("SELECT slug, notes FROM local_exercise_notes");
+    const cloudSlugs = new Set(payload.exerciseNotes.map((note) => note.slug));
+    // Old builds had no outbox. Recover local-only edits before cloud values
+    // can replace them; last common text, not device timestamps, detects edits.
+    for (const local of allLocalNotes) {
+      if (cloudSlugs.has(local.slug) || pendingNoteSlugs.has(local.slug))
         continue;
+      const baseline = await noteBaseline(txn, local.slug);
+      if ((baseline === undefined || local.notes !== baseline) && local.notes) {
+        await queueExerciseNoteSnapshot(
+          txn,
+          local.slug,
+          local.notes,
+          Date.now(),
+        );
+        pendingNoteSlugs.add(local.slug);
       }
+    }
+    for (const note of payload.exerciseNotes) {
+      if ((note.revision ?? 0) < (await noteRevision(txn, note.slug))) continue;
       const localNote = await txn.getFirstAsync<{ notes: string }>(
         "SELECT notes FROM local_exercise_notes WHERE slug = ?",
         note.slug,
       );
+      const baseline = await noteBaseline(txn, note.slug);
+      const pending = pendingNoteSlugs.has(note.slug);
+      const legacyEdit =
+        localNote &&
+        localNote.notes !== note.notes &&
+        (baseline === undefined || localNote.notes !== baseline);
+      if (localNote && (pending || legacyEdit)) {
+        if (localNote.notes !== note.notes)
+          await keepNoteAlternative(txn, note.slug, note.notes);
+        if (!pending)
+          await queueExerciseNoteSnapshot(
+            txn,
+            note.slug,
+            localNote.notes,
+            Date.now(),
+          );
+        continue;
+      }
+      if (!shouldAdoptCloudExerciseNote(pending)) continue;
       if ((localNote?.notes.length ?? 0) > MAX_EXERCISE_NOTE_LENGTH) {
         continue;
       }
@@ -3238,6 +3301,9 @@ export async function applyIosBootstrap(
         note.notes,
         payload.serverTime,
       );
+      await setNoteBaseline(txn, note.slug, note.notes);
+      if (note.revision !== undefined)
+        await setNoteRevision(txn, note.slug, note.revision);
     }
     await txn.runAsync(
       `INSERT INTO local_metadata (key, value)
@@ -3532,11 +3598,28 @@ export async function noteExerciseNoteSyncAttempt(
 export async function completeExerciseNoteSync(
   db: SQLiteDatabase,
   operationId: string,
+  revision?: number,
 ) {
-  await db.runAsync(
-    "DELETE FROM local_sync_outbox WHERE operation_id = ?",
-    operationId,
-  );
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    const row = await txn.getFirstAsync<{ payload_json: string }>(
+      "SELECT payload_json FROM local_sync_outbox WHERE operation_id = ? AND entity_type = 'exercise_note'",
+      operationId,
+    );
+    if (row) {
+      const note = JSON.parse(row.payload_json) as ExerciseNoteSyncSnapshot;
+      await setNoteBaseline(txn, note.slug, note.notes);
+      if (revision !== undefined)
+        await setNoteRevision(
+          txn,
+          note.slug,
+          Math.max(revision, await noteRevision(txn, note.slug)),
+        );
+    }
+    await txn.runAsync(
+      "DELETE FROM local_sync_outbox WHERE operation_id = ?",
+      operationId,
+    );
+  });
 }
 
 /** Preserve legacy oversized notes locally without blocking other uploads. */

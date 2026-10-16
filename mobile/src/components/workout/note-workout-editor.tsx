@@ -7,16 +7,10 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import {
-  Alert,
-  AppState,
-  ScrollView,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { Alert, AppState, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { KeyboardAwareFooterLayout } from "@/components/keyboard-aware-scroll";
 import { KeyboardStickyFooter } from "@/components/keyboard-sticky-footer";
 import { Button, PageHeader } from "@/components/ui";
 import { useLocalData } from "@/data/local/provider";
@@ -238,12 +232,47 @@ export function NoteWorkoutEditor({
       edges={["top"]}
       style={{ flex: 1, backgroundColor: colors.bg }}
     >
-      <ScrollView
+      <KeyboardAwareFooterLayout
         contentContainerStyle={{ padding: 16, gap: 18, flexGrow: 1 }}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="interactive"
-        automaticallyAdjustKeyboardInsets
-        showsVerticalScrollIndicator={false}
+        footer={
+          <KeyboardStickyFooter
+            style={{
+              paddingHorizontal: 16,
+              paddingTop: 12,
+              backgroundColor: colors.bg,
+              borderTopWidth: 1,
+              borderTopColor: colors.line,
+              gap: 10,
+            }}
+          >
+            <View
+              style={{
+                flexDirection: "row",
+                justifyContent: "space-between",
+                gap: 12,
+              }}
+            >
+              <Text style={{ color: colors.dim, fontSize: 12 }}>
+                {saving
+                  ? "Saving…"
+                  : error
+                    ? "Note needs attention"
+                    : text === savedText
+                      ? "Saved on this device"
+                      : "Saving…"}
+              </Text>
+              <Text style={{ color: colors.faint, fontSize: 12 }}>
+                Counts toward attendance
+              </Text>
+            </View>
+            <Button
+              label={finishing ? "Finishing…" : "Finish workout"}
+              size="lg"
+              disabled={finishing || text.length > MAX_WORKOUT_NOTE_LENGTH}
+              onPress={finish}
+            />
+          </KeyboardStickyFooter>
+        }
       >
         <PageHeader title="Note workout" back subtitle={subtitle} />
         {placeControls}
@@ -264,44 +293,7 @@ export function NoteWorkoutEditor({
             {error}
           </Text>
         ) : null}
-      </ScrollView>
-      <KeyboardStickyFooter
-        style={{
-          paddingHorizontal: 16,
-          paddingTop: 12,
-          backgroundColor: colors.bg,
-          borderTopWidth: 1,
-          borderTopColor: colors.line,
-          gap: 10,
-        }}
-      >
-        <View
-          style={{
-            flexDirection: "row",
-            justifyContent: "space-between",
-            gap: 12,
-          }}
-        >
-          <Text style={{ color: colors.dim, fontSize: 12 }}>
-            {saving
-              ? "Saving…"
-              : error
-                ? "Note needs attention"
-                : text === savedText
-                  ? "Saved on this device"
-                  : "Saving…"}
-          </Text>
-          <Text style={{ color: colors.faint, fontSize: 12 }}>
-            Counts toward attendance
-          </Text>
-        </View>
-        <Button
-          label={finishing ? "Finishing…" : "Finish workout"}
-          size="lg"
-          disabled={finishing || text.length > MAX_WORKOUT_NOTE_LENGTH}
-          onPress={finish}
-        />
-      </KeyboardStickyFooter>
+      </KeyboardAwareFooterLayout>
     </SafeAreaView>
   );
 }

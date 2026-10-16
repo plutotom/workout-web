@@ -1,11 +1,12 @@
 import type { MuscleGroup } from "@shared/exercises";
 import { MUSCLE_GROUPS } from "@shared/exercises";
 import { useState } from "react";
-import { Modal, Pressable, ScrollView, Text, View } from "react-native";
+import { Modal, Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { X } from "lucide-react-native";
 
 import { useLocalData } from "@/data/local/provider";
+import { KeyboardAwareFooterLayout } from "@/components/keyboard-aware-scroll";
 import { KeyboardStickyFooter } from "@/components/keyboard-sticky-footer";
 import { Button, Field, Segmented } from "@/components/ui";
 import { colors, radius } from "@/theme";
@@ -126,12 +127,44 @@ function EditorBody({
         </Pressable>
       </View>
 
-      <ScrollView
-        style={{ flex: 1 }}
+      <KeyboardAwareFooterLayout
         contentContainerStyle={{ padding: 16, gap: 20 }}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="interactive"
-        showsVerticalScrollIndicator={false}
+        footer={
+          <KeyboardStickyFooter
+            style={{
+              flexDirection: "row",
+              gap: 9,
+              paddingHorizontal: 16,
+              paddingTop: 12,
+              borderTopWidth: 1,
+              borderTopColor: colors.line,
+              backgroundColor: colors.bg,
+            }}
+          >
+            <Button
+              label="Cancel"
+              variant="outline"
+              size="lg"
+              onPress={onCancel}
+              style={{ flex: 1 }}
+            />
+            <Button
+              label={
+                saving
+                  ? editing
+                    ? "Saving…"
+                    : "Creating…"
+                  : editing
+                    ? "Save"
+                    : "Create exercise"
+              }
+              size="lg"
+              disabled={saving || !name.trim()}
+              onPress={save}
+              style={{ flex: 1 }}
+            />
+          </KeyboardStickyFooter>
+        }
       >
         <Field
           label="Name"
@@ -214,42 +247,7 @@ function EditorBody({
             {error}
           </Text>
         ) : null}
-      </ScrollView>
-
-      <KeyboardStickyFooter
-        style={{
-          flexDirection: "row",
-          gap: 9,
-          paddingHorizontal: 16,
-          paddingTop: 12,
-          borderTopWidth: 1,
-          borderTopColor: colors.line,
-          backgroundColor: colors.bg,
-        }}
-      >
-        <Button
-          label="Cancel"
-          variant="outline"
-          size="lg"
-          onPress={onCancel}
-          style={{ flex: 1 }}
-        />
-        <Button
-          label={
-            saving
-              ? editing
-                ? "Saving…"
-                : "Creating…"
-              : editing
-                ? "Save"
-                : "Create exercise"
-          }
-          size="lg"
-          disabled={saving || !name.trim()}
-          onPress={save}
-          style={{ flex: 1 }}
-        />
-      </KeyboardStickyFooter>
+      </KeyboardAwareFooterLayout>
     </>
   );
 }

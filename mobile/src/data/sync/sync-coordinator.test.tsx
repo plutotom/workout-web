@@ -3,7 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SyncCoordinator } from "./sync-coordinator";
 
 const mocks = vi.hoisted(() => ({
-  bootstrap: { serverTime: 1, templates: [] as unknown[] },
+  bootstrap: { ownerWorkosId: "user-1", serverTime: 1, templates: [] } as
+    | { ownerWorkosId?: string; serverTime: number; templates: unknown[] }
+    | null
+    | undefined,
+  owner: "user-1",
+  ownsAccount: true,
+  auth: { isAuthenticated: true, user: { id: "user-1" } },
   revision: 0,
   applyBootstrap: vi.fn(),
   pending: [] as Array<{
@@ -47,7 +53,7 @@ vi.mock("convex/react", () => ({
   useMutation: () => mocks.push,
 }));
 vi.mock("@/auth/auth-provider", () => ({
-  useMobileAuth: () => ({ isAuthenticated: true, user: { id: "user-1" } }),
+  useMobileAuth: () => mocks.auth,
 }));
 vi.mock("react-native", () => ({
   Alert: { alert: mocks.alert },
@@ -66,8 +72,12 @@ vi.mock("react-native", () => ({
   },
 }));
 vi.mock("@/data/local/provider", () => ({
-  useLocalData: () => ({ applyBootstrap: mocks.applyBootstrap }),
+  useLocalData: () => ({
+    applyBootstrap: mocks.applyBootstrap,
+    owner: mocks.owner,
+  }),
   useLocalSyncStore: () => ({
+    ownsAccount: async () => mocks.ownsAccount,
     revision: mocks.revision,
     getDeviceId: async () => "device-1",
     getPendingPlace: async () => null,
@@ -116,7 +126,10 @@ beforeEach(async () => {
   vi.spyOn(console, "warn").mockImplementation(() => {});
   vi.spyOn(console, "error").mockImplementation(() => {});
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
-  mocks.bootstrap = { serverTime: 1, templates: [] };
+  mocks.bootstrap = { ownerWorkosId: "user-1", serverTime: 1, templates: [] };
+  mocks.owner = "user-1";
+  mocks.ownsAccount = true;
+  mocks.auth = { isAuthenticated: true, user: { id: "user-1" } };
   mocks.revision = 0;
   mocks.pending = [queued("op-1")];
   mocks.pendingNotes = [];
@@ -151,6 +164,52 @@ async function mount() {
 }
 
 describe("sync subscription and outbox coordination", () => {
+  it("waits for the initial query and its reconciliation to finish before uploading", async () => {
+    mocks.bootstrap = undefined;
+    const reconciliation = deferred();
+    mocks.applyBootstrap.mockReturnValueOnce(reconciliation.promise);
+    await mount();
+    await tick(10_000);
+    expect(mocks.applyBootstrap).not.toHaveBeenCalled();
+    expect(mocks.push).not.toHaveBeenCalled();
+    mocks.bootstrap = { ownerWorkosId: "user-1", serverTime: 1, templates: [] };
+    await update();
+    await tick();
+    expect(mocks.applyBootstrap).toHaveBeenCalledTimes(1);
+    expect(mocks.push).not.toHaveBeenCalled();
+    await act(async () =>
+      reconciliation.resolve({ remoteTemplateId: "unused" }),
+    );
+    await tick();
+    expect(mocks.push).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ ownerWorkosId: "user-1", operationId: "op-1" }),
+    );
+  });
+
+  it.each([
+    null,
+    { serverTime: 1, templates: [] },
+    { ownerWorkosId: "another-user", serverTime: 1, templates: [] },
+  ])(
+    "does not reconcile or upload an unowned bootstrap %j",
+    async (bootstrap) => {
+      mocks.bootstrap = bootstrap;
+      await mount();
+      await tick(10_000);
+      expect(mocks.applyBootstrap).not.toHaveBeenCalled();
+      expect(mocks.push).not.toHaveBeenCalled();
+    },
+  );
+
+  it("retries a failed initial reconciliation without uploading before it commits", async () => {
+    mocks.applyBootstrap.mockRejectedValueOnce(new Error("SQLite busy"));
+    await mount();
+    expect(mocks.push).not.toHaveBeenCalled();
+    await tick(2_000);
+    expect(mocks.applyBootstrap).toHaveBeenCalledTimes(2);
+    expect(mocks.push).toHaveBeenCalledTimes(1);
+  });
+
   it("waits for an upload acknowledgment before applying its cloud echo or starting another upload", async () => {
     const upload = deferred();
     const ack = deferred();
@@ -160,7 +219,7 @@ describe("sync subscription and outbox coordination", () => {
       mocks.pending.shift();
     });
     await mount();
-    mocks.bootstrap = { serverTime: 2, templates: [] };
+    mocks.bootstrap = { ownerWorkosId: "user-1", serverTime: 2, templates: [] };
     mocks.revision++;
     await update();
     await tick();
@@ -189,7 +248,11 @@ describe("sync subscription and outbox coordination", () => {
     await mount();
     expect(mocks.push).toHaveBeenCalledTimes(1);
     for (let i = 0; i < 10; i++) {
-      mocks.bootstrap = { serverTime: i + 2, templates: [] };
+      mocks.bootstrap = {
+        ownerWorkosId: "user-1",
+        serverTime: i + 2,
+        templates: [],
+      };
       mocks.revision++;
       await update();
     }
@@ -222,7 +285,7 @@ describe("sync subscription and outbox coordination", () => {
   it("applies cloud changes even when serverTime is unchanged", async () => {
     mocks.pending = [];
     await mount();
-    const next = { ...mocks.bootstrap, preferences: { unit: "kg" } };
+    const next = { ...mocks.bootstrap!, preferences: { unit: "kg" } };
     mocks.bootstrap = next;
     await update();
     await tick();

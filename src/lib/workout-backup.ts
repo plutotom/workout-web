@@ -177,6 +177,7 @@ export type WorkoutBackupSnapshot = {
   customExercises: BackupCustomExercise[];
   templates: BackupTemplate[];
   exerciseNotes: BackupExerciseNote[];
+  noteAlternatives?: Array<{ slug: string; notes: string; savedAt: number }>;
   sessions: BackupSession[];
   places?: BackupPlace[];
   machines?: BackupMachine[];
@@ -385,6 +386,26 @@ export function validateBackup(value: unknown): BackupParseResult {
   }
 
   const sessions: BackupSession[] = [];
+  const noteAlternatives: NonNullable<
+    WorkoutBackupSnapshot["noteAlternatives"]
+  > = [];
+  const rawAlternatives = Array.isArray(value.noteAlternatives)
+    ? value.noteAlternatives
+    : [];
+  if (rawAlternatives.length > MAX_NOTES)
+    return { ok: false, error: "That backup has too many saved note versions" };
+  for (const raw of rawAlternatives) {
+    if (
+      isRecord(raw) &&
+      typeof raw.slug === "string" &&
+      typeof raw.notes === "string"
+    )
+      noteAlternatives.push({
+        slug: raw.slug,
+        notes: raw.notes,
+        savedAt: isFiniteNumber(raw.savedAt) ? raw.savedAt : 0,
+      });
+  }
   const rawSessions = Array.isArray(value.sessions) ? value.sessions : [];
   if (rawSessions.length > MAX_SESSIONS)
     return { ok: false, error: "That backup has too many workouts" };
@@ -527,7 +548,8 @@ export function validateBackup(value: unknown): BackupParseResult {
     sessions.length === 0 &&
     templates.length === 0 &&
     customExercises.length === 0 &&
-    exerciseNotes.length === 0
+    exerciseNotes.length === 0 &&
+    noteAlternatives.length === 0
   ) {
     return { ok: false, error: "That backup is empty" };
   }
@@ -542,6 +564,7 @@ export function validateBackup(value: unknown): BackupParseResult {
       customExercises,
       templates,
       exerciseNotes,
+      ...(noteAlternatives.length ? { noteAlternatives } : {}),
       sessions,
       ...(places.value && places.value.length > 0
         ? { places: places.value }

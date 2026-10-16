@@ -55,6 +55,7 @@ export default function PeopleScreen() {
           borderRadius: 12,
           padding: 14,
           marginBottom: 14,
+          fontSize: 16,
         }}
       />
       {showSuggestions && (people?.length ?? 0) > 0 ? (

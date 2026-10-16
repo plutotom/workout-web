@@ -1,16 +1,10 @@
 import { Sparkles, X } from "lucide-react-native";
 import { useState } from "react";
-import {
-  Keyboard,
-  Modal,
-  Pressable,
-  ScrollView,
-  Text,
-  View,
-} from "react-native";
+import { Keyboard, Modal, Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { GeneratingLoader } from "@/components/generating-loader";
+import { KeyboardAwareFooterLayout } from "@/components/keyboard-aware-scroll";
 import { KeyboardStickyFooter } from "@/components/keyboard-sticky-footer";
 import { Button, Field } from "@/components/ui";
 import { colors } from "@/theme";
@@ -99,102 +93,95 @@ export function AiPromptModal({
           </Pressable>
         </View>
 
-        <ScrollView
-          style={{ flex: 1, minHeight: 0 }}
-          contentContainerStyle={{
-            paddingHorizontal: 16,
-            paddingBottom: 16,
-            gap: 8,
-          }}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="interactive"
-          showsVerticalScrollIndicator={false}
-        >
-          <Text
-            style={{
-              color: colors.text,
-              fontSize: 28,
-              lineHeight: 32,
-              fontWeight: "700",
+        {loading ? (
+          <View style={{ flex: 1, alignItems: "center", paddingTop: 12 }}>
+            <GeneratingLoader label={loadingLabel} />
+          </View>
+        ) : (
+          <KeyboardAwareFooterLayout
+            contentContainerStyle={{
+              paddingHorizontal: 16,
+              paddingBottom: 16,
+              gap: 8,
             }}
-          >
-            {title}
-          </Text>
-          <Text
-            style={{
-              color: colors.dim,
-              fontSize: 14,
-              lineHeight: 21,
-              marginBottom: 14,
-            }}
-          >
-            {description}
-          </Text>
-          {loading ? (
-            <View style={{ alignItems: "center", paddingTop: 12 }}>
-              <GeneratingLoader label={loadingLabel} />
-            </View>
-          ) : (
-            <>
-              <Field
-                value={prompt}
-                onChangeText={setPrompt}
-                multiline
-                placeholder="Make this a 45-minute push workout with extra shoulder work…"
-                autoFocus
-                maxLength={maxChars}
-              />
-              <Text
+            footer={
+              <KeyboardStickyFooter
                 style={{
-                  color: colors.faint,
-                  fontSize: 12,
-                  textAlign: "right",
+                  flexDirection: "row",
+                  gap: 9,
+                  paddingHorizontal: 16,
+                  paddingTop: 8,
                 }}
               >
-                {prompt.length}/{maxChars}
-              </Text>
-              {error ? (
-                <Text
-                  style={{
-                    color: colors.danger,
-                    fontSize: 12,
-                    lineHeight: 18,
-                    marginTop: 10,
-                  }}
-                >
-                  {error}
-                </Text>
-              ) : null}
-            </>
-          )}
-        </ScrollView>
-
-        {loading ? null : (
-          <KeyboardStickyFooter
-            style={{
-              flexDirection: "row",
-              gap: 9,
-              paddingHorizontal: 16,
-              paddingTop: 8,
-            }}
+                <Button
+                  label="Cancel"
+                  variant="outline"
+                  size="lg"
+                  disabled={loading}
+                  onPress={onClose}
+                  style={{ flex: 1 }}
+                />
+                <Button
+                  label="Generate draft"
+                  icon={Sparkles}
+                  size="lg"
+                  disabled={!prompt.trim()}
+                  onPress={submit}
+                  style={{ flex: 1 }}
+                />
+              </KeyboardStickyFooter>
+            }
           >
-            <Button
-              label="Cancel"
-              variant="outline"
-              size="lg"
-              disabled={loading}
-              onPress={onClose}
-              style={{ flex: 1 }}
+            <Text
+              style={{
+                color: colors.text,
+                fontSize: 28,
+                lineHeight: 32,
+                fontWeight: "700",
+              }}
+            >
+              {title}
+            </Text>
+            <Text
+              style={{
+                color: colors.dim,
+                fontSize: 14,
+                lineHeight: 21,
+                marginBottom: 14,
+              }}
+            >
+              {description}
+            </Text>
+            <Field
+              value={prompt}
+              onChangeText={setPrompt}
+              multiline
+              placeholder="Make this a 45-minute push workout with extra shoulder work…"
+              autoFocus
+              maxLength={maxChars}
             />
-            <Button
-              label="Generate draft"
-              icon={Sparkles}
-              size="lg"
-              disabled={!prompt.trim()}
-              onPress={submit}
-              style={{ flex: 1 }}
-            />
-          </KeyboardStickyFooter>
+            <Text
+              style={{
+                color: colors.faint,
+                fontSize: 12,
+                textAlign: "right",
+              }}
+            >
+              {prompt.length}/{maxChars}
+            </Text>
+            {error ? (
+              <Text
+                style={{
+                  color: colors.danger,
+                  fontSize: 12,
+                  lineHeight: 18,
+                  marginTop: 10,
+                }}
+              >
+                {error}
+              </Text>
+            ) : null}
+          </KeyboardAwareFooterLayout>
         )}
       </SafeAreaView>
     </Modal>

@@ -9,31 +9,40 @@ describe("adoptCloudTemplateId", () => {
   const push = {
     remoteId: "cloud-push",
     name: "Push Day",
-    exercises: [{ slug: "bench" }],
+    exercises: [{ slug: "bench", sets: [{ weight: 135, reps: 5 }] }],
   };
 
-  it("adopts a uniquely named cloud template", () => {
+  it("does not adopt a uniquely named but different cloud template", () => {
     expect(
       adoptCloudTemplateId({ name: "Push Day", exercises: [{ slug: "ohp" }] }, [
         push,
       ]),
+    ).toBeNull();
+  });
+
+  it("uses complete prescriptions when the name is shared", () => {
+    expect(
+      adoptCloudTemplateId({ name: "Push Day", exercises: push.exercises }, [
+        push,
+        {
+          remoteId: "cloud-push-2",
+          name: "Push Day",
+          exercises: [{ slug: "ohp" }],
+        },
+      ]),
     ).toBe("cloud-push");
   });
 
-  it("uses name+slugs when the name is shared", () => {
+  it("does not overwrite different weights on the same named lifts", () => {
     expect(
       adoptCloudTemplateId(
-        { name: "Push Day", exercises: [{ slug: "bench" }] },
-        [
-          push,
-          {
-            remoteId: "cloud-push-2",
-            name: "Push Day",
-            exercises: [{ slug: "ohp" }],
-          },
-        ],
+        {
+          name: push.name,
+          exercises: [{ slug: "bench", sets: [{ weight: 100, reps: 5 }] }],
+        },
+        [push],
       ),
-    ).toBe("cloud-push");
+    ).toBeNull();
   });
 
   it("does not guess when two same-name templates share slugs", () => {

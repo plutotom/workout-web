@@ -1,7 +1,6 @@
 import {
   ActivityIndicator,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -19,6 +18,11 @@ import { ChevronLeft, type LucideIcon } from "lucide-react-native";
 import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
 
+import {
+  KeyboardAwareFooterLayout,
+  KeyboardAwareScroll,
+  type KeyboardScrollMode,
+} from "@/components/keyboard-aware-scroll";
 import { colors, radius, space } from "@/theme";
 
 export function Screen({
@@ -26,35 +30,52 @@ export function Screen({
   scroll = true,
   contentStyle,
   refreshControl,
+  footer,
+  keyboardMode,
 }: {
   children: ReactNode;
   scroll?: boolean;
   contentStyle?: StyleProp<ViewStyle>;
   refreshControl?: ReactElement<RefreshControlProps>;
+  /** Sticky chrome (usually `KeyboardStickyFooter`) that must stay above the keyboard. */
+  footer?: ReactNode;
+  keyboardMode?: KeyboardScrollMode;
 }) {
   const content = (
     <View style={[styles.screenContent, contentStyle]}>{children}</View>
   );
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
-      <KeyboardAvoidingView
-        style={styles.safe}
-        behavior="padding"
-        automaticOffset
-      >
-        {scroll ? (
-          <ScrollView
+      {scroll ? (
+        footer ? (
+          <KeyboardAwareFooterLayout
+            footer={footer}
             contentContainerStyle={{ flexGrow: 1 }}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
+            refreshControl={refreshControl}
+            keyboardMode={keyboardMode}
+          >
+            {content}
+          </KeyboardAwareFooterLayout>
+        ) : (
+          <KeyboardAwareScroll
+            style={styles.safe}
+            mode={keyboardMode === "composer" ? undefined : keyboardMode}
+            contentContainerStyle={{ flexGrow: 1 }}
             refreshControl={refreshControl}
           >
             {content}
-          </ScrollView>
-        ) : (
-          content
-        )}
-      </KeyboardAvoidingView>
+          </KeyboardAwareScroll>
+        )
+      ) : (
+        <KeyboardAvoidingView
+          style={styles.safe}
+          behavior="padding"
+          automaticOffset
+        >
+          {content}
+          {footer}
+        </KeyboardAvoidingView>
+      )}
     </SafeAreaView>
   );
 }
@@ -225,6 +246,7 @@ export function Field({
         placeholderTextColor={colors.faint}
         keyboardType={keyboardType}
         multiline={multiline}
+        scrollEnabled={multiline ? false : undefined}
         editable={editable}
         selectionColor={colors.text}
         onFocus={(event) => {

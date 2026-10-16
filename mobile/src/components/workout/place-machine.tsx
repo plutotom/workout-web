@@ -1,16 +1,10 @@
 import { Check, MapPin, Plus, Settings2, Star } from "lucide-react-native";
 import { useMemo, useState } from "react";
-import {
-  Alert,
-  Modal,
-  Pressable,
-  ScrollView,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { Alert, Modal, Pressable, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { KeyboardAwareFooterLayout } from "@/components/keyboard-aware-scroll";
+import { KeyboardStickyFooter } from "@/components/keyboard-sticky-footer";
 import { Button } from "@/components/ui";
 import {
   useLocalData,
@@ -21,7 +15,7 @@ import {
 } from "@/data/local/provider";
 import type { LocalMachine, LocalPlace } from "@/data/local/types";
 import { localPlaceMatchesId } from "@/data/local/places";
-import { colors, radius, space } from "@/theme";
+import { colors, radius } from "@/theme";
 
 export function useStartPlace(templateId?: string) {
   const places = useLocalPlaces();
@@ -170,9 +164,15 @@ export function PlacePickerModal({
             Last weights at this gym stay here.
           </Text>
         </View>
-        <ScrollView
+        <KeyboardAwareFooterLayout
           contentContainerStyle={{ padding: 16, gap: 8, paddingBottom: 32 }}
-          keyboardShouldPersistTaps="handled"
+          footer={
+            <KeyboardStickyFooter
+              style={{ paddingHorizontal: 16, paddingTop: 8 }}
+            >
+              <Button label="Close" variant="ghost" onPress={onClose} />
+            </KeyboardStickyFooter>
+          }
         >
           {places.map((place) => {
             const selected = localPlaceMatchesId(place, selectedPlaceId);
@@ -275,10 +275,7 @@ export function PlacePickerModal({
               onPress={() => setAdding(true)}
             />
           )}
-        </ScrollView>
-        <View style={{ padding: 16 }}>
-          <Button label="Close" variant="ghost" onPress={onClose} />
-        </View>
+        </KeyboardAwareFooterLayout>
       </SafeAreaView>
     </Modal>
   );
@@ -355,7 +352,16 @@ export function MachinePickerModal({
             already selected.
           </Text>
         </View>
-        <ScrollView contentContainerStyle={{ padding: 16, gap: 8 }}>
+        <KeyboardAwareFooterLayout
+          contentContainerStyle={{ padding: 16, gap: 8 }}
+          footer={
+            <KeyboardStickyFooter
+              style={{ paddingHorizontal: 16, paddingTop: 8 }}
+            >
+              <Button label="Close" variant="ghost" onPress={onClose} />
+            </KeyboardStickyFooter>
+          }
+        >
           {(machines ?? []).length === 0 && !adding ? (
             <Text style={{ color: colors.dim, fontSize: 14, lineHeight: 20 }}>
               One unnamed machine here so far. Add a second when the numbers
@@ -452,10 +458,7 @@ export function MachinePickerModal({
               onPress={() => setAdding(true)}
             />
           )}
-        </ScrollView>
-        <View style={{ padding: space.md }}>
-          <Button label="Close" variant="ghost" onPress={onClose} />
-        </View>
+        </KeyboardAwareFooterLayout>
       </SafeAreaView>
     </Modal>
   );

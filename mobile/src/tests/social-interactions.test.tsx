@@ -82,6 +82,9 @@ vi.mock("@/components/ui", () => ({
   Card: "Card",
   EmptyState: "EmptyState",
 }));
+vi.mock("@/components/keyboard-sticky-footer", () => ({
+  KeyboardStickyFooter: "KeyboardStickyFooter",
+}));
 vi.mock("@/components/cowboy-hat-icon", () => ({ CowboyHatIcon: "Hat" }));
 vi.mock("lucide-react-native", () => ({ MessageCircle: "MessageCircle" }));
 vi.mock("react-native", () => ({

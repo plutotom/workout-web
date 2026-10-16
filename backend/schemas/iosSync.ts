@@ -10,5 +10,6 @@ export const iosSyncTables = {
     // Convex id of the entity this operation created, so a retried create
     // (lost response) returns the same row instead of inserting another.
     targetId: v.optional(v.string()),
+    noteRevision: v.optional(v.number()),
   }).index("by_user_operation_id", ["userId", "operationId"]),
 };

@@ -6,6 +6,23 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 <!-- END:nextjs-agent-rules -->
 
+## Review and merge checks
+
+- Run `pnpm test:review` for general code reviews and before recommending a
+  merge. It runs the ordinary unit suite and the strict offline account lifecycle
+  gate. Report both results; `pnpm test` alone does not establish merge readiness.
+- GitHub Actions runs `Unit tests` and `Offline account lifecycle` on every PR
+  and merge-group commit, without path filters. Both checks must pass on the
+  current integration commit before merging into `main` or `staging`.
+- Do not skip cases, use test-name filters, mark failures as expected, or add
+  `continue-on-error` to turn data-preservation defects into a green check.
+- Account, auth, sync, SQLite migration, Convex schema, and import changes must
+  preserve old users/data. Add regression coverage for the failure and verify
+  offline restart, reconnect, retries, and account ownership as applicable.
+- These tests use temporary SQLite files and synthetic Convex/WorkOS accounts;
+  do not substitute real users, production data, or production credentials.
+  See [the lifecycle gate documentation](tests/offline-accounts/README.md).
+
 ## Backend (Convex)
 
 Convex functions live in `backend/`. As the app grows:
@@ -73,6 +90,28 @@ are unaffected.
 `expo-file-system` and `expo-sharing` are native modules: **the iOS app needs a
 rebuild**, not just a Metro reload, before the file transport or universal links
 work on device.
+
+## iOS keyboard (Expo)
+
+On iOS a focused text input must never sit under the software keyboard — not
+the caret in a multiline note, not a comment composer, not a field in a
+page sheet. This is an app-wide rule, not a per-screen fix.
+
+Use the shared primitives in `mobile/src/components/` instead of RN's
+`KeyboardAvoidingView` or `automaticallyAdjustKeyboardInsets`:
+
+| Layout                                         | Primitive                                            |
+| ---------------------------------------------- | ---------------------------------------------------- |
+| Full screen with inputs                        | `Screen` (wraps `KeyboardAwareScroll`)               |
+| Scroll + sticky CTA (Finish / Save / Generate) | `KeyboardAwareFooterLayout` + `KeyboardStickyFooter` |
+| Non-scrolling screen                           | `Screen scroll={false}` keeps `KeyboardAvoidingView` |
+
+`KeyboardAwareScroll` tracks the caret (including multiline) and takes a
+`bottomOffset` so typing stays above a sticky footer. Do not put a focused
+input in a plain `ScrollView` or a fixed footer that ignores the keyboard.
+
+See `.cursor/rules/mobile-first.mdc` for the web/PWA counterpart
+(`useVisualViewportFrame`).
 
 ## Deployment
 
