@@ -21,6 +21,7 @@ import * as Haptics from "expo-haptics";
 import {
   KeyboardAwareFooterLayout,
   KeyboardAwareScroll,
+  type KeyboardScrollMode,
 } from "@/components/keyboard-aware-scroll";
 import { colors, radius, space } from "@/theme";
 
@@ -38,7 +39,7 @@ export function Screen({
   refreshControl?: ReactElement<RefreshControlProps>;
   /** Sticky chrome (usually `KeyboardStickyFooter`) that must stay above the keyboard. */
   footer?: ReactNode;
-  keyboardMode?: "insets" | "layout";
+  keyboardMode?: KeyboardScrollMode;
 }) {
   const content = (
     <View style={[styles.screenContent, contentStyle]}>{children}</View>
@@ -51,13 +52,14 @@ export function Screen({
             footer={footer}
             contentContainerStyle={{ flexGrow: 1 }}
             refreshControl={refreshControl}
+            keyboardMode={keyboardMode}
           >
             {content}
           </KeyboardAwareFooterLayout>
         ) : (
           <KeyboardAwareScroll
             style={styles.safe}
-            mode={keyboardMode}
+            mode={keyboardMode === "composer" ? undefined : keyboardMode}
             contentContainerStyle={{ flexGrow: 1 }}
             refreshControl={refreshControl}
           >
@@ -244,6 +246,7 @@ export function Field({
         placeholderTextColor={colors.faint}
         keyboardType={keyboardType}
         multiline={multiline}
+        scrollEnabled={multiline ? false : undefined}
         editable={editable}
         selectionColor={colors.text}
         onFocus={(event) => {

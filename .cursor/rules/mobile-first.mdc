@@ -25,7 +25,7 @@ On iOS Safari/PWA the keyboard often covers fixed sheets, footers, and focused i
 
 When building sheets, dialogs, or any fixed bottom chrome with inputs:
 
-1. Use [`useVisualViewportFrame`](src/hooks/use-visual-viewport-frame.ts) so the overlay tracks the *visual* viewport, not `100dvh`.
+1. Use [`useVisualViewportFrame`](src/hooks/use-visual-viewport-frame.ts) so the overlay tracks the _visual_ viewport, not `100dvh`.
 2. Keep the primary action (Generate / Save / Submit) visible above the keyboard — shrink or hide secondary chrome when `keyboardOpen`.
 3. Make the middle section scroll (`min-h-0 flex-1 overflow-y-auto`); pin header/footer.
 4. Prefer `preventScroll` on focus when you manage viewport yourself.
@@ -38,7 +38,7 @@ const { style, keyboardOpen } = useVisualViewportFrame(open);
   <header className="shrink-0">…</header>
   <div className="min-h-0 flex-1 overflow-y-auto">…input…</div>
   <footer className="shrink-0">…primary CTA…</footer>
-</SheetContent>
+</SheetContent>;
 ```
 
 ```tsx
@@ -58,7 +58,9 @@ or `automaticallyAdjustKeyboardInsets` for new input screens.
   `bottomOffset` / `extraKeyboardSpace` so the caret clears both keyboard and
   footer.
 - **Composer-style inputs** (comments) — put the field in `KeyboardStickyFooter`
-  via `Screen`'s `footer` prop, not at the bottom of the scroll content.
+  via `Screen`'s `footer` prop and set `keyboardMode="composer"`. This scrolls
+  the content with the keyboard even though the focused input is outside the
+  scroll view. Keep a height-limited composer internally scrollable.
 - **Multiline notes** — keep `scrollEnabled={false}` on the `TextInput` so the
   parent scroll view follows the caret as the note grows.
 - **Inputs in page sheets** — same primitives; a `Modal` still sits under the
