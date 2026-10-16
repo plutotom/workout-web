@@ -4,11 +4,12 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useQuery } from "convex-helpers/react/cache/hooks";
-import { ArrowRight, Award, Check, Share2, Trophy } from "lucide-react";
+import { ArrowRight, Award, Check, Pencil, Share2, Trophy } from "lucide-react";
 
 import { api } from "@backend/api";
 import type { Id } from "@backend/dataModel";
 import { EmptyState } from "@/components/app/empty-state";
+import { sessionAllowsCompletedReviewEdit } from "@/lib/session-edits";
 import { useExerciseCatalog } from "@/components/app/exercise-catalog-provider";
 import { Button } from "@/components/ui/button";
 import {
@@ -652,6 +653,18 @@ export function WorkoutRecap({
           <Button type="button" onClick={() => void share()}>
             <Share2 className="size-4" />
             Share
+          </Button>
+        ) : null}
+        {sessionAllowsCompletedReviewEdit({
+          status: "completed",
+          sessionKind: data.session.sessionKind,
+          inputMode: data.session.inputMode,
+        }) ? (
+          <Button asChild variant="outline">
+            <Link href={`/workout/${sessionId}?edit=1`}>
+              <Pencil className="size-4" />
+              Edit workout
+            </Link>
           </Button>
         ) : null}
         <Button

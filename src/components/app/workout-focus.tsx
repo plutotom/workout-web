@@ -59,7 +59,13 @@ const SWIPE_THRESHOLD_PX = 56;
  * skipped) the cursor advances to the next incomplete set. Structural edits
  * live in the Session sheet.
  */
-export function WorkoutFocus({ sessionId }: { sessionId: string }) {
+export function WorkoutFocus({
+  sessionId,
+  startInEdit = false,
+}: {
+  sessionId: string;
+  startInEdit?: boolean;
+}) {
   const catalog = useExerciseCatalog();
   const session = useQuery(api.routes.workouts.queries.get, {
     sessionId: sessionId as Id<"workoutSessions">,
@@ -165,7 +171,7 @@ export function WorkoutFocus({ sessionId }: { sessionId: string }) {
         </div>
       );
     }
-    return <WorkoutLog sessionId={sessionId} />;
+    return <WorkoutLog sessionId={sessionId} startInEdit={startInEdit} />;
   }
 
   const totalSets = refs.length;

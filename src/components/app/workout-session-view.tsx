@@ -11,7 +11,13 @@ import { WorkoutLog } from "@/components/app/workout-log";
  * Renders the user's preferred active-workout view (List or Focus) for a
  * session. Waits for the profile so the wrong mode never flashes.
  */
-export function WorkoutSessionView({ sessionId }: { sessionId: string }) {
+export function WorkoutSessionView({
+  sessionId,
+  startInEdit = false,
+}: {
+  sessionId: string;
+  startInEdit?: boolean;
+}) {
   const user = useQuery(api.routes.auth.users.current);
 
   if (user === undefined) {
@@ -25,8 +31,8 @@ export function WorkoutSessionView({ sessionId }: { sessionId: string }) {
 
   const mode = user?.activeWorkoutMode ?? "list";
   return mode === "focus" ? (
-    <WorkoutFocus sessionId={sessionId} />
+    <WorkoutFocus sessionId={sessionId} startInEdit={startInEdit} />
   ) : (
-    <WorkoutLog sessionId={sessionId} />
+    <WorkoutLog sessionId={sessionId} startInEdit={startInEdit} />
   );
 }

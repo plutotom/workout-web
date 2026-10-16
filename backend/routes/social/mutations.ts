@@ -9,6 +9,7 @@ import {
   isValidHandle,
   normalizeHandleInput,
 } from "../../lib/social_handle";
+import { buildSessionShareBundle } from "../../lib/social_posts";
 
 /** Idempotent: assign a username from email when missing so search can find you. */
 export const ensureDiscoverable = mutation({
@@ -115,63 +116,8 @@ export const shareWorkout = mutation({
       .take(51);
     if (!rows.length || rows.length > 50)
       throw new Error("Workout must have 1–50 exercises to share");
-    const exercises = await Promise.all(
-      rows
-        .sort((a, b) => a.orderIndex - b.orderIndex)
-        .map(async (row) => {
-          const sets = await ctx.db
-            .query("sets")
-            .withIndex("by_session_exercise", (q) =>
-              q.eq("sessionExerciseId", row._id),
-            )
-            .take(101);
-          if (sets.length > 100) throw new Error("Too many sets to share");
-          const customId = row.exerciseSlug.startsWith("custom:")
-            ? ctx.db.normalizeId("customExercises", row.exerciseSlug.slice(7))
-            : null;
-          const custom = customId ? await ctx.db.get(customId) : null;
-          return {
-            slug: row.exerciseSlug,
-            name: custom?.name ?? row.exerciseSlug.replaceAll("-", " "),
-            sets: sets
-              .filter((s) => s.completed)
-              .sort((a, b) => a.orderIndex - b.orderIndex)
-              .map((s) => ({ weight: s.weight, reps: s.reps })),
-            custom: custom && custom.userId === user._id ? custom : null,
-          };
-        }),
-    );
-    const customs = exercises.flatMap((e) =>
-      e.custom
-        ? [
-            {
-              slug: e.slug,
-              name: e.custom.name,
-              short: e.custom.short,
-              category: e.custom.category,
-              usesBar: e.custom.usesBar,
-            },
-          ]
-        : [],
-    );
     const completedAt = session.completedAt ?? session.startedAt;
-    const bundle = {
-      format: "workout.export" as const,
-      version: 1 as const,
-      exportedAt: Date.now(),
-      unit: user.unit,
-      templates: [
-        {
-          name: session.templateName || "Workout",
-          exercises: exercises.map((e) => ({
-            slug: e.slug,
-            name: e.name,
-            sets: e.sets,
-          })),
-        },
-      ],
-      customExercises: customs,
-    };
+    const bundle = await buildSessionShareBundle(ctx, user, session);
     return ctx.db.insert("activityPosts", {
       userId: user._id,
       sessionId,

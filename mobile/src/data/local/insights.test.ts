@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { getLocalOverview, getLocalWorkoutRecap } from "./insights";
+import {
+  getLocalExerciseRecords,
+  getLocalOverview,
+  getLocalWorkoutRecap,
+} from "./insights";
 import type { LocalInsightsSession } from "./repository";
 
 function session(
@@ -250,5 +254,100 @@ describe("getLocalWorkoutRecap place scoping", () => {
 
     expect(recap?.standout?.priorBest).toBeNull();
     expect(recap?.standout?.isPr).toBe(true);
+  });
+});
+
+describe("completed workout edits recompute recap, PRs, and streaks", () => {
+  const now = Date.parse("2026-08-22T18:00:00.000Z");
+
+  function trackedLift(
+    sessionId: string,
+    completedAt: number,
+    sets: Array<{
+      weight: number;
+      reps: number;
+      completed: boolean;
+    }>,
+  ): LocalInsightsSession {
+    return session({
+      sessionId,
+      sessionKind: "tracked",
+      templateName: "Push",
+      completedAt,
+      exercises: [
+        {
+          slug: "bench-press",
+          sets: sets.map((set, orderIndex) => ({ ...set, orderIndex })),
+        },
+      ],
+    });
+  }
+
+  it("regenerates recap volume and standout from the edited rows", () => {
+    const original = trackedLift("today", now, [
+      { weight: 185, reps: 5, completed: true },
+      { weight: 135, reps: 8, completed: true },
+    ]);
+    const edited = trackedLift("today", now, [
+      { weight: 225, reps: 3, completed: true },
+      { weight: 135, reps: 8, completed: false },
+    ]);
+
+    const before = getLocalWorkoutRecap([original], "today");
+    const after = getLocalWorkoutRecap([edited], "today");
+    expect(before?.totals).toMatchObject({
+      volume: 185 * 5 + 135 * 8,
+      completedSets: 2,
+    });
+    expect(after?.totals).toMatchObject({
+      volume: 225 * 3,
+      completedSets: 1,
+    });
+    expect(after?.standout).toMatchObject({ weight: 225, reps: 3 });
+    expect(after?.session.completedAt).toBe(now);
+  });
+
+  it("updates PRs and overview volume without double-counting the session", () => {
+    const original = trackedLift("today", now, [
+      { weight: 185, reps: 5, completed: true },
+    ]);
+    const edited = trackedLift("today", now, [
+      { weight: 225, reps: 5, completed: true },
+      { weight: 185, reps: 5, completed: false },
+    ]);
+
+    expect(getLocalOverview([original], 7, now).stats).toMatchObject({
+      workoutCount: 1,
+      weekStreak: 1,
+      totalVolume: 185 * 5,
+    });
+    const overview = getLocalOverview([edited], 7, now);
+    expect(overview.stats).toMatchObject({
+      workoutCount: 1,
+      weekStreak: 1,
+      totalVolume: 225 * 5,
+    });
+    expect(getLocalExerciseRecords([edited], "bench-press")).toMatchObject({
+      bestWeight: 225,
+      bestReps: 5,
+      maxVolume: 225 * 5,
+    });
+    expect(getLocalExerciseRecords([original], "bench-press").bestWeight).toBe(
+      185,
+    );
+  });
+
+  it("drops unchecked sets from records so they cannot inflate a PR", () => {
+    const uncheckedPr = trackedLift("today", now, [
+      { weight: 315, reps: 1, completed: false },
+      { weight: 185, reps: 5, completed: true },
+    ]);
+    expect(getLocalExerciseRecords([uncheckedPr], "bench-press")).toMatchObject(
+      {
+        bestWeight: 185,
+        bestReps: 5,
+        maxVolume: 185 * 5,
+      },
+    );
   });
 });

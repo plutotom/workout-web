@@ -217,6 +217,10 @@ export function SyncCoordinator() {
           deviceId,
           session: {
             ...pendingSession.snapshot,
+            remoteId: pendingSession.snapshot.remoteId as
+              | Id<"workoutSessions">
+              | null
+              | undefined,
             remoteTemplateId: convexWorkoutTemplateId(
               pendingSession.snapshot.remoteTemplateId,
             ) as Id<"workoutTemplates"> | null,

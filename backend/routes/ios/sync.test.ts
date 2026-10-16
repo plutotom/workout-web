@@ -2,6 +2,7 @@ import { validate } from "convex-helpers/validators";
 import type { Infer } from "convex/values";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { Id } from "../../_generated/dataModel";
 import type { MutationCtx } from "../../_generated/server";
 import { pushSession, sessionSnapshotValidator } from "./sync";
 
@@ -64,6 +65,9 @@ function serverFixture(
           },
           async collect() {
             return [];
+          },
+          async unique() {
+            return null;
           },
         };
       },
@@ -409,5 +413,232 @@ describe("iOS note snapshots", () => {
         energyKcal: undefined,
       }),
     );
+  });
+});
+
+describe("completed list workout edits", () => {
+  const listSession = {
+    clientId: "ios-local",
+    remoteTemplateId: null,
+    templateName: "Push",
+    status: "completed" as const,
+    sessionKind: "tracked" as const,
+    inputMode: "list" as const,
+    noteUnit: null,
+    noteBody: null,
+    startedAt: 100,
+    completedAt: 200,
+    updatedAt: 400,
+    exercises: [
+      {
+        clientId: "lift-1",
+        slug: "bench-press",
+        orderIndex: 0,
+        restSeconds: 75,
+        notes: "paused",
+        sets: [
+          {
+            clientId: "set-1",
+            orderIndex: 0,
+            targetWeight: 225,
+            targetReps: 5,
+            weight: 225,
+            reps: 5,
+            completed: true,
+            completedAt: 200,
+          },
+        ],
+      },
+    ],
+  };
+
+  it("accepts optional remoteId on the snapshot validator", () => {
+    expect(
+      validate(sessionSnapshotValidator, listSession, { throw: true }),
+    ).toBe(true);
+    expect(
+      validate(
+        sessionSnapshotValidator,
+        { ...listSession, remoteId: null },
+        { throw: true },
+      ),
+    ).toBe(true);
+  });
+
+  it("applies onto a web-created session via remoteId when clientId is new", async () => {
+    const existing = {
+      _id: "web-session",
+      userId: "user-1",
+      clientId: "web-session",
+      clientUpdatedAt: 50,
+      status: "completed",
+      completedAt: 200,
+      sessionKind: "tracked",
+      inputMode: "list",
+    };
+    const insert = vi
+      .fn<(table: string, fields: unknown) => Promise<string>>()
+      .mockResolvedValue("new-row");
+    const patch = vi.fn(async () => {});
+    const ctx = {
+      db: {
+        async get(id: string) {
+          return id === "web-session" ? existing : null;
+        },
+        query(table: string) {
+          return {
+            withIndex() {
+              return this;
+            },
+            async first() {
+              return table === "iosSyncReceipts" ? null : null;
+            },
+            async take() {
+              return [];
+            },
+            async collect() {
+              return [];
+            },
+            async unique() {
+              return null;
+            },
+          };
+        },
+        insert,
+        patch,
+      },
+    } as unknown as MutationCtx;
+    expect(
+      await push(ctx, {
+        ...listSession,
+        remoteId: "web-session" as Id<"workoutSessions">,
+      }),
+    ).toMatchObject({
+      status: "applied",
+      remoteSessionId: "web-session",
+    });
+    expect(patch).toHaveBeenCalledWith(
+      "web-session",
+      expect.objectContaining({
+        clientUpdatedAt: 400,
+        completedAt: 200,
+        templateName: "Push",
+      }),
+    );
+    expect(insert.mock.calls.map(([table]) => table)).not.toContain(
+      "workoutSessions",
+    );
+    expect(insert.mock.calls.map(([table]) => table)).not.toContain(
+      "activityPosts",
+    );
+  });
+
+  it("deletes leftover exercises and sets removed in the edited snapshot", async () => {
+    const existing = {
+      _id: "remote-session",
+      userId: "user-1",
+      clientId: "ios-local",
+      clientUpdatedAt: 50,
+      status: "completed",
+      completedAt: 200,
+      sessionKind: "tracked",
+      inputMode: "list",
+    };
+    const keepExercise = {
+      _id: "lift-1",
+      clientId: "lift-1",
+      exerciseSlug: "bench-press",
+      orderIndex: 0,
+    };
+    const leftoverExercise = {
+      _id: "lift-old",
+      clientId: "lift-old",
+      exerciseSlug: "curl",
+      orderIndex: 1,
+    };
+    const keepSet = { _id: "set-1", clientId: "set-1", orderIndex: 0 };
+    const leftoverSet = { _id: "set-old", clientId: "set-old", orderIndex: 1 };
+    const insert = vi
+      .fn<(table: string, fields: unknown) => Promise<string>>()
+      .mockResolvedValue("new-row");
+    const patch = vi.fn(async () => {});
+    const remove = vi.fn(async () => {});
+    const ctx = {
+      db: {
+        async get(id: string) {
+          if (id === existing._id) return existing;
+          return null;
+        },
+        query(table: string) {
+          let exerciseId: string | undefined;
+          return {
+            withIndex(
+              _name: string,
+              fn?: (q: { eq: (f: string, v: string) => unknown }) => unknown,
+            ) {
+              if (table === "sets" && fn) {
+                fn({
+                  eq(_field, value) {
+                    exerciseId = value;
+                    return this;
+                  },
+                });
+              }
+              return this;
+            },
+            async first() {
+              if (table === "iosSyncReceipts") return null;
+              return table === "workoutSessions" ? existing : null;
+            },
+            async take() {
+              if (table === "sessionExercises")
+                return [keepExercise, leftoverExercise];
+              if (table === "sets") {
+                return exerciseId === leftoverExercise._id
+                  ? [leftoverSet]
+                  : [keepSet, leftoverSet];
+              }
+              return [];
+            },
+            async collect() {
+              return [];
+            },
+            async unique() {
+              return null;
+            },
+          };
+        },
+        insert,
+        patch,
+        delete: remove,
+      },
+    } as unknown as MutationCtx;
+    expect(
+      await push(ctx, {
+        ...listSession,
+        clientId: "ios-local",
+        remoteId: undefined,
+      }),
+    ).toMatchObject({ status: "applied" });
+    expect(remove).toHaveBeenCalledWith("set-old");
+    expect(remove).toHaveBeenCalledWith("lift-old");
+    expect(remove).not.toHaveBeenCalledWith("lift-1");
+  });
+
+  it("returns stale when a newer cloud revision would rewind an offline edit", async () => {
+    const fixture = serverFixture({
+      _id: "remote-session",
+      clientId: "ios-local",
+      clientUpdatedAt: 500,
+      status: "completed",
+      completedAt: 200,
+      sessionKind: "tracked",
+      inputMode: "list",
+    });
+    expect(await push(fixture.ctx, listSession)).toMatchObject({
+      status: "stale",
+      remoteSessionId: "remote-session",
+    });
+    expect(fixture.patch).not.toHaveBeenCalled();
   });
 });

@@ -2,11 +2,16 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { computeWeekStreak, estimate1RM, startOfWeekMonday } from "./insights";
 import { getNotesBySlugs } from "./exercise_notes";
+import { normalizeExerciseNote } from "../../src/lib/exercise-notes";
 import {
   normalizeSessionKind,
   sessionCountsTowardGoals,
 } from "./health_sessions";
 import { normalizeSessionInputMode } from "../../src/lib/note-workouts";
+import {
+  nextClientUpdatedAt,
+  sessionAllowsLiftEdits,
+} from "../../src/lib/session-edits";
 import {
   exerciseMatchesMachine,
   findStarredPlace,
@@ -18,6 +23,7 @@ import {
   seedExerciseSets,
   sessionMatchesPlace,
 } from "./places";
+import { refreshActivityPostForSession } from "./social_posts";
 
 const clampWhole = (n: number) => Math.max(0, Math.round(n));
 const DEFAULT_REST_SECONDS = 75;
@@ -321,6 +327,7 @@ export async function updateSet(
     patch.completedAt = completed ? Date.now() : undefined;
   }
   await ctx.db.patch(setId, patch);
+  await afterLiftMutation(ctx, userId, sessionExercise.sessionId);
 }
 
 const DEFAULT_SET_ROWS = 3;
@@ -343,9 +350,37 @@ async function assertSessionEditable(
   sessionId: Id<"workoutSessions">,
 ) {
   const session = await ownedSession(ctx, userId, sessionId);
-  if (session.status !== "in_progress")
-    throw new Error("Workout is no longer active");
+  if (!sessionAllowsLiftEdits(session)) {
+    throw new Error(
+      session.status === "completed"
+        ? "This workout can't be edited"
+        : "Workout is no longer active",
+    );
+  }
   return session;
+}
+
+/**
+ * After a lift write on a finished session: bump the client revision so iOS
+ * cannot replay a stale snapshot, refresh place working-weight memory, and
+ * keep any social post's bundle in lockstep. Recap/insights/PRs/streaks
+ * recompute from session rows, so they need no extra invalidation.
+ */
+async function afterLiftMutation(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  sessionId: Id<"workoutSessions">,
+  refreshPlaceMemory = true,
+) {
+  const session = await ctx.db.get(sessionId);
+  if (!session || session.status !== "completed") return;
+  await ctx.db.patch(sessionId, {
+    clientUpdatedAt: nextClientUpdatedAt(session.clientUpdatedAt),
+    ...(session.clientId ? {} : { clientId: session._id }),
+  });
+  if (refreshPlaceMemory)
+    await recordSessionPlaceMemory(ctx, userId, sessionId);
+  await refreshActivityPostForSession(ctx, userId, sessionId);
 }
 
 export async function addSet(
@@ -379,7 +414,7 @@ export async function addSet(
         machineId: sessionExercise.machineId,
       });
 
-  return await ctx.db.insert("sets", {
+  const setId = await ctx.db.insert("sets", {
     sessionExerciseId,
     orderIndex: (last?.orderIndex ?? -1) + 1,
     targetWeight: last?.targetWeight ?? last?.weight ?? fallback?.weight ?? 0,
@@ -388,6 +423,8 @@ export async function addSet(
     reps: last?.reps ?? fallback?.reps ?? 0,
     completed: false,
   });
+  await afterLiftMutation(ctx, userId, sessionExercise.sessionId);
+  return setId;
 }
 
 export async function deleteSet(
@@ -420,6 +457,7 @@ export async function deleteSet(
         : ctx.db.patch(s._id, { orderIndex: i }),
     ),
   );
+  await afterLiftMutation(ctx, userId, sessionExercise.sessionId);
 }
 
 export async function moveSessionExercise(
@@ -444,6 +482,7 @@ export async function moveSessionExercise(
   const swap = exercises[target];
   await ctx.db.patch(current._id, { orderIndex: swap.orderIndex });
   await ctx.db.patch(swap._id, { orderIndex: current.orderIndex });
+  await afterLiftMutation(ctx, userId, sessionExercise.sessionId, false);
 }
 
 export async function addSessionExercise(
@@ -515,6 +554,7 @@ export async function addSessionExercise(
     ),
   );
 
+  await afterLiftMutation(ctx, userId, sessionId);
   return sessionExerciseId;
 }
 
@@ -694,6 +734,7 @@ export async function addExercisesFromDraft(
     await ctx.db.patch(session._id, { aiUndoBatch: undefined });
   }
 
+  await afterLiftMutation(ctx, userId, sessionId);
   return {
     ids: addedIds,
     generationId,
@@ -801,6 +842,7 @@ export async function undoAiGeneration(
     ),
   );
 
+  await afterLiftMutation(ctx, userId, sessionId);
   return { removed, kept, restored };
 }
 
@@ -831,6 +873,23 @@ export async function removeSessionExercise(
         : ctx.db.patch(exercise._id, { orderIndex: i }),
     ),
   );
+  await afterLiftMutation(ctx, userId, sessionExercise.sessionId);
+}
+
+export async function updateSessionExerciseNotes(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  sessionExerciseId: Id<"sessionExercises">,
+  notes: string,
+) {
+  const sessionExercise = await ctx.db.get(sessionExerciseId);
+  if (!sessionExercise) throw new Error("Exercise not found");
+  await assertSessionEditable(ctx, userId, sessionExercise.sessionId);
+  const normalized = normalizeExerciseNote(notes);
+  await ctx.db.patch(sessionExerciseId, {
+    notes: normalized,
+  });
+  await afterLiftMutation(ctx, userId, sessionExercise.sessionId, false);
 }
 
 export async function finishWorkout(
@@ -1045,6 +1104,7 @@ export async function getWorkout(
       sets.sort((a, b) => a.orderIndex - b.orderIndex);
       return {
         _id: e._id,
+        clientId: e.clientId ?? e._id,
         slug: e.exerciseSlug,
         restSeconds: e.restSeconds ?? DEFAULT_REST_SECONDS,
         notes: e.notes ?? notesBySlug[e.exerciseSlug],
@@ -1052,6 +1112,7 @@ export async function getWorkout(
         machineName: e.machineName ?? null,
         sets: sets.map((set) => ({
           ...set,
+          clientId: set.clientId ?? set._id,
           targetWeight: set.targetWeight ?? set.weight,
           targetReps: set.targetReps ?? set.reps,
           completedAt: set.completedAt,

@@ -3,7 +3,13 @@ import type { Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import { getOverview, getSessionHistory, getExerciseRecords } from "./insights";
 
-function context(sessions: Record<string, unknown>[]): QueryCtx {
+function context(
+  sessions: Record<string, unknown>[],
+  extras?: {
+    exercises?: Record<string, unknown>[];
+    sets?: Record<string, unknown>[];
+  },
+): QueryCtx {
   return {
     db: {
       query(table: string) {
@@ -12,7 +18,10 @@ function context(sessions: Record<string, unknown>[]): QueryCtx {
             return this;
           },
           async collect() {
-            return table === "workoutSessions" ? sessions : [];
+            if (table === "workoutSessions") return sessions;
+            if (table === "sessionExercises") return extras?.exercises ?? [];
+            if (table === "sets") return extras?.sets ?? [];
+            return [];
           },
         };
       },
@@ -78,5 +87,64 @@ describe("note workout insights", () => {
     ]);
     expect((await getOverview(ctx, userId, 7)).stats.workoutCount).toBe(0);
     expect(await getSessionHistory(ctx, userId, 7)).toEqual([]);
+  });
+});
+
+describe("completed workout edits recompute PRs from checked sets", () => {
+  const userId = "user-1" as Id<"users">;
+
+  it("does not let an unchecked set inflate volume or a record", async () => {
+    const now = Date.now();
+    const ctx = context(
+      [
+        {
+          _id: "s1",
+          userId,
+          status: "completed",
+          startedAt: now - 60_000,
+          completedAt: now,
+          templateName: "Push",
+          sessionKind: "tracked",
+        },
+      ],
+      {
+        exercises: [
+          {
+            _id: "e1",
+            sessionId: "s1",
+            exerciseSlug: "bench-press",
+            orderIndex: 0,
+          },
+        ],
+        sets: [
+          {
+            _id: "set-logged",
+            sessionExerciseId: "e1",
+            orderIndex: 0,
+            weight: 185,
+            reps: 5,
+            completed: true,
+          },
+          {
+            _id: "set-unchecked",
+            sessionExerciseId: "e1",
+            orderIndex: 1,
+            weight: 315,
+            reps: 1,
+            completed: false,
+          },
+        ],
+      },
+    );
+    expect((await getOverview(ctx, userId, 7)).stats).toMatchObject({
+      workoutCount: 1,
+      weekStreak: 1,
+      totalVolume: 185 * 5,
+    });
+    expect(await getExerciseRecords(ctx, userId, "bench-press")).toMatchObject({
+      bestWeight: 185,
+      bestReps: 5,
+      maxVolume: 185 * 5,
+    });
   });
 });
