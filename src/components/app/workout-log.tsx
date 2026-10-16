@@ -11,6 +11,7 @@ import {
   Clock,
   GripVertical,
   MoreHorizontal,
+  Pencil,
   Plus,
   Settings2,
   StickyNote,
@@ -59,6 +60,7 @@ import {
 import { useExerciseCatalog } from "@/components/app/exercise-catalog-provider";
 import { formatLb } from "@/components/app/workout-design";
 import { formatHealthDistance, formatHealthEnergy } from "@/lib/health-summary";
+import { sessionAllowsCompletedReviewEdit } from "@/lib/session-edits";
 import { SessionPlaceBar } from "@/components/app/session-place-bar";
 import { MachinePickerSheet } from "@/components/app/machine-picker";
 
@@ -77,7 +79,13 @@ type SessionExerciseForReorder = {
 
 const REORDER_ROW_STEP_PX = 85;
 
-export function WorkoutLog({ sessionId }: { sessionId: string }) {
+export function WorkoutLog({
+  sessionId,
+  startInEdit = false,
+}: {
+  sessionId: string;
+  startInEdit?: boolean;
+}) {
   const router = useRouter();
   const catalog = useExerciseCatalog();
   const session = useQuery(api.routes.workouts.queries.get, {
@@ -129,6 +137,7 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
     slug: string;
     machineId: Id<"machines"> | null;
   } | null>(null);
+  const [editingCompleted, setEditingCompleted] = useState(startInEdit);
 
   const exerciseCount = session?.exercises.length ?? 0;
   const dragOverFromPoint = useCallback(
@@ -255,7 +264,9 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
     );
   }
 
-  const editable = session.status === "in_progress";
+  const canEditCompleted = sessionAllowsCompletedReviewEdit(session);
+  const editingFinished = editingCompleted && canEditCompleted;
+  const editable = session.status === "in_progress" || editingFinished;
   const isHealthSummary = session.sessionKind === "health_summary";
   const historyHref = session.templateId
     ? `/templates/${session.templateId}/history`
@@ -331,11 +342,21 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
     <div className="relative flex flex-col gap-4">
       <PageHeader
         title={session.templateName}
-        backHref={editable ? "/dashboard" : historyHref}
+        backHref={session.status === "in_progress" ? "/dashboard" : historyHref}
         action={
-          editable ? (
+          session.status === "in_progress" ? (
             <Button size="sm" onClick={handleFinish} disabled={finishing}>
               {finishing ? "Finishing…" : "Finish"}
+            </Button>
+          ) : editingFinished ? (
+            <Button
+              size="sm"
+              onClick={() => {
+                setEditingCompleted(false);
+                if (startInEdit) router.replace(`/workout/${sessionId}`);
+              }}
+            >
+              Done
             </Button>
           ) : session.status === "completed" ? (
             <Button asChild size="sm" variant="outline">
@@ -345,7 +366,11 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
         }
       />
 
-      {!editable ? (
+      {editingFinished ? (
+        <p className="text-muted-foreground text-sm">
+          Editing a finished workout. Changes save as you go.
+        </p>
+      ) : !editable ? (
         <p className="text-muted-foreground text-sm">
           This workout is{" "}
           {session.status === "completed" ? "complete" : "no longer active"}.
@@ -356,7 +381,11 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
         <div className="mb-2 flex items-end justify-between gap-3">
           <div>
             <p className="text-xs font-semibold tracking-[0.16em] text-muted-foreground uppercase">
-              {editable ? "Active session" : "Session"}
+              {session.status === "in_progress"
+                ? "Active session"
+                : editingFinished
+                  ? "Editing session"
+                  : "Session"}
             </p>
             <p className="text-sm font-medium">{session.templateName}</p>
           </div>
@@ -407,6 +436,19 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
         <p className="text-muted-foreground text-sm">{session.placeName}</p>
       ) : null}
 
+      {canEditCompleted && !editingFinished ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="lg"
+          className="w-full text-base"
+          onClick={() => setEditingCompleted(true)}
+        >
+          <Pencil className="size-4" />
+          Edit workout
+        </Button>
+      ) : null}
+
       {isHealthSummary ? (
         <Card>
           <CardHeader>
@@ -420,13 +462,19 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
       ) : editable && session.exercises.length === 0 ? (
         <EmptyState
           title="Add your first exercise"
-          description="Build this workout as you go — describe it with AI, or pick lifts yourself."
+          description={
+            session.status === "in_progress"
+              ? "Build this workout as you go — describe it with AI, or pick lifts yourself."
+              : "Add the lifts you meant to log. Changes save as you go."
+          }
           action={
             <div className="flex w-full max-w-xs flex-col gap-2">
-              <AiSessionButton
-                sessionId={sessionId as Id<"workoutSessions">}
-                current={[]}
-              />
+              {session.status === "in_progress" ? (
+                <AiSessionButton
+                  sessionId={sessionId as Id<"workoutSessions">}
+                  current={[]}
+                />
+              ) : null}
               <Button
                 type="button"
                 variant="outline"
@@ -605,6 +653,9 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
                     <ExerciseNoteField
                       key={`${exercise.slug}-${exercise.notes ?? ""}`}
                       exerciseSlug={exercise.slug}
+                      sessionExerciseId={
+                        editingFinished ? exercise._id : undefined
+                      }
                       initialNotes={exercise.notes}
                       editable={editable}
                       compact
@@ -630,7 +681,11 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
                         onDelete={() => void deleteSet({ setId: set._id })}
                         highlighted={set._id === nextSetId}
                         onLogged={() => {
-                          if (!restTimerEnabled) return;
+                          if (
+                            !restTimerEnabled ||
+                            session.status !== "in_progress"
+                          )
+                            return;
                           startRest(
                             exercise.restSeconds ?? 75,
                             nextSetLabel(session.exercises, exercise._id, i),
@@ -681,17 +736,19 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
 
       {editable && session.exercises.length > 0 ? (
         <div className="flex flex-col gap-2">
-          <AiSessionButton
-            sessionId={sessionId as Id<"workoutSessions">}
-            current={session.exercises.map((ex) => ({
-              slug: ex.slug,
-              sets: ex.sets.map((s) => ({
-                completed: s.completed,
-                weight: s.weight,
-                reps: s.reps,
-              })),
-            }))}
-          />
+          {session.status === "in_progress" ? (
+            <AiSessionButton
+              sessionId={sessionId as Id<"workoutSessions">}
+              current={session.exercises.map((ex) => ({
+                slug: ex.slug,
+                sets: ex.sets.map((s) => ({
+                  completed: s.completed,
+                  weight: s.weight,
+                  reps: s.reps,
+                })),
+              }))}
+            />
+          ) : null}
           <Button
             type="button"
             variant="outline"
@@ -707,7 +764,7 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
             Add exercise
           </Button>
         </div>
-      ) : session.status === "completed" ? (
+      ) : session.status === "completed" && !editingFinished ? (
         <DeleteWorkoutButton
           sessionId={sessionId as Id<"workoutSessions">}
           fromHealth={isHealthSummary}
@@ -852,7 +909,7 @@ export function WorkoutLog({ sessionId }: { sessionId: string }) {
         />
       ) : null}
 
-      {rest && restTimerEnabled ? (
+      {rest && restTimerEnabled && session.status === "in_progress" ? (
         <div className="fixed inset-x-0 bottom-[calc(57px+env(safe-area-inset-bottom))] z-50 mx-auto max-w-[600px] px-3">
           <div className="animate-slide-up-bar rounded-t-xl border bg-background/95 p-3 shadow-2xl backdrop-blur">
             <div className="flex items-center justify-between gap-3">

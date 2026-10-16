@@ -26,6 +26,7 @@ import {
   updateTemplate as updateTemplateLib,
 } from "../../lib/templates";
 import { upsertExerciseNote } from "../../lib/exercise_notes";
+import { refreshActivityPostForSession } from "../../lib/social_posts";
 import { deleteWorkout } from "../../lib/workouts";
 import {
   exerciseSlugValidator,
@@ -63,6 +64,7 @@ const exerciseSnapshotValidator = v.object({
 
 export const sessionSnapshotValidator = v.object({
   clientId: v.string(),
+  remoteId: v.optional(v.union(v.id("workoutSessions"), v.null())),
   remoteTemplateId: v.union(v.id("workoutTemplates"), v.null()),
   templateName: v.string(),
   status: sessionStatusValidator,
@@ -145,16 +147,25 @@ async function findSessionsForPush(
   userId: Id<"users">,
   session: {
     clientId: string;
+    remoteId?: Id<"workoutSessions"> | null;
     externalProvider?: "apple_health" | null;
     externalId?: string | null;
   },
 ) {
-  const existingByClient = await ctx.db
+  const existingByClientId = await ctx.db
     .query("workoutSessions")
     .withIndex("by_user_client_id", (q) =>
       q.eq("userId", userId).eq("clientId", session.clientId),
     )
     .first();
+  const existingByRemoteId = session.remoteId
+    ? await ctx.db.get(session.remoteId)
+    : null;
+  const existingByClient =
+    existingByClientId ??
+    (existingByRemoteId && existingByRemoteId.userId === userId
+      ? existingByRemoteId
+      : null);
   const externalProvider = session.externalProvider;
   const externalId = session.externalId;
   const externalMatches =
@@ -673,14 +684,20 @@ export const pushSession = mutation({
       .query("sessionExercises")
       .withIndex("by_session", (q) => q.eq("sessionId", sessionId))
       .take(MAX_EXERCISES);
-    const incomingExerciseIds = new Set(
-      args.session.exercises.map((exercise) => exercise.clientId),
-    );
+    const matchedExerciseIds = new Set<string>();
 
     for (const exercise of args.session.exercises) {
-      const existingExercise = existingExercises.find(
-        (candidate) => candidate.clientId === exercise.clientId,
-      );
+      const existingExercise =
+        existingExercises.find(
+          (candidate) => candidate.clientId === exercise.clientId,
+        ) ??
+        existingExercises.find(
+          (candidate) =>
+            !candidate.clientId &&
+            !matchedExerciseIds.has(candidate._id) &&
+            candidate.exerciseSlug === exercise.slug &&
+            candidate.orderIndex === exercise.orderIndex,
+        );
       const exerciseFields = {
         clientId: exercise.clientId,
         exerciseSlug: exercise.slug,
@@ -696,8 +713,10 @@ export const pushSession = mutation({
             sessionId,
             ...exerciseFields,
           });
-      if (existingExercise)
+      if (existingExercise) {
+        matchedExerciseIds.add(existingExercise._id);
         await ctx.db.patch(existingExercise._id, exerciseFields);
+      }
 
       const existingSets = await ctx.db
         .query("sets")
@@ -705,11 +724,18 @@ export const pushSession = mutation({
           q.eq("sessionExerciseId", exerciseId),
         )
         .take(MAX_SETS_PER_EXERCISE);
-      const incomingSetIds = new Set(exercise.sets.map((set) => set.clientId));
+      const matchedSetIds = new Set<string>();
       for (const set of exercise.sets) {
-        const existingSet = existingSets.find(
-          (candidate) => candidate.clientId === set.clientId,
-        );
+        const existingSet =
+          existingSets.find(
+            (candidate) => candidate.clientId === set.clientId,
+          ) ??
+          existingSets.find(
+            (candidate) =>
+              !candidate.clientId &&
+              !matchedSetIds.has(candidate._id) &&
+              candidate.orderIndex === set.orderIndex,
+          );
         const setFields = {
           clientId: set.clientId,
           orderIndex: set.orderIndex,
@@ -720,8 +746,10 @@ export const pushSession = mutation({
           completed: set.completed,
           completedAt: set.completedAt ?? undefined,
         };
-        if (existingSet) await ctx.db.patch(existingSet._id, setFields);
-        else {
+        if (existingSet) {
+          matchedSetIds.add(existingSet._id);
+          await ctx.db.patch(existingSet._id, setFields);
+        } else {
           await ctx.db.insert("sets", {
             sessionExerciseId: exerciseId,
             ...setFields,
@@ -729,14 +757,14 @@ export const pushSession = mutation({
         }
       }
       for (const set of existingSets) {
-        if (set.clientId && !incomingSetIds.has(set.clientId)) {
+        if (!matchedSetIds.has(set._id)) {
           await ctx.db.delete(set._id);
         }
       }
     }
 
     for (const exercise of existingExercises) {
-      if (exercise.clientId && !incomingExerciseIds.has(exercise.clientId)) {
+      if (!matchedExerciseIds.has(exercise._id)) {
         const sets = await ctx.db
           .query("sets")
           .withIndex("by_session_exercise", (q) =>
@@ -750,6 +778,7 @@ export const pushSession = mutation({
 
     if (args.session.status === "completed") {
       await recordSessionPlaceMemory(ctx, user._id, sessionId);
+      await refreshActivityPostForSession(ctx, user._id, sessionId);
     }
 
     await ctx.db.insert("iosSyncReceipts", {

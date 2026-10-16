@@ -23,6 +23,7 @@ import {
   abandonLocalWorkout,
   addLocalExercise,
   addLocalSet,
+  adoptRemoteCompletedWorkout,
   adoptRemoteNoteWorkout,
   applyIosBootstrap,
   archiveLocalCustomExercise,
@@ -85,6 +86,7 @@ import {
   wasWatchRecorded,
   saveLocalCustomExercise,
   saveLocalExerciseNote,
+  saveLocalSessionExerciseNote,
   saveLocalTemplate,
   setHealthAuthRequested,
   setHealthAutoImportPrefs as writeHealthAutoImportPrefs,
@@ -101,6 +103,7 @@ import {
   updateLocalWorkoutNote,
   type HealthSummaryImport,
   type LocalOverlapSession,
+  type RemoteCompletedListWorkout,
   type RemoteCompletedNoteWorkout,
 } from "@/data/local/repository";
 import { discardWatchWorkout, endWatchWorkout } from "@/health/watch-bridge";
@@ -180,6 +183,9 @@ type LocalDataContextValue = {
   adoptRemoteNoteWorkout: (
     remote: RemoteCompletedNoteWorkout,
   ) => Promise<string>;
+  adoptRemoteCompletedWorkout: (
+    remote: RemoteCompletedNoteWorkout | RemoteCompletedListWorkout,
+  ) => Promise<string>;
   startFromTemplate: (
     templateId: string,
     abandonExisting?: boolean,
@@ -231,6 +237,7 @@ type LocalDataContextValue = {
   removeExercise: (sessionExerciseId: string) => Promise<void>;
   moveExercise: (sessionExerciseId: string, delta: -1 | 1) => Promise<void>;
   saveNote: (slug: string, notes: string) => Promise<void>;
+  saveSessionExerciseNote: (exerciseId: string, notes: string) => Promise<void>;
   saveTemplate: (input: LocalTemplateInput) => Promise<string>;
   /** Quick-start session → new template, linked to the session. */
   saveTemplateFromSession: (sessionId: string, name: string) => Promise<string>;
@@ -347,6 +354,8 @@ function LocalDataState({ children }: { children: ReactNode }) {
         run(() => convertLocalWorkoutNote(db, sessionId, draft, targetUnit)),
       adoptRemoteNoteWorkout: (remote) =>
         adoptRemoteNoteWorkout(db, remote, refresh),
+      adoptRemoteCompletedWorkout: (remote) =>
+        adoptRemoteCompletedWorkout(db, remote, refresh),
       startFromTemplate: (templateId, abandonExisting, placeId) =>
         run(() =>
           startLocalTemplateWorkout(db, templateId, abandonExisting, placeId),
@@ -376,6 +385,8 @@ function LocalDataState({ children }: { children: ReactNode }) {
         run(() => moveLocalExercise(db, sessionExerciseId, delta)),
       saveNote: (slug, notes) =>
         run(() => saveLocalExerciseNote(db, slug, notes)),
+      saveSessionExerciseNote: (exerciseId, notes) =>
+        run(() => saveLocalSessionExerciseNote(db, exerciseId, notes)),
       saveTemplate: (input) => run(() => saveLocalTemplate(db, input)),
       saveTemplateFromSession: (sessionId, name) =>
         run(() => createLocalTemplateFromSession(db, sessionId, name)),

@@ -6,6 +6,7 @@ import { StickyNote } from "lucide-react";
 import { toast } from "sonner";
 
 import { api } from "@backend/api";
+import type { Id } from "@backend/dataModel";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -16,6 +17,7 @@ import {
 
 export function ExerciseNoteField({
   exerciseSlug,
+  sessionExerciseId,
   initialNotes,
   editable = true,
   compact = false,
@@ -23,6 +25,8 @@ export function ExerciseNoteField({
   openSignal = 0,
 }: {
   exerciseSlug: string;
+  /** When set, the note is saved onto this session lift instead of the global cue. */
+  sessionExerciseId?: Id<"sessionExercises">;
   initialNotes?: string;
   editable?: boolean;
   /** When true, hide the empty textarea until the user opts in. */
@@ -33,6 +37,9 @@ export function ExerciseNoteField({
   openSignal?: number;
 }) {
   const upsertNote = useMutation(api.routes.exercises.mutations.upsertNote);
+  const updateSessionNotes = useMutation(
+    api.routes.workouts.mutations.updateExerciseNotes,
+  );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const initial = (initialNotes ?? "").trim();
   const [value, setValue] = useState(initialNotes ?? "");
@@ -61,7 +68,11 @@ export function ExerciseNoteField({
 
     setSaving(true);
     try {
-      await upsertNote({ exerciseSlug, notes: value });
+      if (sessionExerciseId) {
+        await updateSessionNotes({ sessionExerciseId, notes: value });
+      } else {
+        await upsertNote({ exerciseSlug, notes: value });
+      }
       if (compact && !trimmed) setExpanded(false);
     } catch {
       toast.error("Couldn't save note");

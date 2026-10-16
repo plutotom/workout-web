@@ -441,13 +441,15 @@ export function getLocalExerciseHistory(
       return s.exercises.some(
         (e) =>
           e.slug === slug &&
-          e.sets.some((set) => isValidSet(set.weight, set.reps)),
+          e.sets.some(
+            (set) => set.completed && isValidSet(set.weight, set.reps),
+          ),
       );
     })
     .map((s) => {
       const ex = s.exercises.find((e) => e.slug === slug)!;
-      const validSets = ex.sets.filter((set) =>
-        isValidSet(set.weight, set.reps),
+      const validSets = ex.sets.filter(
+        (set) => set.completed && isValidSet(set.weight, set.reps),
       );
       let bestEst1RM = 0;
       for (const set of validSets) {
@@ -487,7 +489,7 @@ export function getLocalExerciseRecords(all: LoadedSession[], slug: string) {
 
     let sessionVol = 0;
     for (const set of ex.sets) {
-      if (!isValidSet(set.weight, set.reps)) continue;
+      if (!set.completed || !isValidSet(set.weight, set.reps)) continue;
       sessionVol += set.weight * set.reps;
 
       const est = estimate1RM(set.weight, set.reps);

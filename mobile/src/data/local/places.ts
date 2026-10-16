@@ -21,6 +21,7 @@ import {
   seedSetRows,
   type MemorySet,
 } from "@shared/place-memory";
+import { sessionAllowsLiftEdits } from "@shared/session-edits";
 
 type PlaceRow = {
   id: string;
@@ -775,11 +776,20 @@ export async function assignLocalSessionMachine(
   const session = await db.getFirstAsync<{
     place_id: string | null;
     status: string;
+    session_kind: string | null;
+    input_mode: string | null;
   }>(
-    `SELECT place_id, status FROM local_sessions WHERE id = ?`,
+    `SELECT place_id, status, session_kind, input_mode FROM local_sessions WHERE id = ?`,
     exercise.session_id,
   );
-  if (!session || session.status !== "in_progress") {
+  if (
+    !session ||
+    !sessionAllowsLiftEdits({
+      status: session.status,
+      sessionKind: session.session_kind,
+      inputMode: session.input_mode,
+    })
+  ) {
     throw new Error("Workout is no longer active");
   }
   if (!session.place_id) throw new Error("Pick a place first");

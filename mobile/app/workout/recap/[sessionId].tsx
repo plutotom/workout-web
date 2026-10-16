@@ -9,6 +9,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Pencil,
   Share2,
   Trophy,
 } from "lucide-react-native";
@@ -29,6 +30,7 @@ import { useLocalWorkoutRecap } from "@/data/local/use-local-insights";
 import { useLocalPreferences } from "@/data/local/provider";
 import { formatDate, formatDuration } from "@/lib/format";
 import { formatHealthDistance, formatHealthEnergy } from "@/health/mapping";
+import { sessionAllowsCompletedReviewEdit } from "@shared/session-edits";
 import { useCatalog } from "@/providers/catalog-provider";
 import { colors, radius, space } from "@/theme";
 
@@ -902,6 +904,23 @@ export default function WorkoutRecapScreen() {
             router.push({
               pathname: "/social/share/[sessionId]",
               params: { sessionId },
+            })
+          }
+        />
+      ) : null}
+      {sessionAllowsCompletedReviewEdit({
+        status: "completed",
+        sessionKind: recap.session.sessionKind,
+        inputMode: recap.session.inputMode,
+      }) ? (
+        <Button
+          label="Edit workout"
+          variant="outline"
+          icon={Pencil}
+          onPress={() =>
+            router.push({
+              pathname: "/workout/[sessionId]",
+              params: { sessionId, edit: "1" },
             })
           }
         />

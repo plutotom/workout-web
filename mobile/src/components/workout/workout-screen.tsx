@@ -11,6 +11,7 @@ import {
   ChevronRight,
   ChevronUp,
   CircleDot,
+  Pencil,
   Plus,
   Share2,
   Sparkles,
@@ -49,7 +50,8 @@ import { PlateModal } from "@/components/workout/plate-modal";
 import { RestBar } from "@/components/workout/rest-bar";
 import { NoteWorkoutBody } from "@/components/workout/note-workout-body";
 import { NoteWorkoutEditor } from "@/components/workout/note-workout-editor";
-import { useNoteWorkoutRefresh } from "@/components/workout/use-note-workout-refresh";
+import { useCompletedWorkoutRefresh } from "@/components/workout/use-completed-workout-refresh";
+import { sessionAllowsCompletedReviewEdit } from "@shared/session-edits";
 import {
   MachinePickerModal,
   PlaceChip,
@@ -117,34 +119,52 @@ type PastWorkout = {
   }>;
 };
 
-export function WorkoutScreen({ sessionId }: { sessionId: string }) {
+export function WorkoutScreen({
+  sessionId,
+  startInEdit = false,
+}: {
+  sessionId: string;
+  startInEdit?: boolean;
+}) {
   useKeepAwake();
   const session = useLocalWorkout(sessionId);
-  const { adoptRemoteNoteWorkout } = useLocalData();
+  const { adoptRemoteCompletedWorkout } = useLocalData();
   const user = useLocalPreferences();
   const { isAuthenticated } = useMobileAuth();
+  const [editingCompleted, setEditingCompleted] = useState(startInEdit);
   const remoteSessionId =
     session === null
       ? sessionId
-      : session?.status === "completed" && session.inputMode === "note"
+      : session?.status === "completed"
         ? session.remoteId
         : null;
-  // A local miss falls back to the server. Completed notes also subscribe by
-  // remote identity so an edit from another phone can refresh this local copy.
+  // A local miss falls back to the server. Completed workouts also subscribe
+  // by remote identity so an edit from web/another phone can refresh this copy.
   const remote = useQuery(
     api.routes.workouts.queries.get,
     remoteSessionId && isAuthenticated
       ? { sessionId: remoteSessionId as Id<"workoutSessions"> }
       : "skip",
   );
-  useNoteWorkoutRefresh(session, remote);
+  useCompletedWorkoutRefresh(session, remote, {
+    hydrateIfMissing: startInEdit,
+  });
 
   async function prepareNoteEdit() {
     if (remote?.status === "completed" && remote.inputMode === "note") {
-      return adoptRemoteNoteWorkout(remote);
+      return adoptRemoteCompletedWorkout(remote);
     }
     if (session) return session._id;
     throw new Error("Your workout is still loading. Try again in a moment.");
+  }
+
+  async function startCompletedEdit() {
+    if (remote?.status === "completed" && remote.inputMode !== "note") {
+      await adoptRemoteCompletedWorkout(remote);
+    } else if (!session) {
+      throw new Error("Your workout is still loading. Try again in a moment.");
+    }
+    setEditingCompleted(true);
   }
 
   if (session === undefined || user === undefined)
@@ -154,6 +174,8 @@ export function WorkoutScreen({ sessionId }: { sessionId: string }) {
       return <Redirect href="/dashboard" />;
     if (remote === undefined)
       return <FullScreenLoader label="Loading workout…" />;
+    if (startInEdit && sessionAllowsCompletedReviewEdit(remote))
+      return <FullScreenLoader label="Opening editor…" />;
     // Structured remote-only sessions stay read-only. Explicit note editing
     // adopts its identity into the local store before opening the editor.
     // Keep the same tree position after adoption so its open editor survives.
@@ -164,6 +186,11 @@ export function WorkoutScreen({ sessionId }: { sessionId: string }) {
           session={remote}
           canDelete={false}
           prepareNoteEdit={prepareNoteEdit}
+          onEdit={
+            sessionAllowsCompletedReviewEdit(remote)
+              ? () => void startCompletedEdit()
+              : undefined
+          }
         />
       </>
     );
@@ -174,7 +201,9 @@ export function WorkoutScreen({ sessionId }: { sessionId: string }) {
   const layout =
     session.status === "in_progress"
       ? inProgressWorkoutLayout(session.inputMode, user.activeWorkoutMode)
-      : "completed";
+      : editingCompleted && sessionAllowsCompletedReviewEdit(session)
+        ? "list"
+        : "completed";
   return (
     <>
       <WorkoutFinishController />
@@ -183,6 +212,11 @@ export function WorkoutScreen({ sessionId }: { sessionId: string }) {
           session={session}
           canDelete
           prepareNoteEdit={prepareNoteEdit}
+          onEdit={
+            sessionAllowsCompletedReviewEdit(session)
+              ? () => void startCompletedEdit()
+              : undefined
+          }
         />
       ) : layout === "note" ? (
         <NoteWorkoutEditor
@@ -194,7 +228,12 @@ export function WorkoutScreen({ sessionId }: { sessionId: string }) {
       ) : layout === "focus" ? (
         <FocusWorkout session={session} user={user} />
       ) : (
-        <ListWorkout session={session} user={user} />
+        <ListWorkout
+          session={session}
+          user={user}
+          completedEdit={editingCompleted}
+          onDone={() => setEditingCompleted(false)}
+        />
       )}
     </>
   );
@@ -271,9 +310,13 @@ function SessionPlaceControls({ session }: { session: WorkoutSession }) {
 function ListWorkout({
   session,
   user,
+  completedEdit = false,
+  onDone,
 }: {
   session: WorkoutSession;
   user: LocalPreferences;
+  completedEdit?: boolean;
+  onDone?: () => void;
 }) {
   const catalog = useCatalog();
   const {
@@ -284,6 +327,7 @@ function ListWorkout({
     removeExercise,
     moveExercise,
     saveNote,
+    saveSessionExerciseNote,
     setSessionMachine,
   } = useLocalData();
   const [picker, setPicker] = useState(false);
@@ -318,25 +362,48 @@ function ListWorkout({
 
   return (
     <>
-      <Screen contentStyle={{ paddingBottom: rest.rest ? 92 : 32 }}>
+      <Screen
+        contentStyle={{ paddingBottom: !completedEdit && rest.rest ? 92 : 32 }}
+      >
         <PageHeader
           title={session.templateName}
-          subtitle={<ElapsedSubtitle startedAt={session.startedAt} />}
+          subtitle={
+            completedEdit ? (
+              <Text
+                style={{
+                  color: colors.dim,
+                  fontSize: 13,
+                  lineHeight: 19,
+                  marginTop: 5,
+                }}
+              >
+                Editing a finished workout. Changes save as you go.
+              </Text>
+            ) : (
+              <ElapsedSubtitle startedAt={session.startedAt} />
+            )
+          }
           back
           action={
-            <Button
-              size="sm"
-              label="Finish"
-              onPress={() => finishWorkout(session)}
-            />
+            completedEdit ? (
+              <Button size="sm" label="Done" onPress={onDone} />
+            ) : (
+              <Button
+                size="sm"
+                label="Finish"
+                onPress={() => finishWorkout(session)}
+              />
+            )
           }
         />
         <SessionPlaceControls session={session} />
-        <WatchCompanionCard
-          sessionId={session._id}
-          startedAt={session.startedAt}
-        />
-        {aiAvailable ? (
+        {completedEdit ? null : (
+          <WatchCompanionCard
+            sessionId={session._id}
+            startedAt={session.startedAt}
+          />
+        )}
+        {aiAvailable && !completedEdit ? (
           <Button
             label="Edit workout with AI"
             variant="outline"
@@ -469,7 +536,11 @@ function ListWorkout({
                 {collapsed[exercise._id] ? null : (
                   <ExerciseNoteEditor
                     initial={exercise.notes ?? ""}
-                    onSave={(notes) => saveNote(exercise.slug, notes)}
+                    onSave={(notes) =>
+                      completedEdit
+                        ? saveSessionExerciseNote(exercise._id, notes)
+                        : saveNote(exercise.slug, notes)
+                    }
                     multiline={false}
                   />
                 )}
@@ -527,7 +598,7 @@ function ListWorkout({
                           void Haptics.notificationAsync(
                             Haptics.NotificationFeedbackType.Success,
                           );
-                          if (user.restTimerEnabled ?? true)
+                          if (!completedEdit && (user.restTimerEnabled ?? true))
                             void rest.start(
                               exercise.restSeconds,
                               `Next: ${catalog.short(exercise.slug)} · set ${setIndex + 2}`,
@@ -578,7 +649,7 @@ function ListWorkout({
           onPress={() => setPicker(true)}
         />
       </Screen>
-      {rest.rest ? (
+      {!completedEdit && rest.rest ? (
         <RestBar
           remaining={rest.remaining}
           label={rest.rest.label}
@@ -607,7 +678,7 @@ function ListWorkout({
             void setSessionMachine(machinePicker.exerciseId, machineId);
         }}
       />
-      {aiAvailable ? (
+      {aiAvailable && !completedEdit ? (
         <AiPromptModal
           visible={aiOpen}
           title="Reshape this workout"
@@ -1442,10 +1513,12 @@ function CompletedWorkout({
   session,
   canDelete,
   prepareNoteEdit,
+  onEdit,
 }: {
   session: PastWorkout;
   canDelete: boolean;
   prepareNoteEdit?: () => Promise<string>;
+  onEdit?: () => void;
 }) {
   const catalog = useCatalog();
   const { deleteSession } = useLocalData();
@@ -1638,6 +1711,15 @@ function CompletedWorkout({
           </Text>
         ) : null}
       </Card>
+
+      {onEdit ? (
+        <Button
+          label="Edit workout"
+          variant="outline"
+          icon={Pencil}
+          onPress={onEdit}
+        />
+      ) : null}
 
       {isNote ? (
         <NoteWorkoutBody

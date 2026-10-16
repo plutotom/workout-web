@@ -13,6 +13,7 @@ import {
   finishWorkout,
   moveSessionExercise as moveSessionExerciseLib,
   removeSessionExercise as removeSessionExerciseLib,
+  updateSessionExerciseNotes as updateSessionExerciseNotesLib,
   startBlankWorkout,
   startWorkout,
   undoAiGeneration as undoAiGenerationLib,
@@ -151,6 +152,24 @@ export const removeExercise = mutation({
   handler: async (ctx, { sessionExerciseId }) => {
     const user = await requireUser(ctx);
     await removeSessionExerciseLib(ctx, user._id, sessionExerciseId);
+  },
+});
+
+export const updateExerciseNotes = mutation({
+  args: {
+    sessionExerciseId: v.id("sessionExercises"),
+    notes: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, { sessionExerciseId, notes }) => {
+    const user = await requireUser(ctx);
+    await updateSessionExerciseNotesLib(
+      ctx,
+      user._id,
+      sessionExerciseId,
+      notes,
+    );
+    return null;
   },
 });
 

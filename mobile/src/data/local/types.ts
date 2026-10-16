@@ -359,6 +359,7 @@ export type IosBootstrapPayload = {
 
 export type SessionSyncSnapshot = {
   clientId: string;
+  remoteId?: string | null;
   remoteTemplateId: string | null;
   templateName: string;
   status: LocalSessionStatus;

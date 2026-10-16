@@ -95,6 +95,11 @@ import {
   type SessionInputMode,
 } from "@shared/note-workouts";
 import {
+  nextClientUpdatedAt,
+  sessionAllowsLiftEdits,
+  shouldAdoptRemoteCompletedWorkout,
+} from "@shared/session-edits";
+import {
   convertWeight,
   type WorkoutExportBundle,
 } from "@shared/workout-export";
@@ -489,6 +494,7 @@ async function snapshotFromSession(
   );
   return {
     clientId: session._id,
+    remoteId: session.remoteId,
     remoteTemplateId: convexWorkoutTemplateId(session.remoteTemplateId),
     templateName: session.templateName,
     status: session.status,
@@ -544,22 +550,45 @@ async function markSessionUpdated(
   sessionId: string,
   updatedAt = Date.now(),
 ) {
+  const row = await db.getFirstAsync<{
+    updated_at: number;
+    status: string;
+  }>("SELECT updated_at, status FROM local_sessions WHERE id = ?", sessionId);
+  const nextUpdatedAt = nextClientUpdatedAt(row?.updated_at, updatedAt);
   await db.runAsync(
     "UPDATE local_sessions SET updated_at = ? WHERE id = ?",
-    updatedAt,
+    nextUpdatedAt,
     sessionId,
   );
-  await queueSessionSnapshot(db, sessionId, updatedAt);
+  if (row?.status === "completed") {
+    await recordLocalSessionPlaceMemory(db, sessionId);
+  }
+  await queueSessionSnapshot(db, sessionId, nextUpdatedAt);
 }
 
 async function requireEditableSession(db: SQLiteDatabase, sessionId: string) {
-  const session = await db.getFirstAsync<{ status: string }>(
-    "SELECT status FROM local_sessions WHERE id = ?",
+  const session = await db.getFirstAsync<{
+    status: string;
+    session_kind: string | null;
+    input_mode: string | null;
+  }>(
+    "SELECT status, session_kind, input_mode FROM local_sessions WHERE id = ?",
     sessionId,
   );
   if (!session) throw new Error("Session not found");
-  if (session.status !== "in_progress")
-    throw new Error("Workout is no longer active");
+  if (
+    !sessionAllowsLiftEdits({
+      status: session.status,
+      sessionKind: session.session_kind,
+      inputMode: session.input_mode,
+    })
+  ) {
+    throw new Error(
+      session.status === "completed"
+        ? "This workout can't be edited"
+        : "Workout is no longer active",
+    );
+  }
 }
 
 async function sessionIdForExercise(db: SQLiteDatabase, exerciseId: string) {
@@ -1001,6 +1030,22 @@ export async function moveLocalExercise(
   await markSessionUpdated(db, sessionId);
 }
 
+export async function saveLocalSessionExerciseNote(
+  db: SQLiteDatabase,
+  exerciseId: string,
+  notes: string,
+) {
+  const trimmed = normalizeExerciseNote(notes);
+  const sessionId = await sessionIdForExercise(db, exerciseId);
+  await requireEditableSession(db, sessionId);
+  await db.runAsync(
+    "UPDATE local_session_exercises SET notes = ? WHERE id = ?",
+    trimmed || null,
+    exerciseId,
+  );
+  await markSessionUpdated(db, sessionId);
+}
+
 export async function saveLocalExerciseNote(
   db: SQLiteDatabase,
   slug: string,
@@ -1210,7 +1255,13 @@ export async function adoptRemoteNoteWorkout(
         "SELECT entity_id FROM local_sync_outbox WHERE entity_type = 'session' AND entity_id = ?",
         localId,
       );
-      if (pending || (remote.clientUpdatedAt ?? 0) <= existing.updated_at)
+      if (
+        !shouldAdoptRemoteCompletedWorkout({
+          pendingLocalWrite: Boolean(pending),
+          localUpdatedAt: existing.updated_at,
+          remoteClientUpdatedAt: remote.clientUpdatedAt,
+        })
+      )
         return;
     }
     let placeId: string | null = null;
@@ -1304,6 +1355,266 @@ export async function adoptRemoteNoteWorkout(
   });
   if (changed) onChanged?.();
   return localId;
+}
+
+export type RemoteCompletedListWorkout = Omit<
+  RemoteCompletedNoteWorkout,
+  "exercises"
+> & {
+  exercises: Array<{
+    _id: string;
+    clientId?: string | null;
+    slug: string;
+    restSeconds?: number;
+    notes?: string | null;
+    machineId?: string | null;
+    machineName?: string | null;
+    sets: Array<{
+      _id: string;
+      clientId?: string | null;
+      orderIndex?: number;
+      targetWeight?: number;
+      targetReps?: number;
+      weight: number;
+      reps: number;
+      completed: boolean;
+      completedAt?: number | null;
+    }>;
+  }>;
+};
+
+async function pendingSessionDeleteBlocksRemote(
+  txn: SQLiteDatabase,
+  remote: Pick<RemoteCompletedNoteWorkout, "_id" | "clientId">,
+) {
+  const pendingDeletes = await txn.getAllAsync<{
+    entity_id: string;
+    payload_json: string;
+  }>(
+    "SELECT entity_id, payload_json FROM local_sync_outbox WHERE entity_type = 'session_delete'",
+  );
+  return pendingDeletes.some((row) => {
+    const deleted = JSON.parse(row.payload_json) as SessionDeleteSnapshot;
+    return (
+      row.entity_id === remote.clientId ||
+      deleted.clientId === remote.clientId ||
+      deleted.remoteId === remote._id
+    );
+  });
+}
+
+async function resolveAdoptedPlaceId(
+  txn: SQLiteDatabase,
+  remote: Pick<
+    RemoteCompletedNoteWorkout,
+    "placeId" | "placeName" | "placeStarred" | "clientUpdatedAt" | "completedAt"
+  >,
+) {
+  if (!remote.placeId) return null;
+  const place = await txn.getFirstAsync<{ id: string }>(
+    "SELECT id FROM local_places WHERE remote_id = ?",
+    remote.placeId,
+  );
+  const placeId = place?.id ?? remote.placeId;
+  if (!place) {
+    await txn.runAsync(
+      `INSERT INTO local_places (id, remote_id, name, starred, updated_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      placeId,
+      remote.placeId,
+      remote.placeName ?? "Workout place",
+      remote.placeStarred ? 1 : 0,
+      remote.clientUpdatedAt ?? remote.completedAt ?? Date.now(),
+    );
+  }
+  return placeId;
+}
+
+/**
+ * Pull a completed list workout into SQLite so offline edits can use the
+ * outbox. Pending local writes always win; Health export is never re-queued.
+ */
+export async function adoptRemoteCompletedListWorkout(
+  db: SQLiteDatabase,
+  remote: RemoteCompletedListWorkout,
+  onChanged?: () => void,
+) {
+  if (
+    remote.status !== "completed" ||
+    remote.sessionKind !== "tracked" ||
+    remote.inputMode === "note" ||
+    !remote.completedAt
+  )
+    throw new Error(
+      "Only completed strength workouts can be adopted for editing",
+    );
+  const completedAt = remote.completedAt;
+  const updatedAt = remote.clientUpdatedAt ?? completedAt;
+  const localId = remote.clientId?.trim() || remote._id;
+  let adoptedId = localId;
+  let changed = false;
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    if (await pendingSessionDeleteBlocksRemote(txn, remote))
+      throw new Error("This workout was deleted on this device.");
+    const existing = await txn.getFirstAsync<{
+      id: string;
+      remote_id: string | null;
+      updated_at: number;
+      status: string;
+      input_mode: string | null;
+      session_kind: string | null;
+    }>(
+      `SELECT id, remote_id, updated_at, status, input_mode, session_kind
+         FROM local_sessions WHERE id = ? OR remote_id = ?`,
+      localId,
+      remote._id,
+    );
+    if (existing) {
+      if (existing.remote_id && existing.remote_id !== remote._id) {
+        throw new Error("This workout identity belongs to another session");
+      }
+      adoptedId = existing.id;
+      if (
+        existing.status !== "completed" ||
+        existing.input_mode === "note" ||
+        mapSessionKind(existing.session_kind) !== "tracked"
+      )
+        throw new Error("Local workout is not a completed strength session");
+      const pending = await txn.getFirstAsync<{ entity_id: string }>(
+        "SELECT entity_id FROM local_sync_outbox WHERE entity_type = 'session' AND entity_id = ?",
+        adoptedId,
+      );
+      if (
+        !shouldAdoptRemoteCompletedWorkout({
+          pendingLocalWrite: Boolean(pending),
+          localUpdatedAt: existing.updated_at,
+          remoteClientUpdatedAt: remote.clientUpdatedAt,
+        })
+      )
+        return;
+    }
+    const placeId = await resolveAdoptedPlaceId(txn, remote);
+    if (existing) {
+      await txn.runAsync(
+        `UPDATE local_sessions SET
+           remote_id = ?, template_name = ?, note_body = ?, note_unit = ?,
+           started_at = ?, completed_at = ?, updated_at = ?, counts_toward_goals = ?,
+           place_id = ?, place_name = ?, external_provider = ?, external_id = ?,
+           activity_type = ?, source_name = ?, source_bundle_id = ?,
+           duration_seconds = ?, energy_kcal = ?, distance_meters = ?, imported_at = ?,
+           health_export_pending = CASE WHEN ? IS NOT NULL THEN 0 ELSE health_export_pending END
+         WHERE id = ?`,
+        remote._id,
+        remote.templateName,
+        remote.noteBody,
+        remote.noteUnit,
+        remote.startedAt,
+        completedAt,
+        updatedAt,
+        remote.countsTowardGoals ? 1 : 0,
+        placeId,
+        remote.placeName,
+        remote.externalProvider ?? null,
+        remote.externalId ?? null,
+        remote.activityType ?? null,
+        remote.sourceName ?? null,
+        remote.sourceBundleId ?? null,
+        remote.durationSeconds ?? null,
+        remote.energyKcal ?? null,
+        remote.distanceMeters ?? null,
+        remote.importedAt ?? null,
+        remote.externalId ?? null,
+        adoptedId,
+      );
+      await txn.runAsync(
+        "DELETE FROM local_session_exercises WHERE session_id = ?",
+        adoptedId,
+      );
+    } else {
+      await txn.runAsync(
+        `INSERT INTO local_sessions (
+           id, remote_id, template_name, status, session_kind, input_mode, note_body,
+           note_unit, started_at, completed_at, updated_at, counts_toward_goals,
+           place_id, place_name, external_provider, external_id, activity_type,
+           source_name, source_bundle_id, duration_seconds, energy_kcal, distance_meters,
+           imported_at, health_export_pending
+         ) VALUES (?, ?, ?, 'completed', 'tracked', 'list', ?, ?, ?, ?, ?, ?, ?, ?,
+           ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+        adoptedId,
+        remote._id,
+        remote.templateName,
+        remote.noteBody,
+        remote.noteUnit,
+        remote.startedAt,
+        completedAt,
+        updatedAt,
+        remote.countsTowardGoals ? 1 : 0,
+        placeId,
+        remote.placeName,
+        remote.externalProvider ?? null,
+        remote.externalId ?? null,
+        remote.activityType ?? null,
+        remote.sourceName ?? null,
+        remote.sourceBundleId ?? null,
+        remote.durationSeconds ?? null,
+        remote.energyKcal ?? null,
+        remote.distanceMeters ?? null,
+        remote.importedAt ?? null,
+      );
+    }
+    for (const [exerciseIndex, exercise] of remote.exercises.entries()) {
+      const exerciseId = exercise.clientId?.trim() || exercise._id;
+      await txn.runAsync(
+        `INSERT INTO local_session_exercises (
+           id, session_id, slug, order_index, rest_seconds, notes,
+           machine_id, machine_name
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        exerciseId,
+        adoptedId,
+        exercise.slug,
+        exerciseIndex,
+        exercise.restSeconds ?? 75,
+        exercise.notes ?? null,
+        exercise.machineId ?? null,
+        exercise.machineName ?? null,
+      );
+      for (const [setIndex, set] of exercise.sets.entries()) {
+        await txn.runAsync(
+          `INSERT INTO local_sets (
+             id, session_exercise_id, order_index, target_weight, target_reps,
+             weight, reps, completed, completed_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          set.clientId?.trim() || set._id,
+          exerciseId,
+          set.orderIndex ?? setIndex,
+          set.targetWeight ?? set.weight,
+          set.targetReps ?? set.reps,
+          set.weight,
+          set.reps,
+          set.completed ? 1 : 0,
+          set.completedAt ?? null,
+        );
+      }
+    }
+    changed = true;
+  });
+  if (changed) onChanged?.();
+  return adoptedId;
+}
+
+export async function adoptRemoteCompletedWorkout(
+  db: SQLiteDatabase,
+  remote: RemoteCompletedNoteWorkout | RemoteCompletedListWorkout,
+  onChanged?: () => void,
+) {
+  if (remote.inputMode === "note") {
+    return adoptRemoteNoteWorkout(db, remote, onChanged);
+  }
+  return adoptRemoteCompletedListWorkout(
+    db,
+    remote as RemoteCompletedListWorkout,
+    onChanged,
+  );
 }
 
 /** Edit active or finished note text, preserving workout timing and Health data. */
@@ -1472,7 +1783,13 @@ export async function finishLocalWorkout(
   db: SQLiteDatabase,
   sessionId: string,
 ) {
-  await requireEditableSession(db, sessionId);
+  const session = await db.getFirstAsync<{ status: string }>(
+    "SELECT status FROM local_sessions WHERE id = ?",
+    sessionId,
+  );
+  if (!session) throw new Error("Session not found");
+  if (session.status !== "in_progress")
+    throw new Error("Workout is no longer active");
   const now = Date.now();
   await db.runAsync(
     `UPDATE local_sessions

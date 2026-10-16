@@ -11,6 +11,11 @@ import {
   seedSetRows,
   type MemorySet,
 } from "./placeMemory";
+import {
+  nextClientUpdatedAt,
+  sessionAllowsLiftEdits,
+} from "../../src/lib/session-edits";
+import { refreshActivityPostForSession } from "./social_posts";
 import { normalizeTemplateSets } from "./templates";
 
 export {
@@ -497,6 +502,21 @@ async function upsertWorkingSets(
   else await ctx.db.insert("exercisePlaceWeights", payload);
 }
 
+async function afterCompletedSessionPlaceWrite(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  sessionId: Id<"workoutSessions">,
+) {
+  const session = await ctx.db.get(sessionId);
+  if (!session || session.status !== "completed") return;
+  await ctx.db.patch(sessionId, {
+    clientUpdatedAt: nextClientUpdatedAt(session.clientUpdatedAt),
+    ...(session.clientId ? {} : { clientId: session._id }),
+  });
+  await recordSessionPlaceMemory(ctx, userId, sessionId);
+  await refreshActivityPostForSession(ctx, userId, sessionId);
+}
+
 /** Stamp the finished session onto this place's working-weight memory. */
 export async function recordSessionPlaceMemory(
   ctx: MutationCtx,
@@ -573,8 +593,12 @@ export async function reseedSessionToPlace(
   if (!session || session.userId !== userId) {
     throw new Error("Session not found");
   }
-  if (session.status !== "in_progress") {
-    throw new Error("Workout is no longer active");
+  if (!sessionAllowsLiftEdits(session)) {
+    throw new Error(
+      session.status === "completed"
+        ? "This workout can't be edited"
+        : "Workout is no longer active",
+    );
   }
   const place = await ownedPlace(ctx, userId, placeId);
 
@@ -635,6 +659,7 @@ export async function reseedSessionToPlace(
     }
   }
 
+  await afterCompletedSessionPlaceWrite(ctx, userId, sessionId);
   return { hadCompletedSets, reseeded };
 }
 
@@ -650,8 +675,12 @@ export async function assignMachineToExercise(
   if (!session || session.userId !== userId) {
     throw new Error("Exercise not found");
   }
-  if (session.status !== "in_progress") {
-    throw new Error("Workout is no longer active");
+  if (!sessionAllowsLiftEdits(session)) {
+    throw new Error(
+      session.status === "completed"
+        ? "This workout can't be edited"
+        : "Workout is no longer active",
+    );
   }
   if (!session.placeId) throw new Error("Pick a place first");
 
@@ -676,6 +705,7 @@ export async function assignMachineToExercise(
     session.placeId,
     machine._id,
   );
+  await afterCompletedSessionPlaceWrite(ctx, userId, session._id);
 }
 
 async function reseedExerciseUnfinished(
@@ -811,8 +841,12 @@ export async function createNamedMachine(
   if (!session || session.userId !== userId) {
     throw new Error("Exercise not found");
   }
-  if (session.status !== "in_progress") {
-    throw new Error("Workout is no longer active");
+  if (!sessionAllowsLiftEdits(session)) {
+    throw new Error(
+      session.status === "completed"
+        ? "This workout can't be edited"
+        : "Workout is no longer active",
+    );
   }
   const placeId = session.placeId;
   if (!placeId) throw new Error("Pick a place first");
@@ -829,6 +863,7 @@ export async function createNamedMachine(
     machineName: (await ctx.db.get(createdId))?.name ?? name,
   });
   await reseedExerciseUnfinished(ctx, sessionExerciseId, placeId, createdId);
+  await afterCompletedSessionPlaceWrite(ctx, userId, session._id);
   return createdId;
 }
 
