@@ -21,6 +21,7 @@ import {
   remapNoteRecovery,
 } from "./note-recovery";
 import { convertLocalWeights } from "./weight-units";
+import { withWorkoutTransaction } from "./workout-transactions";
 import { adoptMachineIdentity, adoptPlaceIdentity } from "./place-sync-storage";
 import {
   GENERAL_PREFS_ECHO_PENDING_KEY,
@@ -576,17 +577,16 @@ async function markSessionUpdated(
 ) {
   const row = await db.getFirstAsync<{
     updated_at: number;
-    status: string;
-  }>("SELECT updated_at, status FROM local_sessions WHERE id = ?", sessionId);
+  }>("SELECT updated_at FROM local_sessions WHERE id = ?", sessionId);
   const nextUpdatedAt = nextClientUpdatedAt(row?.updated_at, updatedAt);
   await db.runAsync(
     "UPDATE local_sessions SET updated_at = ? WHERE id = ?",
     nextUpdatedAt,
     sessionId,
   );
-  if (row?.status === "completed") {
-    await recordLocalSessionPlaceMemory(db, sessionId);
-  }
+  // A phone has only part of the workout history. Preserve its current gym
+  // presets during historical edits; the server can choose the latest workout
+  // across devices and return authoritative memory on the next bootstrap.
   await queueSessionSnapshot(db, sessionId, nextUpdatedAt);
 }
 
@@ -799,10 +799,12 @@ export async function setLocalSessionPlace(
   sessionId: string,
   placeId: string,
 ) {
-  await requireEditableSession(db, sessionId);
-  const result = await reseedLocalSessionToPlace(db, sessionId, placeId);
-  await markSessionUpdated(db, sessionId);
-  return result;
+  return withWorkoutTransaction(db, async (txn) => {
+    await requireEditableSession(txn, sessionId);
+    const result = await reseedLocalSessionToPlace(txn, sessionId, placeId);
+    await markSessionUpdated(txn, sessionId);
+    return result;
+  });
 }
 
 export async function setLocalSessionMachine(
@@ -810,10 +812,12 @@ export async function setLocalSessionMachine(
   sessionExerciseId: string,
   machineId: string,
 ) {
-  const sessionId = await sessionIdForExercise(db, sessionExerciseId);
-  await requireEditableSession(db, sessionId);
-  await assignLocalSessionMachine(db, sessionExerciseId, machineId);
-  await markSessionUpdated(db, sessionId);
+  return withWorkoutTransaction(db, async (txn) => {
+    const sessionId = await sessionIdForExercise(txn, sessionExerciseId);
+    await requireEditableSession(txn, sessionId);
+    await assignLocalSessionMachine(txn, sessionExerciseId, machineId);
+    await markSessionUpdated(txn, sessionId);
+  });
 }
 
 export async function updateLocalSet(
@@ -821,87 +825,94 @@ export async function updateLocalSet(
   setId: string,
   values: { weight?: number; reps?: number; completed?: boolean },
 ) {
-  const sessionId = await sessionIdForSet(db, setId);
-  await requireEditableSession(db, sessionId);
-  const fields: string[] = [];
-  const params: Array<string | number | null> = [];
-  if (values.weight !== undefined) {
-    fields.push("weight = ?");
-    params.push(boundedWhole(values.weight, MAX_WEIGHT, "Weight"));
-  }
-  if (values.reps !== undefined) {
-    fields.push("reps = ?");
-    params.push(boundedWhole(values.reps, MAX_REPS, "Reps"));
-  }
-  if (values.completed !== undefined) {
-    fields.push("completed = ?", "completed_at = ?");
-    params.push(values.completed ? 1 : 0, values.completed ? Date.now() : null);
-  }
-  if (!fields.length) return;
-  params.push(setId);
-  await db.runAsync(
-    `UPDATE local_sets SET ${fields.join(", ")} WHERE id = ?`,
-    params,
-  );
-  await markSessionUpdated(db, sessionId);
+  return withWorkoutTransaction(db, async (txn) => {
+    const sessionId = await sessionIdForSet(txn, setId);
+    await requireEditableSession(txn, sessionId);
+    const fields: string[] = [];
+    const params: Array<string | number | null> = [];
+    if (values.weight !== undefined) {
+      fields.push("weight = ?");
+      params.push(boundedWhole(values.weight, MAX_WEIGHT, "Weight"));
+    }
+    if (values.reps !== undefined) {
+      fields.push("reps = ?");
+      params.push(boundedWhole(values.reps, MAX_REPS, "Reps"));
+    }
+    if (values.completed !== undefined) {
+      fields.push("completed = ?", "completed_at = ?");
+      params.push(
+        values.completed ? 1 : 0,
+        values.completed ? Date.now() : null,
+      );
+    }
+    if (!fields.length) return;
+    params.push(setId);
+    await txn.runAsync(
+      `UPDATE local_sets SET ${fields.join(", ")} WHERE id = ?`,
+      params,
+    );
+    await markSessionUpdated(txn, sessionId);
+  });
 }
 
 export async function addLocalSet(
   db: SQLiteDatabase,
   sessionExerciseId: string,
 ) {
-  const sessionId = await sessionIdForExercise(db, sessionExerciseId);
-  await requireEditableSession(db, sessionId);
-  const sets = await db.getAllAsync<SetRow>(
-    `SELECT id, session_exercise_id, order_index, target_weight, target_reps,
-            weight, reps, completed, completed_at
-       FROM local_sets
-      WHERE session_exercise_id = ?
-      ORDER BY order_index`,
-    sessionExerciseId,
-  );
-  if (sets.length >= MAX_SETS)
-    throw new Error(`Exercises can contain at most ${MAX_SETS} sets`);
-  const last = sets.at(-1);
-  const setId = randomUUID();
-  await db.runAsync(
-    `INSERT INTO local_sets (
-       id, session_exercise_id, order_index, target_weight, target_reps,
-       weight, reps, completed
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
-    setId,
-    sessionExerciseId,
-    (last?.order_index ?? -1) + 1,
-    last?.target_weight ?? last?.weight ?? 0,
-    last?.target_reps ?? last?.reps ?? 0,
-    last?.weight ?? 0,
-    last?.reps ?? 0,
-  );
-  await markSessionUpdated(db, sessionId);
-  return setId;
+  return withWorkoutTransaction(db, async (txn) => {
+    const sessionId = await sessionIdForExercise(txn, sessionExerciseId);
+    await requireEditableSession(txn, sessionId);
+    const sets = await txn.getAllAsync<SetRow>(
+      `SELECT id, session_exercise_id, order_index, target_weight, target_reps,
+              weight, reps, completed, completed_at
+         FROM local_sets
+        WHERE session_exercise_id = ?
+        ORDER BY order_index`,
+      sessionExerciseId,
+    );
+    if (sets.length >= MAX_SETS)
+      throw new Error(`Exercises can contain at most ${MAX_SETS} sets`);
+    const last = sets.at(-1);
+    const setId = randomUUID();
+    await txn.runAsync(
+      `INSERT INTO local_sets (
+         id, session_exercise_id, order_index, target_weight, target_reps,
+         weight, reps, completed
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
+      setId,
+      sessionExerciseId,
+      (last?.order_index ?? -1) + 1,
+      last?.target_weight ?? last?.weight ?? 0,
+      last?.target_reps ?? last?.reps ?? 0,
+      last?.weight ?? 0,
+      last?.reps ?? 0,
+    );
+    await markSessionUpdated(txn, sessionId);
+    return setId;
+  });
 }
 
 export async function deleteLocalSet(db: SQLiteDatabase, setId: string) {
-  const row = await db.getFirstAsync<{
-    session_exercise_id: string;
-    session_id: string;
-  }>(
-    `SELECT s.session_exercise_id, e.session_id
-       FROM local_sets s
-       JOIN local_session_exercises e ON e.id = s.session_exercise_id
-      WHERE s.id = ?`,
-    setId,
-  );
-  if (!row) throw new Error("Set not found");
-  await requireEditableSession(db, row.session_id);
-  const sets = await db.getAllAsync<{ id: string }>(
-    `SELECT id FROM local_sets
-      WHERE session_exercise_id = ?
-      ORDER BY order_index`,
-    row.session_exercise_id,
-  );
-  if (sets.length <= 1) throw new Error("Cannot delete the last set");
-  await db.withExclusiveTransactionAsync(async (txn) => {
+  return withWorkoutTransaction(db, async (txn) => {
+    const row = await txn.getFirstAsync<{
+      session_exercise_id: string;
+      session_id: string;
+    }>(
+      `SELECT s.session_exercise_id, e.session_id
+         FROM local_sets s
+         JOIN local_session_exercises e ON e.id = s.session_exercise_id
+        WHERE s.id = ?`,
+      setId,
+    );
+    if (!row) throw new Error("Set not found");
+    await requireEditableSession(txn, row.session_id);
+    const sets = await txn.getAllAsync<{ id: string }>(
+      `SELECT id FROM local_sets
+        WHERE session_exercise_id = ?
+        ORDER BY order_index`,
+      row.session_exercise_id,
+    );
+    if (sets.length <= 1) throw new Error("Cannot delete the last set");
     await txn.runAsync("DELETE FROM local_sets WHERE id = ?", setId);
     const remaining = sets.filter((set) => set.id !== setId);
     for (let index = 0; index < remaining.length; index++) {
@@ -911,8 +922,8 @@ export async function deleteLocalSet(db: SQLiteDatabase, setId: string) {
         remaining[index].id,
       );
     }
+    await markSessionUpdated(txn, row.session_id);
   });
-  await markSessionUpdated(db, row.session_id);
 }
 
 export async function addLocalExercise(
@@ -921,47 +932,52 @@ export async function addLocalExercise(
   value: string,
   presets?: { weight: number; reps: number }[],
 ) {
-  await requireEditableSession(db, sessionId);
-  const slug = normalizedSlug(value);
-  const exercises = await db.getAllAsync<{
-    id: string;
-    slug: string;
-    order_index: number;
-  }>(
-    `SELECT id, slug, order_index
-       FROM local_session_exercises
-      WHERE session_id = ?
-      ORDER BY order_index`,
-    sessionId,
-  );
-  if (exercises.length >= MAX_EXERCISES)
-    throw new Error(`Workouts can contain at most ${MAX_EXERCISES} exercises`);
-  if (exercises.some((exercise) => exercise.slug === slug))
-    throw new Error("Exercise already in workout");
+  return withWorkoutTransaction(db, async (txn) => {
+    await requireEditableSession(txn, sessionId);
+    const slug = normalizedSlug(value);
+    const exercises = await txn.getAllAsync<{
+      id: string;
+      slug: string;
+      order_index: number;
+    }>(
+      `SELECT id, slug, order_index
+         FROM local_session_exercises
+        WHERE session_id = ?
+        ORDER BY order_index`,
+      sessionId,
+    );
+    if (exercises.length >= MAX_EXERCISES)
+      throw new Error(
+        `Workouts can contain at most ${MAX_EXERCISES} exercises`,
+      );
+    if (exercises.some((exercise) => exercise.slug === slug))
+      throw new Error("Exercise already in workout");
 
-  const sessionRow = await db.getFirstAsync<{
-    place_id: string | null;
-  }>(`SELECT place_id FROM local_sessions WHERE id = ?`, sessionId);
-  const placeId = sessionRow?.place_id ?? null;
-  const machine = placeId
-    ? await lastLocalMachineForLift(db, placeId, slug)
-    : null;
-  const memory = placeId
-    ? await getLocalWorkingSets(db, {
+    const sessionRow = await txn.getFirstAsync<{
+      place_id: string | null;
+    }>(`SELECT place_id FROM local_sessions WHERE id = ?`, sessionId);
+    const placeId = sessionRow?.place_id ?? null;
+    const machine = placeId
+      ? await lastLocalMachineForLift(txn, placeId, slug)
+      : null;
+    const memory = placeId
+      ? await getLocalWorkingSets(txn, {
+          placeId,
+          exerciseSlug: slug,
+          machineId: machine?._id,
+        })
+      : null;
+    const previous = memory?.[0] ??
+      (await getLastLocalSet(txn, slug, {
         placeId,
-        exerciseSlug: slug,
         machineId: machine?._id,
-      })
-    : null;
-  const previous = memory?.[0] ??
-    (await getLastLocalSet(db, slug, { placeId, machineId: machine?._id })) ?? {
-      weight: 0,
-      reps: 0,
-    };
-  const seed = previous;
-  const rows = setRowsForNewExercise(presets, seed);
-  const exerciseId = randomUUID();
-  await db.withExclusiveTransactionAsync(async (txn) => {
+      })) ?? {
+        weight: 0,
+        reps: 0,
+      };
+    const seed = previous;
+    const rows = setRowsForNewExercise(presets, seed);
+    const exerciseId = randomUUID();
     await txn.runAsync(
       `INSERT INTO local_session_exercises (
          id, session_id, slug, order_index, rest_seconds,
@@ -992,35 +1008,37 @@ export async function addLocalExercise(
         reps,
       );
     }
+    await markSessionUpdated(txn, sessionId);
+    return exerciseId;
   });
-  await markSessionUpdated(db, sessionId);
-  return exerciseId;
 }
 
 export async function removeLocalExercise(
   db: SQLiteDatabase,
   sessionExerciseId: string,
 ) {
-  const sessionId = await sessionIdForExercise(db, sessionExerciseId);
-  await requireEditableSession(db, sessionId);
-  await db.runAsync(
-    "DELETE FROM local_session_exercises WHERE id = ?",
-    sessionExerciseId,
-  );
-  const remaining = await db.getAllAsync<{ id: string }>(
-    `SELECT id FROM local_session_exercises
-      WHERE session_id = ?
-      ORDER BY order_index`,
-    sessionId,
-  );
-  for (let index = 0; index < remaining.length; index++) {
-    await db.runAsync(
-      "UPDATE local_session_exercises SET order_index = ? WHERE id = ?",
-      index,
-      remaining[index].id,
+  return withWorkoutTransaction(db, async (txn) => {
+    const sessionId = await sessionIdForExercise(txn, sessionExerciseId);
+    await requireEditableSession(txn, sessionId);
+    await txn.runAsync(
+      "DELETE FROM local_session_exercises WHERE id = ?",
+      sessionExerciseId,
     );
-  }
-  await markSessionUpdated(db, sessionId);
+    const remaining = await txn.getAllAsync<{ id: string }>(
+      `SELECT id FROM local_session_exercises
+        WHERE session_id = ?
+        ORDER BY order_index`,
+      sessionId,
+    );
+    for (let index = 0; index < remaining.length; index++) {
+      await txn.runAsync(
+        "UPDATE local_session_exercises SET order_index = ? WHERE id = ?",
+        index,
+        remaining[index].id,
+      );
+    }
+    await markSessionUpdated(txn, sessionId);
+  });
 }
 
 export async function moveLocalExercise(
@@ -1028,18 +1046,18 @@ export async function moveLocalExercise(
   sessionExerciseId: string,
   delta: -1 | 1,
 ) {
-  const sessionId = await sessionIdForExercise(db, sessionExerciseId);
-  await requireEditableSession(db, sessionId);
-  const rows = await db.getAllAsync<{ id: string; order_index: number }>(
-    `SELECT id, order_index FROM local_session_exercises
-      WHERE session_id = ?
-      ORDER BY order_index`,
-    sessionId,
-  );
-  const index = rows.findIndex((row) => row.id === sessionExerciseId);
-  const target = index + delta;
-  if (index < 0 || target < 0 || target >= rows.length) return;
-  await db.withExclusiveTransactionAsync(async (txn) => {
+  return withWorkoutTransaction(db, async (txn) => {
+    const sessionId = await sessionIdForExercise(txn, sessionExerciseId);
+    await requireEditableSession(txn, sessionId);
+    const rows = await txn.getAllAsync<{ id: string; order_index: number }>(
+      `SELECT id, order_index FROM local_session_exercises
+        WHERE session_id = ?
+        ORDER BY order_index`,
+      sessionId,
+    );
+    const index = rows.findIndex((row) => row.id === sessionExerciseId);
+    const target = index + delta;
+    if (index < 0 || target < 0 || target >= rows.length) return;
     await txn.runAsync(
       "UPDATE local_session_exercises SET order_index = ? WHERE id = ?",
       rows[target].order_index,
@@ -1050,8 +1068,8 @@ export async function moveLocalExercise(
       rows[index].order_index,
       rows[target].id,
     );
+    await markSessionUpdated(txn, sessionId);
   });
-  await markSessionUpdated(db, sessionId);
 }
 
 export async function saveLocalSessionExerciseNote(
@@ -1059,15 +1077,17 @@ export async function saveLocalSessionExerciseNote(
   exerciseId: string,
   notes: string,
 ) {
-  const trimmed = normalizeExerciseNote(notes);
-  const sessionId = await sessionIdForExercise(db, exerciseId);
-  await requireEditableSession(db, sessionId);
-  await db.runAsync(
-    "UPDATE local_session_exercises SET notes = ? WHERE id = ?",
-    trimmed || null,
-    exerciseId,
-  );
-  await markSessionUpdated(db, sessionId);
+  return withWorkoutTransaction(db, async (txn) => {
+    const trimmed = normalizeExerciseNote(notes);
+    const sessionId = await sessionIdForExercise(txn, exerciseId);
+    await requireEditableSession(txn, sessionId);
+    await txn.runAsync(
+      "UPDATE local_session_exercises SET notes = ? WHERE id = ?",
+      trimmed,
+      exerciseId,
+    );
+    await markSessionUpdated(txn, sessionId);
+  });
 }
 
 export async function saveLocalExerciseNote(
@@ -1231,7 +1251,7 @@ export async function adoptRemoteNoteWorkout(
     );
   let localId = remote.clientId;
   let changed = false;
-  await db.withExclusiveTransactionAsync(async (txn) => {
+  await withWorkoutTransaction(db, async (txn) => {
     // Cached remote detail can outlive an offline deletion. Never recreate it
     // while that deletion is waiting to sync, even under a different local id.
     const pendingDeletes = await txn.getAllAsync<{
@@ -1385,6 +1405,7 @@ export type RemoteCompletedListWorkout = Omit<
   RemoteCompletedNoteWorkout,
   "exercises"
 > & {
+  templateId?: string | null;
   exercises: Array<{
     _id: string;
     clientId?: string | null;
@@ -1477,18 +1498,20 @@ export async function adoptRemoteCompletedListWorkout(
   const localId = remote.clientId?.trim() || remote._id;
   let adoptedId = localId;
   let changed = false;
-  await db.withExclusiveTransactionAsync(async (txn) => {
+  await withWorkoutTransaction(db, async (txn) => {
     if (await pendingSessionDeleteBlocksRemote(txn, remote))
       throw new Error("This workout was deleted on this device.");
     const existing = await txn.getFirstAsync<{
       id: string;
       remote_id: string | null;
+      template_id: string | null;
+      remote_template_id: string | null;
       updated_at: number;
       status: string;
       input_mode: string | null;
       session_kind: string | null;
     }>(
-      `SELECT id, remote_id, updated_at, status, input_mode, session_kind
+      `SELECT id, remote_id, template_id, remote_template_id, updated_at, status, input_mode, session_kind
          FROM local_sessions WHERE id = ? OR remote_id = ?`,
       localId,
       remote._id,
@@ -1518,10 +1541,21 @@ export async function adoptRemoteCompletedListWorkout(
         return;
     }
     const placeId = await resolveAdoptedPlaceId(txn, remote);
+    const remoteTemplateId =
+      remote.templateId === undefined
+        ? (existing?.remote_template_id ?? null)
+        : remote.templateId;
+    const template = remoteTemplateId
+      ? await txn.getFirstAsync<{ id: string }>(
+          "SELECT id FROM local_templates WHERE remote_id = ?",
+          remoteTemplateId,
+        )
+      : null;
+    const templateId = template?.id ?? null;
     if (existing) {
       await txn.runAsync(
         `UPDATE local_sessions SET
-           remote_id = ?, template_name = ?, note_body = ?, note_unit = ?,
+           remote_id = ?, template_id = ?, remote_template_id = ?, template_name = ?, note_body = ?, note_unit = ?,
            started_at = ?, completed_at = ?, updated_at = ?, counts_toward_goals = ?,
            place_id = ?, place_name = ?, external_provider = ?, external_id = ?,
            activity_type = ?, source_name = ?, source_bundle_id = ?,
@@ -1529,6 +1563,8 @@ export async function adoptRemoteCompletedListWorkout(
            health_export_pending = CASE WHEN ? IS NOT NULL THEN 0 ELSE health_export_pending END
          WHERE id = ?`,
         remote._id,
+        templateId,
+        remoteTemplateId,
         remote.templateName,
         remote.noteBody,
         remote.noteUnit,
@@ -1557,15 +1593,17 @@ export async function adoptRemoteCompletedListWorkout(
     } else {
       await txn.runAsync(
         `INSERT INTO local_sessions (
-           id, remote_id, template_name, status, session_kind, input_mode, note_body,
+           id, remote_id, template_id, remote_template_id, template_name, status, session_kind, input_mode, note_body,
            note_unit, started_at, completed_at, updated_at, counts_toward_goals,
            place_id, place_name, external_provider, external_id, activity_type,
            source_name, source_bundle_id, duration_seconds, energy_kcal, distance_meters,
            imported_at, health_export_pending
-         ) VALUES (?, ?, ?, 'completed', 'tracked', 'list', ?, ?, ?, ?, ?, ?, ?, ?,
+         ) VALUES (?, ?, ?, ?, ?, 'completed', 'tracked', 'list', ?, ?, ?, ?, ?, ?, ?, ?,
            ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
         adoptedId,
         remote._id,
+        templateId,
+        remoteTemplateId,
         remote.templateName,
         remote.noteBody,
         remote.noteUnit,
@@ -1588,6 +1626,13 @@ export async function adoptRemoteCompletedListWorkout(
     }
     for (const [exerciseIndex, exercise] of remote.exercises.entries()) {
       const exerciseId = exercise.clientId?.trim() || exercise._id;
+      const machine = exercise.machineId
+        ? await txn.getFirstAsync<{ id: string }>(
+            "SELECT id FROM local_machines WHERE id = ? OR remote_id = ?",
+            exercise.machineId,
+            exercise.machineId,
+          )
+        : null;
       await txn.runAsync(
         `INSERT INTO local_session_exercises (
            id, session_id, slug, order_index, rest_seconds, notes,
@@ -1599,7 +1644,7 @@ export async function adoptRemoteCompletedListWorkout(
         exerciseIndex,
         exercise.restSeconds ?? 75,
         exercise.notes ?? null,
-        exercise.machineId ?? null,
+        machine?.id ?? exercise.machineId ?? null,
         exercise.machineName ?? null,
       );
       for (const [setIndex, set] of exercise.sets.entries()) {
@@ -1649,7 +1694,7 @@ export async function updateLocalWorkoutNote(
   expectedStatus?: "in_progress" | "completed",
 ) {
   assertWorkoutNoteLength(noteBody);
-  await db.withExclusiveTransactionAsync(async (txn) => {
+  await withWorkoutTransaction(db, async (txn) => {
     const session = await txn.getFirstAsync<SessionRow>(
       `SELECT ${SESSION_COLUMNS} FROM local_sessions WHERE id = ?`,
       sessionId,
@@ -1688,7 +1733,7 @@ export async function convertLocalWorkoutNote(
   targetUnit: NoteUnit,
 ) {
   assertWorkoutNoteLength(draft.originalText);
-  await db.withExclusiveTransactionAsync(async (txn) => {
+  await withWorkoutTransaction(db, async (txn) => {
     const session = await txn.getFirstAsync<SessionRow>(
       `SELECT ${SESSION_COLUMNS} FROM local_sessions WHERE id = ?`,
       sessionId,
@@ -1774,7 +1819,7 @@ export async function finishLocalNoteWorkout(
   assertWorkoutNoteLength(noteBody);
   if (!noteBody.trim())
     throw new Error("A completed workout note cannot be blank");
-  await db.withExclusiveTransactionAsync(async (txn) => {
+  await withWorkoutTransaction(db, async (txn) => {
     const session = await txn.getFirstAsync<SessionRow>(
       `SELECT ${SESSION_COLUMNS} FROM local_sessions WHERE id = ?`,
       sessionId,
@@ -1807,44 +1852,48 @@ export async function finishLocalWorkout(
   db: SQLiteDatabase,
   sessionId: string,
 ) {
-  const session = await db.getFirstAsync<{ status: string }>(
-    "SELECT status FROM local_sessions WHERE id = ?",
-    sessionId,
-  );
-  if (!session) throw new Error("Session not found");
-  if (session.status !== "in_progress")
-    throw new Error("Workout is no longer active");
-  const now = Date.now();
-  await db.runAsync(
-    `UPDATE local_sessions
-        SET status = 'completed', completed_at = ?, updated_at = ?
-      WHERE id = ?`,
-    now,
-    now,
-    sessionId,
-  );
-  await recordLocalSessionPlaceMemory(db, sessionId);
-  await queueSessionSnapshot(db, sessionId, now);
+  return withWorkoutTransaction(db, async (txn) => {
+    const session = await txn.getFirstAsync<{ status: string }>(
+      "SELECT status FROM local_sessions WHERE id = ?",
+      sessionId,
+    );
+    if (!session) throw new Error("Session not found");
+    if (session.status !== "in_progress")
+      throw new Error("Workout is no longer active");
+    const now = Date.now();
+    await txn.runAsync(
+      `UPDATE local_sessions
+          SET status = 'completed', completed_at = ?, updated_at = ?
+        WHERE id = ?`,
+      now,
+      now,
+      sessionId,
+    );
+    await recordLocalSessionPlaceMemory(txn, sessionId);
+    await queueSessionSnapshot(txn, sessionId, now);
+  });
 }
 
 export async function abandonLocalWorkout(
   db: SQLiteDatabase,
   sessionId: string,
 ) {
-  const session = await db.getFirstAsync<{ status: string }>(
-    "SELECT status FROM local_sessions WHERE id = ?",
-    sessionId,
-  );
-  if (!session || session.status !== "in_progress") return;
-  const now = Date.now();
-  await db.runAsync(
-    `UPDATE local_sessions
-        SET status = 'abandoned', updated_at = ?
-      WHERE id = ?`,
-    now,
-    sessionId,
-  );
-  await queueSessionSnapshot(db, sessionId, now);
+  return withWorkoutTransaction(db, async (txn) => {
+    const session = await txn.getFirstAsync<{ status: string }>(
+      "SELECT status FROM local_sessions WHERE id = ?",
+      sessionId,
+    );
+    if (!session || session.status !== "in_progress") return;
+    const now = Date.now();
+    await txn.runAsync(
+      `UPDATE local_sessions
+          SET status = 'abandoned', updated_at = ?
+        WHERE id = ?`,
+      now,
+      sessionId,
+    );
+    await queueSessionSnapshot(txn, sessionId, now);
+  });
 }
 
 export async function deleteLocalWorkout(
@@ -1866,7 +1915,7 @@ export async function deleteLocalWorkout(
       row.external_provider === "apple_health" ? "apple_health" : null,
     externalId: row.external_id,
   };
-  await db.withExclusiveTransactionAsync(async (txn) => {
+  await withWorkoutTransaction(db, async (txn) => {
     await txn.runAsync(
       `DELETE FROM local_sync_outbox
         WHERE entity_type = 'session' AND entity_id = ?`,
@@ -3106,6 +3155,16 @@ export async function applyIosBootstrap(
         );
       }
     }
+
+    // Workout detail can arrive before template bootstrap. Resolve its saved
+    // cloud link once the owned template is available; no content/revision
+    // change or extra upload is needed for this local alias.
+    await txn.runAsync(
+      `UPDATE local_sessions SET template_id = (
+         SELECT id FROM local_templates WHERE remote_id = remote_template_id
+       ) WHERE template_id IS NULL
+           AND remote_template_id IN (SELECT remote_id FROM local_templates)`,
+    );
 
     const cloudTemplateIds = new Set(
       payload.templates.map((template) => template.remoteId),

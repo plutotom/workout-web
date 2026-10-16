@@ -9,6 +9,7 @@ import {
   placeNameKey,
   reseedIncompleteSets,
   seedSetRows,
+  sessionMatchesPlace,
   type MemorySet,
 } from "./placeMemory";
 import {
@@ -553,11 +554,32 @@ export async function recordSessionPlaceMemory(
     });
   }
 
-  await ctx.db.patch(place._id, { lastUsedAt: Date.now() });
+  const completedAt = session.completedAt ?? session.startedAt;
+  const newerSessions = (
+    await ctx.db
+      .query("workoutSessions")
+      .withIndex("by_user_status", (q) =>
+        q.eq("userId", userId).eq("status", "completed"),
+      )
+      .collect()
+  ).filter(
+    (candidate) =>
+      candidate.sessionKind !== "health_summary" &&
+      (candidate.completedAt ?? candidate.startedAt) > completedAt,
+  );
+  await ctx.db.patch(place._id, {
+    lastUsedAt: Math.max(place.lastUsedAt ?? 0, completedAt),
+  });
 
   if (session.templateId) {
     const template = await ctx.db.get(session.templateId);
-    if (template && template.userId === userId) {
+    if (
+      template &&
+      template.userId === userId &&
+      !newerSessions.some(
+        (candidate) => candidate.templateId === session.templateId,
+      )
+    ) {
       await ctx.db.patch(session.templateId, { lastPlaceId: place._id });
     }
   }
@@ -568,7 +590,53 @@ export async function recordSessionPlaceMemory(
     .collect();
   exercises.sort((a, b) => a.orderIndex - b.orderIndex);
 
+  const machineKeys = new Map<string, string>();
+  async function equipmentKey(lift: {
+    exerciseSlug: string;
+    machineId?: Id<"machines">;
+  }) {
+    let key = DEFAULT_MACHINE_KEY;
+    if (lift.machineId) {
+      const cached = machineKeys.get(lift.machineId);
+      if (cached) key = cached;
+      else {
+        const machine = await ctx.db.get(lift.machineId);
+        key = machine?.isDefault ? DEFAULT_MACHINE_KEY : lift.machineId;
+        machineKeys.set(lift.machineId, key);
+      }
+    }
+    return JSON.stringify([lift.exerciseSlug, key]);
+  }
+  // Read each later workout once, rather than scanning all later workouts for
+  // every edited lift. Legacy unnamed equipment and the default machine match.
+  const newerEquipment = new Set<string>();
+  for (const candidate of newerSessions) {
+    if (
+      !sessionMatchesPlace(
+        candidate,
+        place._id,
+        place.starred ? place._id : null,
+      )
+    )
+      continue;
+    const lifts = await ctx.db
+      .query("sessionExercises")
+      .withIndex("by_session", (q) => q.eq("sessionId", candidate._id))
+      .collect();
+    for (const lift of lifts) {
+      const key = await equipmentKey(lift);
+      if (newerEquipment.has(key)) continue;
+      const sets = await ctx.db
+        .query("sets")
+        .withIndex("by_session_exercise", (q) =>
+          q.eq("sessionExerciseId", lift._id),
+        )
+        .take(1);
+      if (sets.length) newerEquipment.add(key);
+    }
+  }
   for (const exercise of exercises) {
+    if (newerEquipment.has(await equipmentKey(exercise))) continue;
     const sets = await ctx.db
       .query("sets")
       .withIndex("by_session_exercise", (q) =>
@@ -581,7 +649,9 @@ export async function recordSessionPlaceMemory(
     if (exercise.machineId) {
       const machine = await ctx.db.get(exercise.machineId);
       if (machine && machine.userId === userId && !machine.archived) {
-        await ctx.db.patch(machine._id, { lastUsedAt: Date.now() });
+        await ctx.db.patch(machine._id, {
+          lastUsedAt: Math.max(machine.lastUsedAt ?? 0, completedAt),
+        });
       }
     }
 

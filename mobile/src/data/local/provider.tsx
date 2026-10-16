@@ -439,9 +439,13 @@ function LocalDataState({
       convertWorkoutNote: (sessionId, draft, targetUnit) =>
         run(() => convertLocalWorkoutNote(db, sessionId, draft, targetUnit)),
       adoptRemoteNoteWorkout: (remote) =>
-        adoptRemoteNoteWorkout(db, remote, refresh),
+        trackLocalWrite(databaseName, () =>
+          adoptRemoteNoteWorkout(db, remote, refresh),
+        ),
       adoptRemoteCompletedWorkout: (remote) =>
-        adoptRemoteCompletedWorkout(db, remote, refresh),
+        trackLocalWrite(databaseName, () =>
+          adoptRemoteCompletedWorkout(db, remote, refresh),
+        ),
       startFromTemplate: (templateId, abandonExisting, placeId) =>
         run(() =>
           startLocalTemplateWorkout(db, templateId, abandonExisting, placeId),
@@ -519,7 +523,7 @@ function LocalDataState({
         run(() => patchLocalPreferences(db, patch)),
       applyBootstrap: (payload) => run(() => applyIosBootstrap(db, payload)),
     }),
-    [db, owner, finishTracked, refresh, revision, run],
+    [db, databaseName, owner, finishTracked, refresh, revision, run],
   );
 
   return (

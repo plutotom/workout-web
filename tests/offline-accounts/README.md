@@ -109,7 +109,26 @@ wrong-owner snapshots cannot start uploads. Restored workouts retain trusted
 template links through unit conversion, lost responses, and restart. Maximum
 length name collisions and importing over cleared notes are also covered.
 
-The strict suite currently contains **57 lifecycle cases**. Report its result
+Completed-workout edits are also a required preservation contract in
+`completed-workout-edits.test.js`: a web-created workout is adopted, edited
+offline, restarted, and uploaded through a lost response in both subscription
+orders. Assertions cover stable workout/template/child identities, removed sets,
+explicitly cleared session notes, original completion time, no new Health export,
+and updating the original social post. Other cases check account ownership,
+template aliases, and preserving newer equipment prescriptions while editing an
+older workout. These use the real provider, SQLite, outbox worker, and Convex
+handlers rather than mocked sync decisions.
+
+`mobile/src/data/local/completed-workout-edits.sqlite.test.js` additionally tests
+cloud delivery during a local save and injects an outbox failure into each of the
+nine list-edit operations. Rows, revisions, relationships, equipment memory, and
+upload intent must roll back together; a successful retry must still work.
+`withWorkoutTransaction` is the common serialization/transaction boundary for
+list edits and remote workout adoption. Keep a regression for each discovered
+failure; a green type check or policy-helper unit test cannot replace these
+behavioral contracts.
+
+The strict suite currently contains **61 lifecycle cases**. Report its result
 separately from the ordinary unit suite; neither replaces device/staging checks.
 
 ## Upgrade and recovery behavior

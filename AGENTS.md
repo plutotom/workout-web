@@ -23,6 +23,30 @@ This version has breaking changes — APIs, conventions, and file structure may 
   do not substitute real users, production data, or production credentials.
   See [the lifecycle gate documentation](tests/offline-accounts/README.md).
 
+### Workout sync invariants
+
+- Local workout edits, their monotonic revision, and their replacement outbox
+  snapshot must commit together through `withWorkoutTransaction` in
+  `mobile/src/data/local/workout-transactions.ts`. Cloud workout adoption uses
+  the same serialized boundary. Do not write a row and queue it later.
+- Preserve session, template, exercise, and set identities through adoption,
+  offline restart, retries, and acknowledgments. A pending local aggregate must
+  survive stale cloud delivery; acknowledging an older operation must not delete
+  a newer queued operation. Track provider adoption writes with `trackLocalWrite`
+  so account transitions wait for them.
+- Editing a completed workout preserves its completion date and Health identity,
+  never queues a second Health export, and patches an existing social post rather
+  than creating another one. Explicit empty session notes override global cues;
+  missing session notes inherit them.
+- Equipment memory follows workout completion chronology, not edit time. A phone
+  may have only partial history: historical edits preserve cached prescriptions;
+  Convex refreshes eligible latest-workout weights on reconnect.
+- Add production-path regression tests for any sync feature or fix. Keep
+  `tests/offline-accounts/completed-workout-edits.test.js` in the required lifecycle
+  gate and the SQLite atomicity/failure cases in
+  `mobile/src/data/local/completed-workout-edits.sqlite.test.js`. Cover interrupted
+  writes and delivery order, not just pure policy helpers or mocked happy paths.
+
 ## Backend (Convex)
 
 Convex functions live in `backend/`. As the app grows:

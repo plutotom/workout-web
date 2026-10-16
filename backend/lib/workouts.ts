@@ -370,6 +370,7 @@ async function afterLiftMutation(
   ctx: MutationCtx,
   userId: Id<"users">,
   sessionId: Id<"workoutSessions">,
+  refreshPlaceMemory = true,
 ) {
   const session = await ctx.db.get(sessionId);
   if (!session || session.status !== "completed") return;
@@ -377,7 +378,8 @@ async function afterLiftMutation(
     clientUpdatedAt: nextClientUpdatedAt(session.clientUpdatedAt),
     ...(session.clientId ? {} : { clientId: session._id }),
   });
-  await recordSessionPlaceMemory(ctx, userId, sessionId);
+  if (refreshPlaceMemory)
+    await recordSessionPlaceMemory(ctx, userId, sessionId);
   await refreshActivityPostForSession(ctx, userId, sessionId);
 }
 
@@ -480,7 +482,7 @@ export async function moveSessionExercise(
   const swap = exercises[target];
   await ctx.db.patch(current._id, { orderIndex: swap.orderIndex });
   await ctx.db.patch(swap._id, { orderIndex: current.orderIndex });
-  await afterLiftMutation(ctx, userId, sessionExercise.sessionId);
+  await afterLiftMutation(ctx, userId, sessionExercise.sessionId, false);
 }
 
 export async function addSessionExercise(
@@ -885,9 +887,9 @@ export async function updateSessionExerciseNotes(
   await assertSessionEditable(ctx, userId, sessionExercise.sessionId);
   const normalized = normalizeExerciseNote(notes);
   await ctx.db.patch(sessionExerciseId, {
-    notes: normalized || undefined,
+    notes: normalized,
   });
-  await afterLiftMutation(ctx, userId, sessionExercise.sessionId);
+  await afterLiftMutation(ctx, userId, sessionExercise.sessionId, false);
 }
 
 export async function finishWorkout(
