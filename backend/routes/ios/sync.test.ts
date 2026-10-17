@@ -376,7 +376,7 @@ describe("iOS note snapshots", () => {
         "remote-session",
         expect.objectContaining({
           noteBody: "Edited offline on phone B",
-          clientUpdatedAt: 400,
+          clientUpdatedAt: 401,
           startedAt: 100,
           completedAt: 200,
           ...health,
@@ -451,6 +451,71 @@ describe("completed list workout edits", () => {
       },
     ],
   };
+
+  it.each([null, undefined, "health-uuid"])(
+    "preserves Health metadata for an ordinary list snapshot with UUID %s and advances the enriched revision",
+    async (externalId) => {
+      const health = {
+        externalProvider: "apple_health",
+        externalId: "health-uuid",
+        sourceName: "Apple Watch",
+        durationSeconds: 100,
+        energyKcal: 42,
+        importedAt: 350,
+      };
+      const fixture = serverFixture({
+        ...listSession,
+        _id: "remote-session",
+        clientUpdatedAt: 350,
+        // Exercise the legacy defaults as well as explicit tracked/list rows.
+        sessionKind: externalId === undefined ? undefined : "tracked",
+        inputMode: externalId === undefined ? undefined : "list",
+        ...health,
+      });
+      await push(fixture.ctx, {
+        ...listSession,
+        sessionKind: externalId === undefined ? undefined : "tracked",
+        inputMode: externalId === undefined ? undefined : "list",
+        externalId,
+        externalProvider: null,
+        energyKcal: null,
+      });
+      expect(fixture.patch).toHaveBeenCalledWith(
+        "remote-session",
+        expect.objectContaining({
+          ...health,
+          clientUpdatedAt: 401,
+          completedAt: 200,
+          inputMode: "list",
+        }),
+      );
+    },
+  );
+
+  it("does not carry an old list workout's metadata onto a different Health UUID", async () => {
+    const fixture = serverFixture({
+      ...listSession,
+      _id: "remote-session",
+      clientUpdatedAt: 350,
+      externalProvider: "apple_health",
+      externalId: "old-health-uuid",
+      energyKcal: 42,
+    });
+    await push(fixture.ctx, {
+      ...listSession,
+      externalProvider: "apple_health",
+      externalId: "new-health-uuid",
+      energyKcal: null,
+    });
+    expect(fixture.patch).toHaveBeenCalledWith(
+      "remote-session",
+      expect.objectContaining({
+        externalId: "new-health-uuid",
+        energyKcal: undefined,
+        clientUpdatedAt: 400,
+      }),
+    );
+  });
 
   it("accepts optional remoteId on the snapshot validator", () => {
     expect(

@@ -47,6 +47,7 @@ import {
   Screen,
 } from "@/components/ui";
 import { PlateModal } from "@/components/workout/plate-modal";
+import { WorkoutSetRow } from "@/components/workout/workout-set-row";
 import { RestBar } from "@/components/workout/rest-bar";
 import { NoteWorkoutBody } from "@/components/workout/note-workout-body";
 import { NoteWorkoutEditor } from "@/components/workout/note-workout-editor";
@@ -81,8 +82,6 @@ import { useCatalog } from "@/providers/catalog-provider";
 import { colors } from "@/theme";
 
 type WorkoutSession = LocalWorkoutSession;
-type WorkoutExercise = WorkoutSession["exercises"][number];
-type WorkoutSet = WorkoutExercise["sets"][number];
 
 /**
  * What the read-only view needs, and no more, so it renders a session from
@@ -580,7 +579,7 @@ function ListWorkout({
                     <View style={{ width: 44 }} />
                   </View>
                   {exercise.sets.map((set, setIndex) => (
-                    <SetRow
+                    <WorkoutSetRow
                       key={set._id}
                       set={set}
                       index={setIndex}
@@ -592,8 +591,8 @@ function ListWorkout({
                       }
                       usesBar={catalog.usesBar(exercise.slug)}
                       onCommit={(values) => updateSet(set._id, values)}
-                      onComplete={(completed, values) => {
-                        void updateSet(set._id, { ...values, completed });
+                      onComplete={async (completed, values) => {
+                        await updateSet(set._id, { ...values, completed });
                         if (completed) {
                           void Haptics.notificationAsync(
                             Haptics.NotificationFeedbackType.Success,
@@ -693,124 +692,6 @@ function ListWorkout({
           onGenerate={generate}
         />
       ) : null}
-    </>
-  );
-}
-
-function SetRow({
-  set,
-  index,
-  unit,
-  barWeight,
-  usesBar,
-  onCommit,
-  onComplete,
-  onDelete,
-  canDelete,
-}: {
-  set: WorkoutSet;
-  index: number;
-  unit: "lb" | "kg";
-  barWeight: number;
-  usesBar: boolean;
-  onCommit: (values: { weight: number; reps: number }) => Promise<unknown>;
-  onComplete: (
-    completed: boolean,
-    values: { weight: number; reps: number },
-  ) => void;
-  onDelete: () => void;
-  canDelete: boolean;
-}) {
-  const [weight, setWeight] = useState(String(set.weight || ""));
-  const [reps, setReps] = useState(String(set.reps || ""));
-  const [plates, setPlates] = useState(false);
-  const values = { weight: Number(weight) || 0, reps: Number(reps) || 0 };
-  return (
-    <>
-      <View
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 8,
-          opacity: set.completed ? 0.76 : 1,
-        }}
-      >
-        <Pressable
-          onLongPress={canDelete ? onDelete : undefined}
-          style={{
-            width: 34,
-            height: 42,
-            borderRadius: 9,
-            alignItems: "center",
-            justifyContent: "center",
-            backgroundColor: set.completed
-              ? `${colors.success}22`
-              : colors.surface2,
-          }}
-        >
-          <Text
-            style={{
-              color: set.completed ? colors.success : colors.dim,
-              fontWeight: "700",
-            }}
-          >
-            {index + 1}
-          </Text>
-        </Pressable>
-        <View style={{ flex: 1 }}>
-          <Field
-            value={weight}
-            onChangeText={(value) => setWeight(value.replace(/[^0-9.]/g, ""))}
-            onBlur={() => void onCommit(values)}
-            keyboardType="decimal-pad"
-            placeholder="0"
-          />
-        </View>
-        {usesBar ? (
-          <Pressable onPress={() => setPlates(true)} hitSlop={5}>
-            <CircleDot size={17} color={colors.dim} />
-          </Pressable>
-        ) : null}
-        <View style={{ flex: 1 }}>
-          <Field
-            value={reps}
-            onChangeText={(value) => setReps(value.replace(/\D/g, ""))}
-            onBlur={() => void onCommit(values)}
-            keyboardType="number-pad"
-            placeholder="0"
-          />
-        </View>
-        <Pressable
-          onPress={() => onComplete(!set.completed, values)}
-          style={{
-            width: 42,
-            height: 42,
-            borderRadius: 12,
-            borderWidth: 1,
-            borderColor: set.completed ? colors.success : colors.input,
-            backgroundColor: set.completed ? colors.success : "transparent",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <Check
-            size={21}
-            strokeWidth={3}
-            color={set.completed ? colors.bg : colors.faint}
-          />
-        </Pressable>
-      </View>
-      <PlateModal
-        visible={plates}
-        target={values.weight}
-        unit={unit}
-        barWeight={barWeight}
-        onClose={() => setPlates(false)}
-        onApply={(next) => {
-          setWeight(String(next));
-          void onCommit({ ...values, weight: next });
-        }}
-      />
     </>
   );
 }

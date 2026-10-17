@@ -2,15 +2,25 @@ import { api } from "@backend/api";
 import { useQuery } from "convex/react";
 import { router } from "expo-router";
 import {
+  ArrowDownUp,
+  ChevronDown,
   Download,
   Dumbbell,
   History,
   Pencil,
   Plus,
   Play,
+  Search,
   Share2,
 } from "lucide-react-native";
-import { Pressable, Text, View } from "react-native";
+import {
+  ActionSheetIOS,
+  Keyboard,
+  Pressable,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { useState } from "react";
 
 import { useMobileAuth } from "@/auth/auth-provider";
@@ -25,7 +35,14 @@ import { useLocalTemplates } from "@/data/local/provider";
 import { isUnsyncedTemplateRemoteId } from "@/data/local/types";
 import { useCatalog } from "@/providers/catalog-provider";
 import { useStartWorkout } from "@/lib/start-workout";
-import { colors } from "@/theme";
+import { colors, radius } from "@/theme";
+
+const TEMPLATE_SORTS = [
+  { id: "edited", label: "Last edited" },
+  { id: "used", label: "Last used" },
+  { id: "name", label: "Name A–Z" },
+] as const;
+type TemplateSort = (typeof TEMPLATE_SORTS)[number]["id"];
 
 function mapLocalTemplate(template: {
   _id: string;
@@ -33,13 +50,14 @@ function mapLocalTemplate(template: {
   name: string;
   updatedAt: number;
   lastPlaceId: string | null;
+  lastSessionAt: number | null;
   exercises: Array<{ slug: string; sets: unknown[] }>;
 }) {
   return {
     _id: template._id,
     name: template.name,
     updatedAt: template.updatedAt,
-    lastSessionAt: null as number | null,
+    lastSessionAt: template.lastSessionAt,
     lastPlaceId: template.lastPlaceId,
     exercises: template.exercises.map((exercise) => ({
       slug: exercise.slug,
@@ -75,13 +93,76 @@ export default function TemplatesScreen() {
         if (remoteTemplates === undefined) {
           return localTemplates?.map(mapLocalTemplate);
         }
-        return [...unsyncedLocal, ...remote];
+        const localLastUsed = new Map(
+          localTemplates?.map((template) => [
+            template.remoteId,
+            template.lastSessionAt,
+          ]),
+        );
+        return [
+          ...unsyncedLocal,
+          ...remote.map((template) => ({
+            ...template,
+            lastSessionAt:
+              Math.max(
+                template.lastSessionAt ?? 0,
+                localLastUsed.get(String(template._id)) ?? 0,
+              ) || null,
+          })),
+        ];
       })()
     : localTemplates?.map(mapLocalTemplate);
   const catalog = useCatalog();
   const { begin } = useStartWorkout();
   const startPlace = useStartPlace();
   const [placeOpen, setPlaceOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [searchFocused, setSearchFocused] = useState(false);
+  const [sort, setSort] = useState<TemplateSort>("edited");
+  const searchTerms = query
+    .trim()
+    .toLocaleLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
+  const filteredTemplates = templates
+    ?.filter((template) => {
+      if (searchTerms.length === 0) return true;
+      const searchableText = [
+        template.name,
+        ...template.exercises.flatMap(({ slug }) => [
+          catalog.name(slug),
+          catalog.short(slug),
+        ]),
+      ]
+        .join(" ")
+        .toLocaleLowerCase();
+      return searchTerms.every((term) => searchableText.includes(term));
+    })
+    .sort((a, b) => {
+      if (sort === "name") return a.name.localeCompare(b.name);
+      if (sort === "used") {
+        const byLastUsed = (b.lastSessionAt ?? 0) - (a.lastSessionAt ?? 0);
+        if (byLastUsed !== 0) return byLastUsed;
+      }
+      return b.updatedAt - a.updatedAt;
+    });
+  const sortLabel = TEMPLATE_SORTS.find((option) => option.id === sort)!.label;
+
+  function chooseSort() {
+    Keyboard.dismiss();
+    ActionSheetIOS.showActionSheetWithOptions(
+      {
+        title: "Sort templates",
+        options: [...TEMPLATE_SORTS.map((option) => option.label), "Cancel"],
+        cancelButtonIndex: TEMPLATE_SORTS.length,
+        userInterfaceStyle: "dark",
+      },
+      (index) => {
+        const option = TEMPLATE_SORTS[index];
+        if (option) setSort(option.id);
+      },
+    );
+  }
 
   return (
     <>
@@ -123,6 +204,94 @@ export default function TemplatesScreen() {
             onPress={() => router.push("/import-workouts")}
           />
         </View>
+        {templates && templates.length > 0 ? (
+          <View style={{ gap: 4 }}>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 10,
+                minHeight: 50,
+                paddingLeft: 14,
+                paddingRight: 8,
+                borderWidth: 1,
+                borderColor: searchFocused ? colors.g3 : colors.input,
+                borderRadius: radius.lg,
+                backgroundColor: colors.surface,
+              }}
+            >
+              <Search
+                size={18}
+                color={searchFocused ? colors.text : colors.dim}
+              />
+              <TextInput
+                accessibilityLabel="Search templates"
+                accessibilityHint="Search by template name or any exercise in a template"
+                value={query}
+                onChangeText={setQuery}
+                placeholder="Search names or exercises"
+                placeholderTextColor={colors.dim}
+                autoCapitalize="none"
+                autoCorrect={false}
+                clearButtonMode="while-editing"
+                returnKeyType="search"
+                onFocus={() => setSearchFocused(true)}
+                onBlur={() => setSearchFocused(false)}
+                onSubmitEditing={() => Keyboard.dismiss()}
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  color: colors.text,
+                  fontSize: 16,
+                  paddingVertical: 12,
+                }}
+              />
+            </View>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
+              }}
+            >
+              <Text
+                accessibilityLiveRegion="polite"
+                style={{ flex: 1, color: colors.dim, fontSize: 12 }}
+              >
+                {searchTerms.length > 0
+                  ? `${filteredTemplates?.length ?? 0} of ${templates.length} templates`
+                  : `${templates.length} ${templates.length === 1 ? "template" : "templates"}`}
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Sort templates: ${sortLabel}`}
+                accessibilityHint="Choose last edited, last used, or alphabetical order"
+                onPress={chooseSort}
+                style={({ pressed }) => ({
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 6,
+                  minHeight: 44,
+                  paddingHorizontal: 4,
+                  opacity: pressed ? 0.6 : 1,
+                })}
+              >
+                <ArrowDownUp size={13} color={colors.dim} />
+                <Text
+                  style={{
+                    color: colors.text,
+                    fontSize: 12,
+                    fontWeight: "500",
+                  }}
+                >
+                  {sortLabel}
+                </Text>
+                <ChevronDown size={13} color={colors.dim} />
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
         {templates === undefined ? (
           <Text style={{ color: colors.dim }}>Loading…</Text>
         ) : templates.length === 0 ? (
@@ -152,8 +321,21 @@ export default function TemplatesScreen() {
               </View>
             }
           />
+        ) : filteredTemplates?.length === 0 ? (
+          <EmptyState
+            icon={Search}
+            title="No matching templates"
+            description="Try a different template or exercise name."
+            action={
+              <Button
+                label="Clear search"
+                variant="outline"
+                onPress={() => setQuery("")}
+              />
+            }
+          />
         ) : (
-          templates.map((template) => (
+          filteredTemplates?.map((template) => (
             <Card key={template._id}>
               <Pressable
                 accessibilityRole="button"
