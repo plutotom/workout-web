@@ -7,6 +7,7 @@ import {
   applyIosBootstrap,
   completeTemplateSync,
   getLocalTemplate,
+  getLocalTemplates,
   getPendingTemplateSync,
   saveLocalTemplate,
 } from "./repository";
@@ -91,6 +92,55 @@ afterEach(() => {
   for (const db of databases.splice(0)) db.close();
 });
 describe("template synchronization with real SQLite transactions", () => {
+  it("derives last use from completion chronology for local and remote template links", async () => {
+    const { sql, db, templateId, pending } = await fixture();
+    await completeTemplateSync(
+      db,
+      pending.operationId,
+      templateId,
+      "cloud-template",
+    );
+    const insert = sql.prepare(`INSERT INTO local_sessions
+      (id, template_id, remote_template_id, template_name, status, started_at, completed_at, updated_at)
+      VALUES (?, ?, ?, 'Push', ?, ?, ?, ?)`);
+    insert.run("old-edited-late", templateId, null, "completed", 10, 20, 9999);
+    insert.run(
+      "recent-remote-alias",
+      null,
+      "cloud-template",
+      "completed",
+      30,
+      40,
+      40,
+    );
+    insert.run("abandoned", templateId, null, "abandoned", 50, 60, 60);
+    insert.run("in-progress", templateId, null, "in_progress", 70, null, 70);
+    expect((await getLocalTemplates(db))[0]).toMatchObject({
+      _id: templateId,
+      lastSessionAt: 40,
+    });
+    sql
+      .prepare(
+        "UPDATE local_sessions SET updated_at = 10000 WHERE id = 'old-edited-late'",
+      )
+      .run();
+    expect((await getLocalTemplates(db))[0].lastSessionAt).toBe(40);
+    sql
+      .prepare("DELETE FROM local_sessions WHERE id = 'recent-remote-alias'")
+      .run();
+    expect((await getLocalTemplates(db))[0].lastSessionAt).toBe(20);
+  });
+
+  it("keeps never-used templates visible and uses the legacy start time when completion time is missing", async () => {
+    const { sql, db, templateId } = await fixture();
+    expect((await getLocalTemplates(db))[0]).toMatchObject({
+      _id: templateId,
+      lastSessionAt: null,
+    });
+    session(sql, "legacy-completed", templateId);
+    expect((await getLocalTemplates(db))[0].lastSessionAt).toBe(1);
+  });
+
   it("repairs a bootstrap-before-ack collision, preserves both workout links, and drains the original upload", async () => {
     const { sql, db, templateId, pending } = await fixture();
     session(sql, "phone-session", templateId);

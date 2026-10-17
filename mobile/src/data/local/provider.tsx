@@ -613,7 +613,7 @@ export function useBackupStatus() {
 export function useLocalTemplates() {
   const db = useSQLiteContext();
   const { revision } = useLocalData();
-  return useLocalValue<LocalTemplate[]>(
+  return useLocalValue<Awaited<ReturnType<typeof getLocalTemplates>>>(
     () => getLocalTemplates(db),
     [db, revision],
   );

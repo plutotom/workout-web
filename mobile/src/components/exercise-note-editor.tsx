@@ -3,6 +3,7 @@ import { Text, View } from "react-native";
 
 import { Field } from "@/components/ui";
 import { colors } from "@/theme";
+import { usePersistedDraft } from "@/hooks/use-persisted-draft";
 import {
   exerciseNoteLengthHint,
   MAX_EXERCISE_NOTE_LENGTH,
@@ -20,38 +21,29 @@ export function ExerciseNoteEditor({
   multiline?: boolean;
   placeholder?: string;
 }) {
-  const [content, setContent] = useState({ initial, value: initial });
+  const draft = usePersistedDraft(initial);
   const [error, setError] = useState<string | null>(null);
   const writes = useRef<Promise<unknown>>(Promise.resolve());
   const saveSequence = useRef(0);
-  // A local read may finish after save returns. Keep the draft until that read
-  // catches up; new cloud values can refresh an editor without unsaved edits.
-  if (content.initial !== initial) {
-    setContent({
-      initial,
-      value: content.value === content.initial ? initial : content.value,
-    });
-  }
-
-  const value = content.value;
+  const value = draft.value;
   const overLimit = value.length > MAX_EXERCISE_NOTE_LENGTH;
   const hint = exerciseNoteLengthHint(value) ?? error;
 
   async function commit() {
-    if (overLimit || value === initial) return;
+    if (overLimit || !draft.dirty) return;
     const note = normalizeExerciseNote(value);
+    const acknowledge = draft.prepareSave(note);
     const sequence = ++saveSequence.current;
     const write = writes.current.catch(() => {}).then(() => onSave(note));
     writes.current = write;
     try {
       await write;
+      acknowledge.acknowledge();
       if (sequence === saveSequence.current) {
         setError(null);
-        setContent((current) =>
-          current.value === value ? { ...current, value: note } : current,
-        );
       }
     } catch (caught) {
+      acknowledge.reject();
       if (sequence === saveSequence.current) {
         setError(
           caught instanceof Error
@@ -68,7 +60,7 @@ export function ExerciseNoteEditor({
         accessibilityLabel="Exercise note"
         value={value}
         onChangeText={(next) => {
-          setContent((current) => ({ ...current, value: next }));
+          draft.change(next);
           setError(null);
         }}
         onBlur={() => void commit()}

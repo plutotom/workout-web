@@ -1977,14 +1977,24 @@ export async function getLocalTemplate(
 }
 
 export async function getLocalTemplates(db: SQLiteDatabase) {
-  const rows = await db.getAllAsync<{ id: string }>(
-    "SELECT id FROM local_templates ORDER BY updated_at DESC",
+  const rows = await db.getAllAsync<{
+    id: string;
+    last_session_at: number | null;
+  }>(
+    `SELECT t.id, MAX(COALESCE(s.completed_at, s.started_at)) AS last_session_at
+       FROM local_templates t
+       LEFT JOIN local_sessions s ON s.status = 'completed'
+         AND (s.template_id = t.id OR s.remote_template_id = t.remote_id)
+      GROUP BY t.id
+      ORDER BY t.updated_at DESC`,
   );
   const templates = await Promise.all(
     rows.map((row) => getLocalTemplate(db, row.id)),
   );
-  return templates.filter((template): template is LocalTemplate =>
-    Boolean(template),
+  return templates.flatMap((template, index) =>
+    template
+      ? [{ ...template, lastSessionAt: rows[index].last_session_at }]
+      : [],
   );
 }
 

@@ -6,6 +6,12 @@ import {
   installTestEnvironment,
   restoreTestEnvironment,
 } from "./harness";
+import { migrateLocalDatabase } from "@/data/local/migrations";
+import {
+  adoptRemoteCompletedListWorkout,
+  attachExportedHealthUuid,
+  getPendingSessionSync,
+} from "@/data/local/repository";
 
 const ALICE = "user_test_alice";
 let phone;
@@ -101,6 +107,158 @@ async function memory(placeId) {
 }
 
 describe("completed workout preservation contract", () => {
+  it.each(["before-ack", "after-ack"])(
+    "preserves a late second-phone Health attachment across offline list edits, restart and retry (%s)",
+    async (subscriptionOrder) => {
+      phone.subscriptionOrder = subscriptionOrder;
+      const seeded = await seedWebWorkout();
+      const original = await detail(seeded.sessionId);
+      await phone.edit((local) => local.adoptRemoteCompletedWorkout(original));
+      await phone.offline();
+
+      // Phone A exports to Health after phone B has cached the unlinked copy.
+      // Use the real SQLite attachment/outbox path and authenticated handler.
+      const exporter = phone.database("health-exporter.db");
+      await migrateLocalDatabase(exporter.db);
+      await adoptRemoteCompletedListWorkout(exporter.db, original);
+      await attachExportedHealthUuid(
+        exporter.db,
+        seeded.sessionId,
+        "late-health-uuid",
+      );
+      const attachment = await getPendingSessionSync(exporter.db);
+      await phone.as(ALICE).mutation(api.routes.ios.sync.pushSession, {
+        operationId: attachment.operationId,
+        deviceId: "health-exporter",
+        session: attachment.snapshot,
+      });
+      await phone.tick(10);
+      await phone.edit((local) =>
+        local.updateSet(seeded.setId, { weight: 155 }),
+      );
+      expect(
+        (await getPendingSessionSync(phone.db)).snapshot.externalId,
+      ).toBeNull();
+      await phone.reopen();
+      await phone.edit((local) => local.adoptRemoteCompletedWorkout(original));
+      phone.faults.push({ name: "pushSession", loseResponse: true });
+      await phone.connect();
+      await phone.settle();
+
+      const records = await phone.records(ALICE);
+      expect(records.workoutSessions).toHaveLength(1);
+      expect(records.workoutSessions[0]).toMatchObject({
+        _id: seeded.sessionId,
+        completedAt: seeded.completedAt,
+        externalProvider: "apple_health",
+        externalId: "late-health-uuid",
+        sourceName: attachment.snapshot.sourceName,
+        durationSeconds: attachment.snapshot.durationSeconds,
+        importedAt: attachment.snapshot.importedAt,
+      });
+      const refreshed = await detail(seeded.sessionId);
+      await phone.edit((local) => local.adoptRemoteCompletedWorkout(refreshed));
+      const saved = await phone.workout(seeded.sessionId);
+      expect(saved.health.externalId).toBe("late-health-uuid");
+      expect(saved.exercises[0].sets[0]).toMatchObject({
+        _id: seeded.setId,
+        weight: 155,
+      });
+      expect(
+        phone.sql
+          .prepare(
+            "SELECT health_export_pending FROM local_sessions WHERE remote_id = ?",
+          )
+          .get(seeded.sessionId).health_export_pending,
+      ).toBe(0);
+      expect(phone.outbox()).toEqual([]);
+    },
+  );
+
+  it.each([
+    ["reorder", "before-ack"],
+    ["reorder", "after-ack"],
+    ["delete-first-set", "before-ack"],
+    ["delete-first-set", "after-ack"],
+  ])(
+    "preserves legacy child identities on the first structural edit: %s (%s)",
+    async (operation, subscriptionOrder) => {
+      phone.subscriptionOrder = subscriptionOrder;
+      const seeded = await seedWebWorkout();
+      const extra = await phone.cloud.run(async (ctx) => {
+        const secondSet = await ctx.db.insert("sets", {
+          sessionExerciseId: seeded.exerciseId,
+          orderIndex: 1,
+          weight: 145,
+          reps: 6,
+          targetWeight: 145,
+          targetReps: 6,
+          completed: true,
+          completedAt: seeded.completedAt,
+        });
+        const secondExercise = await ctx.db.insert("sessionExercises", {
+          sessionId: seeded.sessionId,
+          exerciseSlug: "squat",
+          orderIndex: 1,
+          restSeconds: 75,
+        });
+        const squatSet = await ctx.db.insert("sets", {
+          sessionExerciseId: secondExercise,
+          orderIndex: 0,
+          weight: 225,
+          reps: 5,
+          targetWeight: 225,
+          targetReps: 5,
+          completed: true,
+          completedAt: seeded.completedAt,
+        });
+        return { secondSet, secondExercise, squatSet };
+      });
+      const original = await detail(seeded.sessionId);
+      await phone.edit((local) => local.adoptRemoteCompletedWorkout(original));
+      await phone.offline();
+      if (operation === "reorder") {
+        await phone.edit((local) => local.moveExercise(seeded.exerciseId, 1));
+      } else {
+        await phone.edit((local) => local.deleteSet(seeded.setId));
+      }
+      await phone.reopen();
+      await phone.edit((local) => local.adoptRemoteCompletedWorkout(original));
+      phone.faults.push({ name: "pushSession", loseResponse: true });
+      await phone.connect();
+      await phone.settle();
+      const records = await phone.records(ALICE);
+      expect(records.workoutSessions).toHaveLength(1);
+      expect(
+        records.sessionExercises.map((exercise) => exercise._id).sort(),
+      ).toEqual([seeded.exerciseId, extra.secondExercise].sort());
+      const expectedSetIds =
+        operation === "reorder"
+          ? [seeded.setId, extra.secondSet, extra.squatSet]
+          : [extra.secondSet, extra.squatSet];
+      expect(records.sets.map((set) => set._id).sort()).toEqual(
+        expectedSetIds.sort(),
+      );
+      expect(
+        records.sets.find((set) => set._id === extra.secondSet),
+      ).toMatchObject({
+        weight: 145,
+        reps: 6,
+        sessionExerciseId: seeded.exerciseId,
+      });
+      const refreshed = await detail(seeded.sessionId);
+      await phone.edit((local) => local.adoptRemoteCompletedWorkout(refreshed));
+      const saved = await phone.workout(seeded.sessionId);
+      expect(
+        saved.exercises
+          .flatMap((exercise) => exercise.sets.map((set) => set._id))
+          .sort(),
+      ).toEqual(expectedSetIds.sort());
+      expect(saved.completedAt).toBe(seeded.completedAt);
+      expect(phone.outbox()).toEqual([]);
+    },
+  );
+
   it.each(["before-ack", "after-ack"])(
     "preserves web identity, template, cleared notes and post through offline restart and lost response (%s)",
     async (subscriptionOrder) => {

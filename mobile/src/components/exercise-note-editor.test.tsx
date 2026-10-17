@@ -101,4 +101,56 @@ describe("exercise note editing", () => {
     });
     expect(field().props.value).toBe("offline draft");
   });
+
+  it("adopts a newer cloud correction when the saved note's intermediate read was skipped", async () => {
+    await render("original cue");
+    await act(async () => field().props.onChangeText("saved correction"));
+    await act(async () => field().props.onBlur());
+    expect(save).toHaveBeenCalledWith("saved correction");
+    await act(async () =>
+      renderer!.update(
+        <ExerciseNoteEditor initial="newer cloud cue" onSave={save} />,
+      ),
+    );
+    expect(field().props.value).toBe("newer cloud cue");
+    await act(async () => field().props.onBlur());
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
+  it("persists a revert before the previous successful save is reflected in props", async () => {
+    await render("original cue");
+    await act(async () => field().props.onChangeText("saved correction"));
+    await act(async () => field().props.onBlur());
+    await act(async () => field().props.onChangeText("original cue"));
+    await act(async () => field().props.onBlur());
+    expect(save.mock.calls.map(([note]) => note)).toEqual([
+      "saved correction",
+      "original cue",
+    ]);
+  });
+
+  it("queues a revert while a save is pending, keeps unsaved text, and recovers from failure", async () => {
+    await render("original cue");
+    let finishFirst!: () => void;
+    save.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finishFirst = resolve;
+        }),
+    );
+    save.mockRejectedValueOnce(new Error("disk full"));
+    await act(async () => field().props.onChangeText("saved correction"));
+    await act(async () => field().props.onBlur());
+    await act(async () => field().props.onChangeText("original cue"));
+    await act(async () => field().props.onBlur());
+    await act(async () => finishFirst());
+    expect(save.mock.calls.map(([note]) => note)).toEqual([
+      "saved correction",
+      "original cue",
+    ]);
+    expect(field().props.value).toBe("original cue");
+    expect(hints()[0].children.join("")).toContain("disk full");
+    await act(async () => field().props.onBlur());
+    expect(save).toHaveBeenCalledTimes(3);
+  });
 });

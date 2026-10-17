@@ -114,7 +114,10 @@ Completed-workout edits are also a required preservation contract in
 offline, restarted, and uploaded through a lost response in both subscription
 orders. Assertions cover stable workout/template/child identities, removed sets,
 explicitly cleared session notes, original completion time, no new Health export,
-and updating the original social post. Other cases check account ownership,
+and updating the original social post. Additional cases preserve a Health link
+uploaded by a second phone before a newer offline list edit, and preserve legacy
+exercise/set identities on their first reorder or deletion. These scenarios cover
+restarts, lost responses, and both subscription orders. Other cases check account ownership,
 template aliases, and preserving newer equipment prescriptions while editing an
 older workout. These use the real provider, SQLite, outbox worker, and Convex
 handlers rather than mocked sync decisions.
@@ -128,7 +131,7 @@ list edits and remote workout adoption. Keep a regression for each discovered
 failure; a green type check or policy-helper unit test cannot replace these
 behavioral contracts.
 
-The strict suite currently contains **61 lifecycle cases**. Report its result
+The strict suite currently contains **67 lifecycle cases**. Report its result
 separately from the ordinary unit suite; neither replaces device/staging checks.
 
 ## Upgrade and recovery behavior

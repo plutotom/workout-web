@@ -644,27 +644,47 @@ export const pushSession = mutation({
       }
     }
 
-    // A second phone can edit a completed note offline before learning about
+    // A second phone can edit a completed workout offline before learning about
     // its late Watch/Health attachment. The newer text revision must not erase
     // that saved link. A different incoming UUID still represents a new link.
     const savedHealth =
       existing?.status === "completed" &&
-      existing.sessionKind === "tracked" &&
-      (existing.inputMode === "note" || isConvertedNote(existing)) &&
+      (existing.sessionKind ?? "tracked") === "tracked" &&
       args.session.status === "completed" &&
-      args.session.sessionKind === "tracked" &&
-      (args.session.inputMode === "note" ||
-        convertsNote ||
-        isConvertedNote(existing)) &&
+      (args.session.sessionKind ?? "tracked") === "tracked" &&
       existing.externalId &&
       (!args.session.externalId ||
         args.session.externalId === existing.externalId)
         ? existing
         : null;
+    const restoresHealthMetadata =
+      savedHealth &&
+      ((
+        [
+          "externalProvider",
+          "externalId",
+          "activityType",
+          "sourceName",
+          "sourceBundleId",
+          "durationSeconds",
+          "energyKcal",
+          "distanceMeters",
+          "importedAt",
+        ] as const
+      ).some(
+        (field) => args.session[field] == null && savedHealth[field] != null,
+      ) ||
+        (!args.session.healthSegments?.length &&
+          Boolean(savedHealth.healthSegments?.length)));
 
     const sessionFields = {
       clientId: args.session.clientId,
-      clientUpdatedAt: args.session.updatedAt,
+      // Restoring Health metadata absent from the uploaded snapshot enriches the
+      // canonical aggregate. Give it a newer revision so the uploader adopts
+      // that metadata after acknowledgement instead of ignoring an equal echo.
+      clientUpdatedAt: restoresHealthMetadata
+        ? Math.max(args.session.updatedAt, existing?.clientUpdatedAt ?? 0) + 1
+        : args.session.updatedAt,
       templateName: args.session.templateName,
       status: args.session.status,
       startedAt: args.session.startedAt,
@@ -719,15 +739,24 @@ export const pushSession = mutation({
       .withIndex("by_session", (q) => q.eq("sessionId", sessionId))
       .take(MAX_EXERCISES);
     const matchedExerciseIds = new Set<string>();
+    // Adopted legacy rows use their server id as client identity. Reserve them
+    // before positional fallback so a new row cannot take a surviving row's id.
+    const incomingExerciseIds = new Set(
+      args.session.exercises.map((exercise) => exercise.clientId),
+    );
 
     for (const exercise of args.session.exercises) {
       const existingExercise =
         existingExercises.find(
-          (candidate) => candidate.clientId === exercise.clientId,
+          (candidate) =>
+            !matchedExerciseIds.has(candidate._id) &&
+            (candidate.clientId === exercise.clientId ||
+              candidate._id === exercise.clientId),
         ) ??
         existingExercises.find(
           (candidate) =>
             !candidate.clientId &&
+            !incomingExerciseIds.has(candidate._id) &&
             !matchedExerciseIds.has(candidate._id) &&
             candidate.exerciseSlug === exercise.slug &&
             candidate.orderIndex === exercise.orderIndex,
@@ -759,14 +788,19 @@ export const pushSession = mutation({
         )
         .take(MAX_SETS_PER_EXERCISE);
       const matchedSetIds = new Set<string>();
+      const incomingSetIds = new Set(exercise.sets.map((set) => set.clientId));
       for (const set of exercise.sets) {
         const existingSet =
           existingSets.find(
-            (candidate) => candidate.clientId === set.clientId,
+            (candidate) =>
+              !matchedSetIds.has(candidate._id) &&
+              (candidate.clientId === set.clientId ||
+                candidate._id === set.clientId),
           ) ??
           existingSets.find(
             (candidate) =>
               !candidate.clientId &&
+              !incomingSetIds.has(candidate._id) &&
               !matchedSetIds.has(candidate._id) &&
               candidate.orderIndex === set.orderIndex,
           );
