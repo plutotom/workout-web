@@ -66,7 +66,9 @@ export function showExerciseOptions(actions: ExerciseOption[]) {
     { text: "Cancel", style: "cancel" },
     ...actions.map((action) => ({
       text: action.label,
-      style: action.destructive ? ("destructive" as const) : "default",
+      style: (action.destructive ? "destructive" : "default") as
+        | "destructive"
+        | "default",
       onPress: action.onPress,
     })),
   ]);
