@@ -101,6 +101,7 @@ import {
   queueHealthExportIfEnabled,
   quarantineTemplateSync,
   removeLocalExercise,
+  replaceLocalExercise,
   wasWatchRecorded,
   saveLocalCustomExercise,
   saveLocalExerciseNote,
@@ -256,6 +257,7 @@ type LocalDataContextValue = {
     sets?: { weight: number; reps: number }[],
   ) => Promise<string>;
   removeExercise: (sessionExerciseId: string) => Promise<void>;
+  replaceExercise: (sessionExerciseId: string, slug: string) => Promise<void>;
   moveExercise: (sessionExerciseId: string, delta: -1 | 1) => Promise<void>;
   saveNote: (slug: string, notes: string) => Promise<void>;
   saveSessionExerciseNote: (exerciseId: string, notes: string) => Promise<void>;
@@ -471,6 +473,8 @@ function LocalDataState({
         run(() => addLocalExercise(db, sessionId, slug, sets)),
       removeExercise: (sessionExerciseId) =>
         run(() => removeLocalExercise(db, sessionExerciseId)),
+      replaceExercise: (sessionExerciseId, slug) =>
+        run(() => replaceLocalExercise(db, sessionExerciseId, slug)),
       moveExercise: (sessionExerciseId, delta) =>
         run(() => moveLocalExercise(db, sessionExerciseId, delta)),
       saveNote: (slug, notes) =>

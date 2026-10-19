@@ -9,6 +9,7 @@ import {
   ChevronUp,
   GripVertical,
   Plus,
+  Repeat,
   Trash2,
   X,
 } from "lucide-react";
@@ -78,6 +79,8 @@ export function TemplateEditorForm({
   );
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerKey, setPickerKey] = useState(0);
+  const [pickerMode, setPickerMode] = useState<"add" | "replace">("add");
+  const [replacingIndex, setReplacingIndex] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [openIndex, setOpenIndex] = useState(initial.exercises.length ? 0 : -1);
   const [drag, setDrag] = useState<DragState | null>(null);
@@ -148,6 +151,25 @@ export function TemplateEditorForm({
   }
 
   function addExercises(slugs: string[]) {
+    if (pickerMode === "replace" && replacingIndex != null) {
+      const slug = slugs[0];
+      if (slug) {
+        const index = replacingIndex;
+        setExercises((prev) =>
+          prev.map((exercise, currentIndex) =>
+            currentIndex === index
+              ? {
+                  slug,
+                  sets: exercise.sets.map(() => emptySet()),
+                }
+              : exercise,
+          ),
+        );
+      }
+      setReplacingIndex(null);
+      setPickerOpen(false);
+      return;
+    }
     setExercises((prev) => {
       const have = new Set(prev.map((e) => e.slug));
       const additions = slugs
@@ -456,6 +478,21 @@ export function TemplateEditorForm({
                       </Button>
                       <Button
                         type="button"
+                        variant="outline"
+                        size="lg"
+                        className="h-11 w-full"
+                        onClick={() => {
+                          setPickerMode("replace");
+                          setReplacingIndex(exIndex);
+                          setPickerKey((k) => k + 1);
+                          setPickerOpen(true);
+                        }}
+                      >
+                        <Repeat className="size-4" />
+                        Replace exercise
+                      </Button>
+                      <Button
+                        type="button"
                         variant="ghost"
                         size="lg"
                         className="text-destructive hover:text-destructive h-11 w-full"
@@ -479,6 +516,8 @@ export function TemplateEditorForm({
           className="h-12 w-full text-base"
           disabled={usedSlugs.size >= catalog.all.length}
           onClick={() => {
+            setPickerMode("add");
+            setReplacingIndex(null);
             setPickerKey((k) => k + 1);
             setPickerOpen(true);
           }}
@@ -493,7 +532,11 @@ export function TemplateEditorForm({
       <ExercisePicker
         key={pickerKey}
         open={pickerOpen}
-        onOpenChange={setPickerOpen}
+        onOpenChange={(open) => {
+          setPickerOpen(open);
+          if (!open) setReplacingIndex(null);
+        }}
+        mode={pickerMode}
         usedSlugs={exercises.map((e) => e.slug)}
         onAdd={addExercises}
       />

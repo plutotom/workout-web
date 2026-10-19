@@ -43,9 +43,11 @@ export function machineOptionLabel(machineName: string | null) {
 export function ExerciseOptionsButton({
   machineName,
   onChooseMachine,
+  onReplace,
 }: {
   machineName: string | null;
   onChooseMachine: () => void;
+  onReplace?: () => void;
 }) {
   return (
     <Pressable
@@ -54,6 +56,7 @@ export function ExerciseOptionsButton({
       hitSlop={7}
       onPress={() =>
         showExerciseOptions([
+          ...(onReplace ? [{ label: "Replace", onPress: onReplace }] : []),
           {
             label: machineOptionLabel(machineName),
             onPress: onChooseMachine,

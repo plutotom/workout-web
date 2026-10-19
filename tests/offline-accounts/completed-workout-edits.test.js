@@ -399,6 +399,64 @@ describe("completed workout preservation contract", () => {
     ]);
   });
 
+  it.each(["before-ack", "after-ack"])(
+    "replaces a completed lift offline without losing child identity (%s)",
+    async (subscriptionOrder) => {
+      phone.subscriptionOrder = subscriptionOrder;
+      const seeded = await seedWebWorkout();
+      const postId = await phone
+        .as(ALICE)
+        .mutation(api.routes.social.mutations.shareWorkout, {
+          sessionId: seeded.sessionId,
+          caption: "Original caption",
+        });
+      const original = await detail(seeded.sessionId);
+      await phone.edit((local) => local.adoptRemoteCompletedWorkout(original));
+      await phone.offline();
+      await phone.edit((local) =>
+        local.replaceExercise(seeded.exerciseId, "squat"),
+      );
+      await phone.reopen();
+      await phone.edit((local) => local.adoptRemoteCompletedWorkout(original));
+      phone.faults.push({ name: "pushSession", loseResponse: true });
+      await phone.connect();
+      await phone.settle();
+      const records = await phone.records(ALICE);
+      expect(records.workoutSessions).toHaveLength(1);
+      expect(records.workoutSessions[0]).toMatchObject({
+        _id: seeded.sessionId,
+        completedAt: seeded.completedAt,
+      });
+      expect(records.sessionExercises).toEqual([
+        expect.objectContaining({
+          _id: seeded.exerciseId,
+          exerciseSlug: "squat",
+        }),
+      ]);
+      expect(records.sets).toEqual([
+        expect.objectContaining({
+          _id: seeded.setId,
+          sessionExerciseId: seeded.exerciseId,
+        }),
+      ]);
+      expect((await detail(seeded.sessionId)).exercises[0]).toMatchObject({
+        _id: seeded.exerciseId,
+        slug: "squat",
+      });
+      const posts = await phone.cloud.run((ctx) =>
+        ctx.db.query("activityPosts").collect(),
+      );
+      expect(posts).toHaveLength(1);
+      expect(posts[0]).toMatchObject({
+        _id: postId,
+        caption: "Original caption",
+        completedAt: seeded.completedAt,
+      });
+      expect(posts[0].bundle.templates[0].exercises[0].slug).toBe("squat");
+      expect(phone.outbox()).toEqual([]);
+    },
+  );
+
   it("rejects cross-account completed edits without changing rows or issuing receipts", async () => {
     const seeded = await seedWebWorkout();
     const bob = "user_test_bob";

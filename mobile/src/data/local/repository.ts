@@ -84,6 +84,7 @@ import {
   seedLocalSetRows,
 } from "@/data/local/places";
 import { setRowsForNewExercise } from "@/data/local/exercise-sets";
+import { prescriptionsForReplacedExercise } from "@shared/replace-exercise";
 import {
   adoptTemplateIdentity,
   templateHasPendingEdit,
@@ -926,6 +927,39 @@ export async function deleteLocalSet(db: SQLiteDatabase, setId: string) {
   });
 }
 
+async function lastLoadForSessionLift(
+  db: SQLiteDatabase,
+  sessionId: string,
+  slug: string,
+) {
+  const sessionRow = await db.getFirstAsync<{
+    place_id: string | null;
+  }>(`SELECT place_id FROM local_sessions WHERE id = ?`, sessionId);
+  const placeId = sessionRow?.place_id ?? null;
+  const machine = placeId
+    ? await lastLocalMachineForLift(db, placeId, slug)
+    : null;
+  const memory = placeId
+    ? await getLocalWorkingSets(db, {
+        placeId,
+        exerciseSlug: slug,
+        machineId: machine?._id,
+      })
+    : null;
+  const previous = memory?.[0] ??
+    (await getLastLocalSet(db, slug, {
+      placeId,
+      machineId: machine?._id,
+    })) ?? {
+      weight: 0,
+      reps: 0,
+    };
+  return {
+    machine,
+    seed: { weight: previous.weight, reps: previous.reps },
+  };
+}
+
 export async function addLocalExercise(
   db: SQLiteDatabase,
   sessionId: string,
@@ -953,29 +987,11 @@ export async function addLocalExercise(
     if (exercises.some((exercise) => exercise.slug === slug))
       throw new Error("Exercise already in workout");
 
-    const sessionRow = await txn.getFirstAsync<{
-      place_id: string | null;
-    }>(`SELECT place_id FROM local_sessions WHERE id = ?`, sessionId);
-    const placeId = sessionRow?.place_id ?? null;
-    const machine = placeId
-      ? await lastLocalMachineForLift(txn, placeId, slug)
-      : null;
-    const memory = placeId
-      ? await getLocalWorkingSets(txn, {
-          placeId,
-          exerciseSlug: slug,
-          machineId: machine?._id,
-        })
-      : null;
-    const previous = memory?.[0] ??
-      (await getLastLocalSet(txn, slug, {
-        placeId,
-        machineId: machine?._id,
-      })) ?? {
-        weight: 0,
-        reps: 0,
-      };
-    const seed = previous;
+    const { machine, seed } = await lastLoadForSessionLift(
+      txn,
+      sessionId,
+      slug,
+    );
     const rows = setRowsForNewExercise(presets, seed);
     const exerciseId = randomUUID();
     await txn.runAsync(
@@ -1010,6 +1026,94 @@ export async function addLocalExercise(
     }
     await markSessionUpdated(txn, sessionId);
     return exerciseId;
+  });
+}
+
+export async function replaceLocalExercise(
+  db: SQLiteDatabase,
+  sessionExerciseId: string,
+  value: string,
+) {
+  return withWorkoutTransaction(db, async (txn) => {
+    const sessionId = await sessionIdForExercise(txn, sessionExerciseId);
+    await requireEditableSession(txn, sessionId);
+    const slug = normalizedSlug(value);
+    const current = await txn.getFirstAsync<{
+      slug: string;
+    }>(
+      `SELECT slug FROM local_session_exercises WHERE id = ?`,
+      sessionExerciseId,
+    );
+    if (!current) throw new Error("Exercise not found");
+    if (current.slug === slug) return;
+
+    const others = await txn.getAllAsync<{ slug: string }>(
+      `SELECT slug FROM local_session_exercises
+        WHERE session_id = ? AND id != ?`,
+      sessionId,
+      sessionExerciseId,
+    );
+    if (others.some((exercise) => exercise.slug === slug))
+      throw new Error("Exercise already in workout");
+
+    const session = await txn.getFirstAsync<{ status: string }>(
+      `SELECT status FROM local_sessions WHERE id = ?`,
+      sessionId,
+    );
+    const uncheck = session?.status === "in_progress";
+    const { machine, seed } = await lastLoadForSessionLift(
+      txn,
+      sessionId,
+      slug,
+    );
+
+    await txn.runAsync(
+      `UPDATE local_session_exercises
+          SET slug = ?, notes = NULL, machine_id = ?, machine_name = ?
+        WHERE id = ?`,
+      slug,
+      machine?._id ?? null,
+      machine?.name ?? null,
+      sessionExerciseId,
+    );
+
+    const sets = await txn.getAllAsync<{ id: string }>(
+      `SELECT id FROM local_sets
+        WHERE session_exercise_id = ?
+        ORDER BY order_index`,
+      sessionExerciseId,
+    );
+    const rows = prescriptionsForReplacedExercise(sets.length, seed);
+    for (let index = 0; index < sets.length; index++) {
+      const next = rows[index] ?? seed;
+      const weight = boundedWhole(next.weight, MAX_WEIGHT, "Weight");
+      const reps = boundedWhole(next.reps, MAX_REPS, "Reps");
+      if (uncheck) {
+        await txn.runAsync(
+          `UPDATE local_sets
+              SET target_weight = ?, target_reps = ?, weight = ?, reps = ?,
+                  completed = 0, completed_at = NULL
+            WHERE id = ?`,
+          weight,
+          reps,
+          weight,
+          reps,
+          sets[index].id,
+        );
+      } else {
+        await txn.runAsync(
+          `UPDATE local_sets
+              SET target_weight = ?, target_reps = ?, weight = ?, reps = ?
+            WHERE id = ?`,
+          weight,
+          reps,
+          weight,
+          reps,
+          sets[index].id,
+        );
+      }
+    }
+    await markSessionUpdated(txn, sessionId);
   });
 }
 

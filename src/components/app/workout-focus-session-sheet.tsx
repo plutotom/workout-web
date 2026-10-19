@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation } from "convex/react";
-import { ArrowDown, ArrowUp, Minus, Plus, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Minus, Plus, Repeat, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { api } from "@backend/api";
@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/sheet";
 import { useVisualViewportFrame } from "@/hooks/use-visual-viewport-frame";
 import { cn } from "@/lib/utils";
+import { replacementHasLoggedSets } from "@/lib/replace-exercise";
 
 type SheetSet = {
   _id: Id<"sets">;
@@ -57,6 +58,7 @@ export function WorkoutFocusSessionSheet({
   currentSetId,
   onJump,
   onAddExercise,
+  onReplaceExercise,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -65,6 +67,11 @@ export function WorkoutFocusSessionSheet({
   currentSetId: Id<"sets"> | null;
   onJump: (setId: Id<"sets">) => void;
   onAddExercise: () => void;
+  onReplaceExercise: (exercise: {
+    id: Id<"sessionExercises">;
+    name: string;
+    hasLoggedSets: boolean;
+  }) => void;
 }) {
   const catalog = useExerciseCatalog();
   const addSet = useMutation(api.routes.workouts.mutations.addSet);
@@ -167,6 +174,24 @@ export function WorkoutFocusSessionSheet({
                         type="button"
                         size="icon"
                         variant="ghost"
+                        className="text-muted-foreground hover:text-foreground size-10"
+                        aria-label={`Replace ${name}`}
+                        onClick={() =>
+                          onReplaceExercise({
+                            id: exercise._id,
+                            name,
+                            hasLoggedSets: replacementHasLoggedSets(
+                              exercise.sets,
+                            ),
+                          })
+                        }
+                      >
+                        <Repeat className="size-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
                         className="text-destructive hover:text-destructive size-10"
                         aria-label={`Remove ${name}`}
                         onClick={() =>
@@ -235,7 +260,7 @@ export function WorkoutFocusSessionSheet({
 
                   <div className="mt-2">
                     <ExerciseNoteField
-                      key={`${exercise.slug}-${exercise.notes ?? ""}`}
+                      key={`${exercise._id}-${exercise.slug}-${exercise.notes ?? ""}`}
                       exerciseSlug={exercise.slug}
                       initialNotes={exercise.notes}
                       compact

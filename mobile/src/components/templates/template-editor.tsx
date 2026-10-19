@@ -6,6 +6,7 @@ import {
   ChevronDown,
   ChevronUp,
   Plus,
+  Repeat,
   Sparkles,
   Trash2,
   X,
@@ -58,7 +59,7 @@ export function TemplateEditor({
   const [name, setName] = useState(initial.name);
   const [exercises, setExercises] = useState(initial.exercises);
   const [expanded, setExpanded] = useState(initial.exercises.length ? 0 : -1);
-  const [picker, setPicker] = useState(false);
+  const [picker, setPicker] = useState<"add" | number | false>(false);
   const [aiOpen, setAiOpen] = useState(openAi);
   const [saving, setSaving] = useState(false);
   const [localNotes, setLocalNotes] = useState<Record<string, string>>({});
@@ -113,6 +114,19 @@ export function TemplateEditor({
         })),
     ]);
     setExpanded(exercises.length);
+  }
+
+  function replaceExerciseAt(index: number, slug: string) {
+    setExercises((current) =>
+      current.map((exercise, currentIndex) =>
+        currentIndex === index
+          ? {
+              slug,
+              sets: exercise.sets.map(() => ({ weight: 0, reps: 0 })),
+            }
+          : exercise,
+      ),
+    );
   }
 
   function move(index: number, delta: number) {
@@ -490,6 +504,12 @@ export function TemplateEditor({
                       }
                     />
                     <Button
+                      label="Replace exercise"
+                      variant="outline"
+                      icon={Repeat}
+                      onPress={() => setPicker(index)}
+                    />
+                    <Button
                       label="Remove exercise"
                       variant="ghost"
                       icon={Trash2}
@@ -512,7 +532,7 @@ export function TemplateEditor({
           size="lg"
           variant="outline"
           icon={Plus}
-          onPress={() => setPicker(true)}
+          onPress={() => setPicker("add")}
         />
         {templateId ? (
           <Button
@@ -524,10 +544,18 @@ export function TemplateEditor({
         ) : null}
       </Screen>
       <ExercisePicker
-        visible={picker}
+        visible={picker !== false}
+        mode={typeof picker === "number" ? "replace" : "add"}
         usedSlugs={slugs}
         onClose={() => setPicker(false)}
-        onAdd={addExercises}
+        onAdd={(nextSlugs) => {
+          if (typeof picker === "number") {
+            const slug = nextSlugs[0];
+            if (slug) replaceExerciseAt(picker, slug);
+            return;
+          }
+          addExercises(nextSlugs);
+        }}
       />
       {aiAvailable ? (
         <AiPromptModal
