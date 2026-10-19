@@ -63,6 +63,7 @@ import { formatLb } from "@/components/app/workout-design";
 import { formatHealthDistance, formatHealthEnergy } from "@/lib/health-summary";
 import { sessionAllowsCompletedReviewEdit } from "@/lib/session-edits";
 import {
+  deleteExerciseConfirmMessage,
   replaceLoggedSetsMessage,
   replacementHasLoggedSets,
 } from "@/lib/replace-exercise";
@@ -356,10 +357,10 @@ export function WorkoutLog({
     setRemovingExercise(true);
     try {
       await removeExercise({ sessionExerciseId: exerciseToRemove.id });
-      toast.success(`Removed ${exerciseToRemove.name}`);
+      toast.success(`Deleted ${exerciseToRemove.name}`);
       setExerciseToRemove(null);
     } catch {
-      toast.error("Couldn't remove exercise");
+      toast.error("Couldn't delete exercise");
     } finally {
       setRemovingExercise(false);
     }
@@ -944,15 +945,32 @@ export function WorkoutLog({
               className="text-destructive hover:text-destructive h-12 justify-start gap-3 px-3 text-base"
               onClick={() => {
                 if (!exerciseMenu) return;
-                setExerciseToRemove({
+                const current = session.exercises.find(
+                  (exercise) => exercise._id === exerciseMenu.id,
+                );
+                const target = {
                   id: exerciseMenu.id,
                   name: exerciseMenu.name,
-                });
+                };
                 setExerciseMenu(null);
+                if (replacementHasLoggedSets(current?.sets ?? [])) {
+                  setExerciseToRemove(target);
+                  return;
+                }
+                void (async () => {
+                  try {
+                    await removeExercise({
+                      sessionExerciseId: target.id,
+                    });
+                    toast.success(`Deleted ${target.name}`);
+                  } catch {
+                    toast.error("Couldn't delete exercise");
+                  }
+                })();
               }}
             >
               <Trash2 className="size-4" />
-              Remove exercise
+              Delete exercise
             </Button>
           </div>
         </SheetContent>
@@ -966,10 +984,11 @@ export function WorkoutLog({
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Remove {exerciseToRemove?.name}?</DialogTitle>
+            <DialogTitle>Delete {exerciseToRemove?.name}?</DialogTitle>
             <DialogDescription>
-              This removes the exercise and its sets from this workout. You can
-              add it again later.
+              {exerciseToRemove
+                ? deleteExerciseConfirmMessage(exerciseToRemove.name)
+                : null}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -983,7 +1002,7 @@ export function WorkoutLog({
               disabled={removingExercise}
               onClick={() => void handleRemoveExercise()}
             >
-              {removingExercise ? "Removing…" : "Remove"}
+              {removingExercise ? "Deleting…" : "Delete"}
             </Button>
           </DialogFooter>
         </DialogContent>

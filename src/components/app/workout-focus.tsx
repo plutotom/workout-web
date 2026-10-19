@@ -13,6 +13,7 @@ import {
   Plus,
   Repeat,
   Settings2,
+  Trash2,
   Undo2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -30,6 +31,7 @@ import { useWorkoutFinishFlow } from "@/components/app/workout-finish-flow";
 import { RestRing } from "@/components/app/workout-focus-rest-ring";
 import { WorkoutFocusSessionSheet } from "@/components/app/workout-focus-session-sheet";
 import {
+  deleteExerciseConfirmMessage,
   replaceLoggedSetsMessage,
   replacementHasLoggedSets,
 } from "@/lib/replace-exercise";
@@ -89,6 +91,9 @@ export function WorkoutFocus({
   const replaceExercise = useMutation(
     api.routes.workouts.mutations.replaceExercise,
   );
+  const removeExercise = useMutation(
+    api.routes.workouts.mutations.removeExercise,
+  );
   const {
     finishing,
     awaitingPostFinish,
@@ -114,6 +119,11 @@ export function WorkoutFocus({
     toSlug: string;
   } | null>(null);
   const [replacingExercise, setReplacingExercise] = useState(false);
+  const [exerciseToRemove, setExerciseToRemove] = useState<{
+    id: Id<"sessionExercises">;
+    name: string;
+  } | null>(null);
+  const [removingExercise, setRemovingExercise] = useState(false);
   const [machinePickerOpen, setMachinePickerOpen] = useState(false);
   const [exerciseOptionsOpen, setExerciseOptionsOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
@@ -341,6 +351,20 @@ export function WorkoutFocus({
     }
   }
 
+  async function handleRemoveExercise() {
+    if (!exerciseToRemove || removingExercise) return;
+    setRemovingExercise(true);
+    try {
+      await removeExercise({ sessionExerciseId: exerciseToRemove.id });
+      toast.success(`Deleted ${exerciseToRemove.name}`);
+      setExerciseToRemove(null);
+    } catch {
+      toast.error("Couldn't delete exercise");
+    } finally {
+      setRemovingExercise(false);
+    }
+  }
+
   const deltaLb =
     lastTime && current ? current.set.weight - lastTime.weight : 0;
 
@@ -518,18 +542,16 @@ export function WorkoutFocus({
                   </p>
                 ) : null}
               </div>
-              {session.placeId ? (
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  className="text-muted-foreground hover:text-foreground size-9"
-                  aria-label="Exercise options"
-                  onClick={() => setExerciseOptionsOpen(true)}
-                >
-                  <MoreHorizontal className="size-5" />
-                </Button>
-              ) : null}
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="text-muted-foreground hover:text-foreground size-9"
+                aria-label="Exercise options"
+                onClick={() => setExerciseOptionsOpen(true)}
+              >
+                <MoreHorizontal className="size-5" />
+              </Button>
               <Button
                 type="button"
                 size="icon"
@@ -761,20 +783,6 @@ export function WorkoutFocus({
             <SheetDescription>Exercise options</SheetDescription>
           </SheetHeader>
           <div className="flex flex-col gap-1 px-3 pb-2">
-            <Button
-              type="button"
-              variant="ghost"
-              className="text-muted-foreground hover:text-foreground h-12 justify-start gap-3 px-3 text-base"
-              onClick={() => {
-                setExerciseOptionsOpen(false);
-                setMachinePickerOpen(true);
-              }}
-            >
-              <Settings2 className="size-4" />
-              {current?.exercise.machineName
-                ? `Machine · ${current.exercise.machineName}`
-                : "Choose machine"}
-            </Button>
             {current ? (
               <Button
                 type="button"
@@ -795,6 +803,53 @@ export function WorkoutFocus({
                 Replace
               </Button>
             ) : null}
+            {session.placeId ? (
+              <Button
+                type="button"
+                variant="ghost"
+                className="text-muted-foreground hover:text-foreground h-12 justify-start gap-3 px-3 text-base"
+                onClick={() => {
+                  setExerciseOptionsOpen(false);
+                  setMachinePickerOpen(true);
+                }}
+              >
+                <Settings2 className="size-4" />
+                {current?.exercise.machineName
+                  ? `Machine · ${current.exercise.machineName}`
+                  : "Choose machine"}
+              </Button>
+            ) : null}
+            {current ? (
+              <Button
+                type="button"
+                variant="ghost"
+                className="text-destructive hover:text-destructive h-12 justify-start gap-3 px-3 text-base"
+                onClick={() => {
+                  const target = {
+                    id: current.exercise._id,
+                    name: catalog.name(current.exercise.slug),
+                  };
+                  setExerciseOptionsOpen(false);
+                  if (replacementHasLoggedSets(current.exercise.sets)) {
+                    setExerciseToRemove(target);
+                    return;
+                  }
+                  void (async () => {
+                    try {
+                      await removeExercise({
+                        sessionExerciseId: target.id,
+                      });
+                      toast.success(`Deleted ${target.name}`);
+                    } catch {
+                      toast.error("Couldn't delete exercise");
+                    }
+                  })();
+                }}
+              >
+                <Trash2 className="size-4" />
+                Delete exercise
+              </Button>
+            ) : null}
           </div>
         </SheetContent>
       </Sheet>
@@ -809,6 +864,38 @@ export function WorkoutFocus({
           selectedMachineId={current.exercise.machineId}
         />
       ) : null}
+
+      <Dialog
+        open={exerciseToRemove !== null}
+        onOpenChange={(open) => {
+          if (!open && !removingExercise) setExerciseToRemove(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete {exerciseToRemove?.name}?</DialogTitle>
+            <DialogDescription>
+              {exerciseToRemove
+                ? deleteExerciseConfirmMessage(exerciseToRemove.name)
+                : null}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="ghost" disabled={removingExercise}>
+                Cancel
+              </Button>
+            </DialogClose>
+            <Button
+              variant="destructive"
+              disabled={removingExercise}
+              onClick={() => void handleRemoveExercise()}
+            >
+              {removingExercise ? "Deleting…" : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={replaceConfirm !== null}

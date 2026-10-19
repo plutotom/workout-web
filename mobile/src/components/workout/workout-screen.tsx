@@ -62,7 +62,10 @@ import {
   PlaceChip,
   PlacePickerModal,
 } from "@/components/workout/place-machine";
-import { ExerciseOptionsButton } from "@/components/workout/exercise-options";
+import {
+  confirmDeleteExercise,
+  ExerciseOptionsButton,
+} from "@/components/workout/exercise-options";
 import { WatchCompanionCard } from "@/health/watch-companion-card";
 import { useSessionAi } from "@/components/workout/use-session-ai";
 import { appleGenerateSheetCopy } from "@/lib/ai-copy";
@@ -533,6 +536,14 @@ function ListWorkout({
                         hasLoggedSets: replacementHasLoggedSets(exercise.sets),
                       })
                     }
+                    onDelete={() => {
+                      const name = catalog.name(exercise.slug);
+                      confirmDeleteExercise(
+                        name,
+                        replacementHasLoggedSets(exercise.sets),
+                        () => void removeExercise(exercise._id),
+                      );
+                    }}
                     onChooseMachine={
                       session.placeId
                         ? () =>
@@ -658,25 +669,6 @@ function ListWorkout({
                       await addSet(exercise._id);
                     }}
                   />
-                  <Button
-                    label="Remove exercise"
-                    variant="ghost"
-                    icon={Trash2}
-                    onPress={() =>
-                      Alert.alert(
-                        "Remove exercise?",
-                        catalog.name(exercise.slug),
-                        [
-                          { text: "Cancel", style: "cancel" },
-                          {
-                            text: "Remove",
-                            style: "destructive",
-                            onPress: () => void removeExercise(exercise._id),
-                          },
-                        ],
-                      )
-                    }
-                  />
                 </View>
               )}
             </Card>
@@ -765,7 +757,8 @@ function FocusWorkout({
   const rest = useRestTimer({
     notificationsEnabled: user.restTimerNotificationsEnabled,
   });
-  const { updateSet, setSessionMachine, replaceExercise } = useLocalData();
+  const { updateSet, setSessionMachine, replaceExercise, removeExercise } =
+    useLocalData();
   const [picker, setPicker] = useState<{
     exerciseId: string;
     name: string;
@@ -941,6 +934,14 @@ function FocusWorkout({
                     hasLoggedSets: replacementHasLoggedSets(item.exercise.sets),
                   })
                 }
+                onDelete={() => {
+                  const name = catalog.name(item.exercise.slug);
+                  confirmDeleteExercise(
+                    name,
+                    replacementHasLoggedSets(item.exercise.sets),
+                    () => void removeExercise(item.exercise._id),
+                  );
+                }}
                 onChooseMachine={
                   session.placeId
                     ? () => setMachineOpen(true)

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  deleteExerciseConfirmMessage,
   prescriptionsForReplacedExercise,
   replacementHasLoggedSets,
 } from "./replace-exercise";
@@ -16,6 +17,13 @@ describe("replacementHasLoggedSets", () => {
     expect(
       replacementHasLoggedSets([{ completed: false }, { completed: true }]),
     ).toBe(true);
+  });
+});
+
+describe("deleteExerciseConfirmMessage", () => {
+  it("names the lift whose logged sets will be discarded", () => {
+    expect(deleteExerciseConfirmMessage("Push Up")).toContain("Push Up");
+    expect(deleteExerciseConfirmMessage("Push Up")).toContain("logged sets");
   });
 });
 

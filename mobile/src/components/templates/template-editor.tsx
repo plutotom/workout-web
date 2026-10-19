@@ -6,7 +6,6 @@ import {
   ChevronDown,
   ChevronUp,
   Plus,
-  Repeat,
   Sparkles,
   Trash2,
   X,
@@ -18,6 +17,7 @@ import { useMobileAuth } from "@/auth/auth-provider";
 import { AiPromptModal } from "@/components/ai-prompt-modal";
 import { buildMuscleSegments, MuscleBand } from "@/components/charts";
 import { ExercisePicker } from "@/components/exercise-picker";
+import { ExerciseOptionsButton } from "@/components/workout/exercise-options";
 import {
   Button,
   Card,
@@ -345,6 +345,21 @@ export function TemplateEditor({
                       {exercise.sets.length} sets
                     </Text>
                   </View>
+                  <ExerciseOptionsButton
+                    onReplace={() => setPicker(index)}
+                    onDelete={() => {
+                      setExercises((current) =>
+                        current.filter(
+                          (_, currentIndex) => currentIndex !== index,
+                        ),
+                      );
+                      setExpanded((current) => {
+                        if (current === index) return -1;
+                        if (current > index) return current - 1;
+                        return current;
+                      });
+                    }}
+                  />
                   {open ? (
                     <ChevronUp size={19} color={colors.dim} />
                   ) : (
@@ -501,24 +516,6 @@ export function TemplateEditor({
                             },
                           ],
                         }))
-                      }
-                    />
-                    <Button
-                      label="Replace exercise"
-                      variant="outline"
-                      icon={Repeat}
-                      onPress={() => setPicker(index)}
-                    />
-                    <Button
-                      label="Remove exercise"
-                      variant="ghost"
-                      icon={Trash2}
-                      onPress={() =>
-                        setExercises((current) =>
-                          current.filter(
-                            (_, currentIndex) => currentIndex !== index,
-                          ),
-                        )
                       }
                     />
                   </View>

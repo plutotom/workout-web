@@ -32,3 +32,7 @@ export function prescriptionsForReplacedExercise(
 export function replaceLoggedSetsMessage(newName: string): string {
   return `Logged weights and reps will reset for ${newName}. Checked sets in an active workout will be unchecked. Notes and stats follow ${newName}.`;
 }
+
+export function deleteExerciseConfirmMessage(name: string): string {
+  return `${name} has logged sets. Delete it and those sets from this workout?`;
+}
