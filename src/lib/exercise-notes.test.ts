@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  EXERCISE_NOTE_INPUT_MAX_HEIGHT,
+  exerciseNoteFieldMaxHeight,
+  exerciseNoteFieldScrolls,
   exerciseNoteLengthHint,
   normalizeExerciseNote,
+  sizeExerciseNoteTextarea,
 } from "./exercise-notes";
 
 describe("exercise notes", () => {
@@ -32,5 +36,34 @@ describe("exercise notes", () => {
     expect(exerciseNoteLengthHint("x".repeat(10_001))).toContain(
       "your text has not been cut",
     );
+  });
+});
+
+describe("exercise note input sizing", () => {
+  it("caps height only while focused", () => {
+    expect(exerciseNoteFieldMaxHeight(false)).toBeUndefined();
+    expect(exerciseNoteFieldMaxHeight(true)).toBe(
+      EXERCISE_NOTE_INPUT_MAX_HEIGHT,
+    );
+  });
+
+  it("scrolls inside only when a focused note overflows the cap", () => {
+    expect(exerciseNoteFieldScrolls(false, 800)).toBe(false);
+    expect(exerciseNoteFieldScrolls(true, 80)).toBe(false);
+    expect(
+      exerciseNoteFieldScrolls(true, EXERCISE_NOTE_INPUT_MAX_HEIGHT + 1),
+    ).toBe(true);
+  });
+
+  it("grows a textarea to wrap the full note, then caps while editing", () => {
+    const el = { style: { height: "", overflowY: "" }, scrollHeight: 88 };
+    sizeExerciseNoteTextarea(el, false);
+    expect(el.style.height).toBe("88px");
+    expect(el.style.overflowY).toBe("hidden");
+
+    el.scrollHeight = EXERCISE_NOTE_INPUT_MAX_HEIGHT + 40;
+    sizeExerciseNoteTextarea(el, true);
+    expect(el.style.height).toBe(`${EXERCISE_NOTE_INPUT_MAX_HEIGHT}px`);
+    expect(el.style.overflowY).toBe("auto");
   });
 });

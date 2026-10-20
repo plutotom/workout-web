@@ -13,12 +13,10 @@ import {
 export function ExerciseNoteEditor({
   initial,
   onSave,
-  multiline = true,
   placeholder = "Exercise note",
 }: {
   initial: string;
   onSave: (notes: string) => Promise<unknown>;
-  multiline?: boolean;
   placeholder?: string;
 }) {
   const draft = usePersistedDraft(initial);
@@ -65,7 +63,8 @@ export function ExerciseNoteEditor({
         }}
         onBlur={() => void commit()}
         placeholder={placeholder}
-        multiline={multiline}
+        multiline
+        autoGrow
       />
       {hint ? (
         <Text

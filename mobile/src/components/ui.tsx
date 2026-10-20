@@ -24,6 +24,10 @@ import {
   type KeyboardScrollMode,
 } from "@/components/keyboard-aware-scroll";
 import { colors, radius, space } from "@/theme";
+import {
+  exerciseNoteFieldMaxHeight,
+  exerciseNoteFieldScrolls,
+} from "@shared/exercise-notes";
 
 export function Screen({
   children,
@@ -221,9 +225,11 @@ export function Field({
   placeholder,
   keyboardType,
   multiline,
+  autoGrow = false,
   editable = true,
   onFocus,
   onBlur,
+  onContentSizeChange,
   ...props
 }: {
   label?: string;
@@ -233,20 +239,30 @@ export function Field({
   placeholder?: string;
   keyboardType?: KeyboardTypeOptions;
   multiline?: boolean;
+  /** Wrap and grow with the text. Focused notes cap, then scroll inside. */
+  autoGrow?: boolean;
   editable?: boolean;
 } & Omit<TextInputProps, "style">) {
   const [focused, setFocused] = useState(false);
+  const [contentHeight, setContentHeight] = useState(0);
+  const grow = Boolean(multiline && autoGrow);
+  const growMax = grow ? exerciseNoteFieldMaxHeight(focused) : undefined;
+  const overflowing = grow && exerciseNoteFieldScrolls(focused, contentHeight);
   return (
     <View style={{ gap: 7 }}>
       {label ? <Text style={styles.label}>{label}</Text> : null}
       <TextInput
+        {...props}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
         placeholderTextColor={colors.faint}
         keyboardType={keyboardType}
         multiline={multiline}
-        scrollEnabled={multiline ? false : undefined}
+        // Growing notes stay in the parent KeyboardAwareScroll until they
+        // hit the focused cap; then the field scrolls internally.
+        scrollEnabled={grow ? overflowing : multiline ? false : undefined}
+        blurOnSubmit={multiline ? false : props.blurOnSubmit}
         editable={editable}
         selectionColor={colors.text}
         onFocus={(event) => {
@@ -257,17 +273,28 @@ export function Field({
           setFocused(false);
           onBlur?.(event);
         }}
+        onContentSizeChange={(event) => {
+          if (grow) setContentHeight(event.nativeEvent.contentSize.height);
+          onContentSizeChange?.(event);
+        }}
         style={[
           styles.input,
           focused && editable && styles.inputFocused,
-          multiline && {
-            minHeight: 100,
+          multiline &&
+            !grow && {
+              minHeight: 100,
+              paddingTop: 13,
+              textAlignVertical: "top",
+            },
+          grow && {
+            minHeight: 48,
+            maxHeight: growMax,
             paddingTop: 13,
+            paddingBottom: 13,
             textAlignVertical: "top",
           },
           !editable && { color: colors.faint },
         ]}
-        {...props}
       />
       {hint ? <Text style={styles.hint}>{hint}</Text> : null}
     </View>

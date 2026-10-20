@@ -543,7 +543,6 @@ function ListWorkout({
                         ? saveSessionExerciseNote(exercise._id, notes)
                         : saveNote(exercise.slug, notes)
                     }
-                    multiline={false}
                   />
                 )}
               </View>

@@ -354,6 +354,7 @@ export function TemplateEditor({
                       }
                       placeholder="Cues, setup, or reminders"
                       multiline
+                      autoGrow
                     />
                     <View
                       style={{ flexDirection: "row", paddingHorizontal: 5 }}
