@@ -595,9 +595,12 @@ export const pushSession = mutation({
           ? existingByClient
           : existingByExternal
         : null;
+    const completingUnfinished =
+      args.session.status === "completed" && existing?.status !== "completed";
     if (
       existing?.clientUpdatedAt !== undefined &&
       existing.clientUpdatedAt > args.session.updatedAt &&
+      !completingUnfinished &&
       !(resolution.action === "apply" && resolution.ignoreStale)
     ) {
       return {
@@ -684,7 +687,9 @@ export const pushSession = mutation({
       // that metadata after acknowledgement instead of ignoring an equal echo.
       clientUpdatedAt: restoresHealthMetadata
         ? Math.max(args.session.updatedAt, existing?.clientUpdatedAt ?? 0) + 1
-        : args.session.updatedAt,
+        : completingUnfinished
+          ? Math.max(args.session.updatedAt, existing?.clientUpdatedAt ?? 0)
+          : args.session.updatedAt,
       templateName: args.session.templateName,
       status: args.session.status,
       startedAt: args.session.startedAt,

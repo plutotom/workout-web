@@ -706,4 +706,28 @@ describe("completed list workout edits", () => {
     });
     expect(fixture.patch).not.toHaveBeenCalled();
   });
+
+  it("applies a completed finish onto an in-progress row even when the server revision is newer", async () => {
+    const fixture = serverFixture({
+      _id: "remote-session",
+      clientId: "ios-local",
+      clientUpdatedAt: 500,
+      status: "in_progress",
+      sessionKind: "tracked",
+      inputMode: "list",
+    });
+    expect(
+      await push(fixture.ctx, { ...listSession, updatedAt: 400 }),
+    ).toMatchObject({
+      status: "applied",
+      remoteSessionId: "remote-session",
+    });
+    expect(fixture.patch).toHaveBeenCalledWith(
+      "remote-session",
+      expect.objectContaining({
+        status: "completed",
+        clientUpdatedAt: 500,
+      }),
+    );
+  });
 });

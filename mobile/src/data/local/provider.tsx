@@ -74,6 +74,7 @@ import {
   getLocalPreferences,
   getLocalTemplate,
   getLocalTemplates,
+  getLocalSessionShareOutboxAttempt,
   getLocalWorkout,
   getOrCreateDeviceId,
   restoreLocalCustomExercise,
@@ -101,6 +102,7 @@ import {
   queueHealthExportIfEnabled,
   quarantineTemplateSync,
   removeLocalExercise,
+  retryLocalSessionShareSync,
   wasWatchRecorded,
   saveLocalCustomExercise,
   saveLocalExerciseNote,
@@ -285,6 +287,8 @@ type LocalDataContextValue = {
   /** Stamps the backup status line — see `markBackupSaved` on its accuracy. */
   noteBackupSaved: () => Promise<void>;
   finish: (sessionId: string) => Promise<void>;
+  /** Re-queue a finished workout after a dropped or stale share sync. */
+  retrySessionSync: (sessionId: string) => Promise<void>;
   abandon: (sessionId: string) => Promise<void>;
   deleteSession: (sessionId: string) => Promise<void>;
   importHealthSummary: (
@@ -499,6 +503,8 @@ function LocalDataState({
       restoreBackup: (snapshot) => run(() => restoreLocalBackup(db, snapshot)),
       noteBackupSaved: () => run(() => markBackupSaved(db)),
       finish: (sessionId) => run(() => finishTracked(sessionId)),
+      retrySessionSync: (sessionId) =>
+        run(() => retryLocalSessionShareSync(db, sessionId)),
       abandon: (sessionId) =>
         run(async () => {
           void discardWatchWorkout().catch(() => undefined);
@@ -573,6 +579,16 @@ export function useLocalWorkout(sessionId: string) {
   const { revision } = useLocalData();
   return useLocalValue<LocalWorkoutSession | null>(
     () => getLocalWorkout(db, sessionId),
+    [db, revision, sessionId],
+  );
+}
+
+/** Outbox attempt count for this session; `undefined` until the first read. */
+export function useLocalSessionShareOutboxAttempt(sessionId: string) {
+  const db = useSQLiteContext();
+  const { revision } = useLocalData();
+  return useLocalValue<number | null>(
+    () => getLocalSessionShareOutboxAttempt(db, sessionId),
     [db, revision, sessionId],
   );
 }

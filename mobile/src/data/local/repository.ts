@@ -1853,25 +1853,63 @@ export async function finishLocalWorkout(
   sessionId: string,
 ) {
   return withWorkoutTransaction(db, async (txn) => {
-    const session = await txn.getFirstAsync<{ status: string }>(
-      "SELECT status FROM local_sessions WHERE id = ?",
-      sessionId,
-    );
+    const session = await txn.getFirstAsync<{
+      status: string;
+      updated_at: number;
+    }>("SELECT status, updated_at FROM local_sessions WHERE id = ?", sessionId);
     if (!session) throw new Error("Session not found");
     if (session.status !== "in_progress")
       throw new Error("Workout is no longer active");
     const now = Date.now();
+    // A last-set revision can already be >= now. Share looks up a *completed*
+    // Convex row; a stale ack would drop this snapshot and leave the gate stuck.
+    const updatedAt = nextClientUpdatedAt(session.updated_at, now);
     await txn.runAsync(
       `UPDATE local_sessions
           SET status = 'completed', completed_at = ?, updated_at = ?
         WHERE id = ?`,
       now,
-      now,
+      updatedAt,
       sessionId,
     );
     await recordLocalSessionPlaceMemory(txn, sessionId);
-    await queueSessionSnapshot(txn, sessionId, now);
+    await queueSessionSnapshot(txn, sessionId, updatedAt);
   });
+}
+
+/** Re-queue a finished workout so Share can recover after a dropped/stale ack. */
+export async function retryLocalSessionShareSync(
+  db: SQLiteDatabase,
+  sessionId: string,
+) {
+  return withWorkoutTransaction(db, async (txn) => {
+    const session = await txn.getFirstAsync<{
+      status: string;
+      updated_at: number;
+    }>("SELECT status, updated_at FROM local_sessions WHERE id = ?", sessionId);
+    if (!session || session.status !== "completed") {
+      throw new Error("Only a completed workout can sync for sharing");
+    }
+    const updatedAt = nextClientUpdatedAt(session.updated_at);
+    await txn.runAsync(
+      "UPDATE local_sessions SET updated_at = ? WHERE id = ?",
+      updatedAt,
+      sessionId,
+    );
+    await queueSessionSnapshot(txn, sessionId, updatedAt);
+  });
+}
+
+export async function getLocalSessionShareOutboxAttempt(
+  db: SQLiteDatabase,
+  sessionId: string,
+) {
+  const row = await db.getFirstAsync<{ attempt_count: number }>(
+    `SELECT attempt_count FROM local_sync_outbox
+      WHERE entity_type = 'session' AND entity_id = ?`,
+    sessionId,
+  );
+  return row ? row.attempt_count : null;
 }
 
 export async function abandonLocalWorkout(
