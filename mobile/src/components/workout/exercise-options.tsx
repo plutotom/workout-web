@@ -93,6 +93,48 @@ export function confirmDeleteExercise(
   ]);
 }
 
+export async function requestExerciseReplacement({
+  fromName,
+  toName,
+  hasLoggedSets,
+  completedWorkout = false,
+  onReplace,
+}: {
+  fromName: string;
+  toName: string;
+  hasLoggedSets: boolean;
+  completedWorkout?: boolean;
+  onReplace: () => Promise<void>;
+}) {
+  async function apply() {
+    try {
+      await onReplace();
+    } catch {
+      Alert.alert(
+        "Couldn’t replace exercise",
+        "Your change couldn’t be saved. Please try again.",
+      );
+    }
+  }
+
+  if (!hasLoggedSets) {
+    await apply();
+    return;
+  }
+  Alert.alert(
+    `Replace ${fromName} with ${toName}?`,
+    `Keep the same position and number of sets. Weights and reps will use your saved values for ${toName}, or start at 0. The old exercise’s workout note will be cleared. ${
+      completedWorkout
+        ? "Completed sets will stay checked."
+        : "Logged sets will be unchecked so you can log the new exercise."
+    }`,
+    [
+      { text: "Cancel", style: "cancel" },
+      { text: "Replace", onPress: () => void apply() },
+    ],
+  );
+}
+
 export function ExerciseOptionsButton({
   machineName,
   onChooseMachine,

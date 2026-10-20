@@ -53,10 +53,7 @@ import { NoteWorkoutBody } from "@/components/workout/note-workout-body";
 import { NoteWorkoutEditor } from "@/components/workout/note-workout-editor";
 import { useCompletedWorkoutRefresh } from "@/components/workout/use-completed-workout-refresh";
 import { sessionAllowsCompletedReviewEdit } from "@shared/session-edits";
-import {
-  replaceLoggedSetsMessage,
-  replacementHasLoggedSets,
-} from "@shared/replace-exercise";
+import { replacementHasLoggedSets } from "@shared/replace-exercise";
 import {
   MachinePickerModal,
   PlaceChip,
@@ -65,6 +62,7 @@ import {
 import {
   confirmDeleteExercise,
   ExerciseOptionsButton,
+  requestExerciseReplacement,
 } from "@/components/workout/exercise-options";
 import { WatchCompanionCard } from "@/health/watch-companion-card";
 import { useSessionAi } from "@/components/workout/use-session-ai";
@@ -376,19 +374,13 @@ function ListWorkout({
       const slug = slugs[0];
       if (!slug) return;
       const target = picker;
-      const apply = () => replaceExercise(target.exerciseId, slug);
-      if (target.hasLoggedSets) {
-        Alert.alert(
-          `Replace ${target.name}?`,
-          replaceLoggedSetsMessage(catalog.name(slug)),
-          [
-            { text: "Cancel", style: "cancel" },
-            { text: "Replace", onPress: () => void apply() },
-          ],
-        );
-      } else {
-        await apply();
-      }
+      await requestExerciseReplacement({
+        fromName: target.name,
+        toName: catalog.name(slug),
+        hasLoggedSets: target.hasLoggedSets,
+        completedWorkout: completedEdit,
+        onReplace: () => replaceExercise(target.exerciseId, slug),
+      });
       return;
     }
     for (const exerciseSlug of slugs)
@@ -634,6 +626,7 @@ function ListWorkout({
                   {exercise.sets.map((set, setIndex) => (
                     <WorkoutSetRow
                       key={set._id}
+                      exerciseSlug={exercise.slug}
                       set={set}
                       index={setIndex}
                       unit={user.unit}
@@ -1111,20 +1104,25 @@ function FocusWorkout({
           if (!slug || !target) return;
           const apply = async () => {
             await replaceExercise(target.exerciseId, slug);
-            setDrafts({});
-          };
-          if (target.hasLoggedSets) {
-            Alert.alert(
-              `Replace ${target.name}?`,
-              replaceLoggedSetsMessage(catalog.name(slug)),
-              [
-                { text: "Cancel", style: "cancel" },
-                { text: "Replace", onPress: () => void apply() },
-              ],
+            const replacedSetIds = new Set(
+              session.exercises
+                .find((exercise) => exercise._id === target.exerciseId)
+                ?.sets.map((set) => set._id),
             );
-            return;
-          }
-          void apply();
+            setDrafts((current) =>
+              Object.fromEntries(
+                Object.entries(current).filter(
+                  ([setId]) => !replacedSetIds.has(setId),
+                ),
+              ),
+            );
+          };
+          void requestExerciseReplacement({
+            fromName: target.name,
+            toName: catalog.name(slug),
+            hasLoggedSets: target.hasLoggedSets,
+            onReplace: apply,
+          });
         }}
       />
       {aiModal}
