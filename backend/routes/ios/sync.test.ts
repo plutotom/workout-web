@@ -730,4 +730,23 @@ describe("completed list workout edits", () => {
       }),
     );
   });
+
+  it("preserves a newer abandoned workout instead of reviving it with a stale completion", async () => {
+    const fixture = serverFixture({
+      _id: "remote-session",
+      clientId: "ios-local",
+      clientUpdatedAt: 500,
+      status: "abandoned",
+      sessionKind: "tracked",
+      inputMode: "list",
+    });
+    expect(
+      await push(fixture.ctx, { ...listSession, updatedAt: 400 }),
+    ).toMatchObject({
+      status: "stale",
+      remoteSessionId: "remote-session",
+    });
+    expect(fixture.patch).not.toHaveBeenCalled();
+    expect(fixture.insert).not.toHaveBeenCalled();
+  });
 });

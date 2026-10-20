@@ -8,7 +8,9 @@ import {
   ChevronDown,
   ChevronUp,
   GripVertical,
+  MoreHorizontal,
   Plus,
+  Repeat,
   Trash2,
   X,
 } from "lucide-react";
@@ -35,6 +37,13 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { useExerciseCatalog } from "@/components/app/exercise-catalog-provider";
 import { cn } from "@/lib/utils";
 import {
@@ -78,8 +87,11 @@ export function TemplateEditorForm({
   );
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerKey, setPickerKey] = useState(0);
+  const [pickerMode, setPickerMode] = useState<"add" | "replace">("add");
+  const [replacingIndex, setReplacingIndex] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [openIndex, setOpenIndex] = useState(initial.exercises.length ? 0 : -1);
+  const [exerciseMenu, setExerciseMenu] = useState<number | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
 
   const slugs = exercises.map((e) => e.slug);
@@ -148,6 +160,25 @@ export function TemplateEditorForm({
   }
 
   function addExercises(slugs: string[]) {
+    if (pickerMode === "replace" && replacingIndex != null) {
+      const slug = slugs[0];
+      if (slug) {
+        const index = replacingIndex;
+        setExercises((prev) =>
+          prev.map((exercise, currentIndex) =>
+            currentIndex === index
+              ? {
+                  slug,
+                  sets: exercise.sets.map(() => emptySet()),
+                }
+              : exercise,
+          ),
+        );
+      }
+      setReplacingIndex(null);
+      setPickerOpen(false);
+      return;
+    }
     setExercises((prev) => {
       const have = new Set(prev.map((e) => e.slug));
       const additions = slugs
@@ -358,6 +389,16 @@ export function TemplateEditorForm({
                     type="button"
                     size="icon"
                     variant="ghost"
+                    className="text-muted-foreground hover:text-foreground h-auto w-11 shrink-0 rounded-none"
+                    aria-label={`${catalog.name(ex.slug)} options`}
+                    onClick={() => setExerciseMenu(exIndex)}
+                  >
+                    <MoreHorizontal className="size-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
                     className="h-auto w-11 shrink-0 rounded-none"
                     aria-label={
                       isOpen ? "Collapse exercise" : "Expand exercise"
@@ -454,16 +495,6 @@ export function TemplateEditorForm({
                         <Plus className="size-4" />
                         Add set
                       </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="lg"
-                        className="text-destructive hover:text-destructive h-11 w-full"
-                        onClick={() => removeExercise(exIndex)}
-                      >
-                        <Trash2 className="size-4" />
-                        Remove exercise
-                      </Button>
                     </div>
                   </CardContent>
                 ) : null}
@@ -479,6 +510,8 @@ export function TemplateEditorForm({
           className="h-12 w-full text-base"
           disabled={usedSlugs.size >= catalog.all.length}
           onClick={() => {
+            setPickerMode("add");
+            setReplacingIndex(null);
             setPickerKey((k) => k + 1);
             setPickerOpen(true);
           }}
@@ -490,10 +523,68 @@ export function TemplateEditorForm({
 
       {templateId ? <DeleteTemplateButton onConfirm={handleDelete} /> : null}
 
+      <Sheet
+        open={exerciseMenu !== null}
+        onOpenChange={(open) => {
+          if (!open) setExerciseMenu(null);
+        }}
+      >
+        <SheetContent
+          side="bottom"
+          className="gap-0 rounded-t-2xl pb-[max(1rem,env(safe-area-inset-bottom))]"
+        >
+          <SheetHeader className="px-3 pb-2">
+            <SheetTitle className="truncate text-lg">
+              {exerciseMenu != null
+                ? catalog.name(exercises[exerciseMenu]?.slug ?? "")
+                : "Exercise"}
+            </SheetTitle>
+            <SheetDescription>Exercise options</SheetDescription>
+          </SheetHeader>
+          <div className="flex flex-col gap-1 px-3 pb-2">
+            <Button
+              type="button"
+              variant="ghost"
+              className="text-muted-foreground hover:text-foreground h-12 justify-start gap-3 px-3 text-base"
+              onClick={() => {
+                if (exerciseMenu == null) return;
+                const index = exerciseMenu;
+                setExerciseMenu(null);
+                setPickerMode("replace");
+                setReplacingIndex(index);
+                setPickerKey((k) => k + 1);
+                setPickerOpen(true);
+              }}
+            >
+              <Repeat className="size-4" />
+              Replace
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              className="text-destructive hover:text-destructive h-12 justify-start gap-3 px-3 text-base"
+              onClick={() => {
+                if (exerciseMenu == null) return;
+                const index = exerciseMenu;
+                setExerciseMenu(null);
+                removeExercise(index);
+              }}
+            >
+              <Trash2 className="size-4" />
+              Delete exercise
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
+
       <ExercisePicker
         key={pickerKey}
         open={pickerOpen}
-        onOpenChange={setPickerOpen}
+        onOpenChange={(open) => {
+          setPickerOpen(open);
+          if (!open) setReplacingIndex(null);
+        }}
+        mode={pickerMode}
         usedSlugs={exercises.map((e) => e.slug)}
         onAdd={addExercises}
       />

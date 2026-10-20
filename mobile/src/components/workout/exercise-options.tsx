@@ -1,23 +1,58 @@
 import { MoreHorizontal } from "lucide-react-native";
 import { ActionSheetIOS, Alert, Platform, Pressable } from "react-native";
 
+import { deleteExerciseConfirmMessage } from "@shared/replace-exercise";
 import { colors } from "@/theme";
 
 export type ExerciseOption = {
   label: string;
   onPress: () => void;
+  destructive?: boolean;
 };
+
+export function exerciseOptionItems({
+  machineName,
+  onChooseMachine,
+  onReplace,
+  onDelete,
+}: {
+  machineName?: string | null;
+  onChooseMachine?: () => void;
+  onReplace?: () => void;
+  onDelete?: () => void;
+}): ExerciseOption[] {
+  const actions: ExerciseOption[] = [];
+  if (onReplace) actions.push({ label: "Replace", onPress: onReplace });
+  if (onChooseMachine) {
+    actions.push({
+      label: machineOptionLabel(machineName ?? null),
+      onPress: onChooseMachine,
+    });
+  }
+  if (onDelete) {
+    actions.push({
+      label: "Delete exercise",
+      onPress: onDelete,
+      destructive: true,
+    });
+  }
+  return actions;
+}
 
 export function showExerciseOptions(actions: ExerciseOption[]) {
   if (actions.length === 0) return;
 
   const options = ["Cancel", ...actions.map((action) => action.label)];
+  const destructiveIndex = actions.findIndex((action) => action.destructive);
   if (Platform.OS === "ios") {
     ActionSheetIOS.showActionSheetWithOptions(
       {
         title: "Exercise options",
         options,
         cancelButtonIndex: 0,
+        ...(destructiveIndex >= 0
+          ? { destructiveButtonIndex: destructiveIndex + 1 }
+          : {}),
       },
       (index) => {
         if (index == null || index === 0) return;
@@ -31,6 +66,9 @@ export function showExerciseOptions(actions: ExerciseOption[]) {
     { text: "Cancel", style: "cancel" },
     ...actions.map((action) => ({
       text: action.label,
+      style: (action.destructive ? "destructive" : "default") as
+        | "destructive"
+        | "default",
       onPress: action.onPress,
     })),
   ]);
@@ -40,12 +78,73 @@ export function machineOptionLabel(machineName: string | null) {
   return machineName ? `Machine · ${machineName}` : "Choose machine";
 }
 
+export function confirmDeleteExercise(
+  name: string,
+  hasLoggedSets: boolean,
+  onConfirm: () => void,
+) {
+  if (!hasLoggedSets) {
+    onConfirm();
+    return;
+  }
+  Alert.alert(`Delete ${name}?`, deleteExerciseConfirmMessage(name), [
+    { text: "Cancel", style: "cancel" },
+    { text: "Delete", style: "destructive", onPress: onConfirm },
+  ]);
+}
+
+export async function requestExerciseReplacement({
+  fromName,
+  toName,
+  hasLoggedSets,
+  completedWorkout = false,
+  onReplace,
+}: {
+  fromName: string;
+  toName: string;
+  hasLoggedSets: boolean;
+  completedWorkout?: boolean;
+  onReplace: () => Promise<void>;
+}) {
+  async function apply() {
+    try {
+      await onReplace();
+    } catch {
+      Alert.alert(
+        "Couldn’t replace exercise",
+        "Your change couldn’t be saved. Please try again.",
+      );
+    }
+  }
+
+  if (!hasLoggedSets) {
+    await apply();
+    return;
+  }
+  Alert.alert(
+    `Replace ${fromName} with ${toName}?`,
+    `Keep the same position and number of sets. Weights and reps will use your saved values for ${toName}, or start at 0. The old exercise’s workout note will be cleared. ${
+      completedWorkout
+        ? "Completed sets will stay checked."
+        : "Logged sets will be unchecked so you can log the new exercise."
+    }`,
+    [
+      { text: "Cancel", style: "cancel" },
+      { text: "Replace", onPress: () => void apply() },
+    ],
+  );
+}
+
 export function ExerciseOptionsButton({
   machineName,
   onChooseMachine,
+  onReplace,
+  onDelete,
 }: {
-  machineName: string | null;
-  onChooseMachine: () => void;
+  machineName?: string | null;
+  onChooseMachine?: () => void;
+  onReplace?: () => void;
+  onDelete?: () => void;
 }) {
   return (
     <Pressable
@@ -53,12 +152,14 @@ export function ExerciseOptionsButton({
       accessibilityLabel="Exercise options"
       hitSlop={7}
       onPress={() =>
-        showExerciseOptions([
-          {
-            label: machineOptionLabel(machineName),
-            onPress: onChooseMachine,
-          },
-        ])
+        showExerciseOptions(
+          exerciseOptionItems({
+            machineName,
+            onChooseMachine,
+            onReplace,
+            onDelete,
+          }),
+        )
       }
       style={({ pressed }) => ({
         width: 44,

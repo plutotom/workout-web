@@ -384,6 +384,38 @@ describe("share interactions", () => {
     expect(() => button("Post workout")).toThrow();
   });
 
+  it("opens offline without an endless spinner and recovers live after reconnecting", async () => {
+    mocks.remoteId = undefined;
+    mocks.connected = false;
+    mocks.shareSyncAttempt = undefined;
+    await render(<ShareScreen />);
+    expect(JSON.stringify(renderer.toJSON())).toContain("Stay on this screen");
+    expect(
+      renderer.root.findAllByProps({
+        accessibilityLabel: "Preparing to share",
+      }),
+    ).toHaveLength(0);
+    expect(() => button("Post workout")).toThrow();
+
+    mocks.connected = true;
+    mocks.shareSyncAttempt = 0;
+    await act(async () => renderer.update(<ShareScreen />));
+    expect(
+      renderer.root.findByProps({ accessibilityLabel: "Preparing to share" }),
+    ).toBeDefined();
+    mocks.remoteId = null;
+    await act(async () => renderer.update(<ShareScreen />));
+    expect(JSON.stringify(renderer.toJSON())).toContain(
+      "Syncing this workout…",
+    );
+    mocks.remoteId = "remote_1";
+    await act(async () => renderer.update(<ShareScreen />));
+    expect(button("Post workout").props.disabled).toBe(false);
+    expect(
+      renderer.root.findByProps({ accessibilityLabel: "Workout caption" }),
+    ).toBeDefined();
+  });
+
   it("uses a server preview for a workout logged on the web", async () => {
     mocks.localWorkout = null;
     mocks.remoteWorkout = { templateName: "Web workout", exercises: [] };

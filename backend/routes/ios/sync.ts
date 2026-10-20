@@ -595,12 +595,13 @@ export const pushSession = mutation({
           ? existingByClient
           : existingByExternal
         : null;
-    const completingUnfinished =
-      args.session.status === "completed" && existing?.status !== "completed";
+    // Recover a lost finish without reviving a newer, explicitly discarded row.
+    const completingInProgress =
+      args.session.status === "completed" && existing?.status === "in_progress";
     if (
       existing?.clientUpdatedAt !== undefined &&
       existing.clientUpdatedAt > args.session.updatedAt &&
-      !completingUnfinished &&
+      !completingInProgress &&
       !(resolution.action === "apply" && resolution.ignoreStale)
     ) {
       return {
@@ -687,7 +688,7 @@ export const pushSession = mutation({
       // that metadata after acknowledgement instead of ignoring an equal echo.
       clientUpdatedAt: restoresHealthMetadata
         ? Math.max(args.session.updatedAt, existing?.clientUpdatedAt ?? 0) + 1
-        : completingUnfinished
+        : completingInProgress
           ? Math.max(args.session.updatedAt, existing?.clientUpdatedAt ?? 0)
           : args.session.updatedAt,
       templateName: args.session.templateName,

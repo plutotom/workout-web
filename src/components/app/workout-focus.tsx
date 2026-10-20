@@ -11,7 +11,9 @@ import {
   Minus,
   MoreHorizontal,
   Plus,
+  Repeat,
   Settings2,
+  Trash2,
   Undo2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -28,12 +30,26 @@ import { useExerciseCatalog } from "@/components/app/exercise-catalog-provider";
 import { useWorkoutFinishFlow } from "@/components/app/workout-finish-flow";
 import { RestRing } from "@/components/app/workout-focus-rest-ring";
 import { WorkoutFocusSessionSheet } from "@/components/app/workout-focus-session-sheet";
+import {
+  deleteExerciseConfirmMessage,
+  replaceLoggedSetsMessage,
+  replacementHasLoggedSets,
+} from "@/lib/replace-exercise";
 import { WorkoutLog } from "@/components/app/workout-log";
 import { SessionPlaceBar } from "@/components/app/session-place-bar";
 import { MachinePickerSheet } from "@/components/app/machine-picker";
 import { formatLb, formatDuration } from "@/components/app/workout-design";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Sheet,
@@ -72,6 +88,12 @@ export function WorkoutFocus({
   });
   const updateSet = useMutation(api.routes.workouts.mutations.updateSet);
   const addExercise = useMutation(api.routes.workouts.mutations.addExercise);
+  const replaceExercise = useMutation(
+    api.routes.workouts.mutations.replaceExercise,
+  );
+  const removeExercise = useMutation(
+    api.routes.workouts.mutations.removeExercise,
+  );
   const {
     finishing,
     awaitingPostFinish,
@@ -84,6 +106,24 @@ export function WorkoutFocus({
   const [sheetOpen, setSheetOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerKey, setPickerKey] = useState(0);
+  const [pickerMode, setPickerMode] = useState<"add" | "replace">("add");
+  const [replacing, setReplacing] = useState<{
+    id: Id<"sessionExercises">;
+    name: string;
+    hasLoggedSets: boolean;
+  } | null>(null);
+  const [replaceConfirm, setReplaceConfirm] = useState<{
+    id: Id<"sessionExercises">;
+    fromName: string;
+    toName: string;
+    toSlug: string;
+  } | null>(null);
+  const [replacingExercise, setReplacingExercise] = useState(false);
+  const [exerciseToRemove, setExerciseToRemove] = useState<{
+    id: Id<"sessionExercises">;
+    name: string;
+  } | null>(null);
+  const [removingExercise, setRemovingExercise] = useState(false);
   const [machinePickerOpen, setMachinePickerOpen] = useState(false);
   const [exerciseOptionsOpen, setExerciseOptionsOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
@@ -244,7 +284,43 @@ export function WorkoutFocus({
     void updateSet({ setId: current.set._id, reps: value });
   }
 
+  function openReplacePicker(target: {
+    id: Id<"sessionExercises">;
+    name: string;
+    hasLoggedSets: boolean;
+  }) {
+    setPickerMode("replace");
+    setReplacing(target);
+    setPickerKey((k) => k + 1);
+    setPickerOpen(true);
+  }
+
   async function handleAddExercises(slugs: string[]) {
+    if (replacing) {
+      const slug = slugs[0];
+      if (!slug) return;
+      const target = replacing;
+      try {
+        if (target.hasLoggedSets) {
+          setReplaceConfirm({
+            id: target.id,
+            fromName: target.name,
+            toName: catalog.name(slug),
+            toSlug: slug,
+          });
+        } else {
+          await replaceExercise({
+            sessionExerciseId: target.id,
+            exerciseSlug: slug,
+          });
+        }
+        setReplacing(null);
+        setPickerOpen(false);
+      } catch {
+        toast.error("Couldn't replace exercise");
+      }
+      return;
+    }
     try {
       for (const slug of slugs) {
         await addExercise({
@@ -255,6 +331,37 @@ export function WorkoutFocus({
       setPickerOpen(false);
     } catch {
       toast.error("Couldn't add exercise");
+    }
+  }
+
+  async function handleReplaceExercise() {
+    if (!replaceConfirm || replacingExercise) return;
+    setReplacingExercise(true);
+    try {
+      await replaceExercise({
+        sessionExerciseId: replaceConfirm.id,
+        exerciseSlug: replaceConfirm.toSlug,
+      });
+      toast.success(`Replaced with ${replaceConfirm.toName}`);
+      setReplaceConfirm(null);
+    } catch {
+      toast.error("Couldn't replace exercise");
+    } finally {
+      setReplacingExercise(false);
+    }
+  }
+
+  async function handleRemoveExercise() {
+    if (!exerciseToRemove || removingExercise) return;
+    setRemovingExercise(true);
+    try {
+      await removeExercise({ sessionExerciseId: exerciseToRemove.id });
+      toast.success(`Deleted ${exerciseToRemove.name}`);
+      setExerciseToRemove(null);
+    } catch {
+      toast.error("Couldn't delete exercise");
+    } finally {
+      setRemovingExercise(false);
     }
   }
 
@@ -435,18 +542,16 @@ export function WorkoutFocus({
                   </p>
                 ) : null}
               </div>
-              {session.placeId ? (
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  className="text-muted-foreground hover:text-foreground size-9"
-                  aria-label="Exercise options"
-                  onClick={() => setExerciseOptionsOpen(true)}
-                >
-                  <MoreHorizontal className="size-5" />
-                </Button>
-              ) : null}
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="text-muted-foreground hover:text-foreground size-9"
+                aria-label="Exercise options"
+                onClick={() => setExerciseOptionsOpen(true)}
+              >
+                <MoreHorizontal className="size-5" />
+              </Button>
               <Button
                 type="button"
                 size="icon"
@@ -638,7 +743,11 @@ export function WorkoutFocus({
       <ExercisePicker
         key={pickerKey}
         open={pickerOpen}
-        onOpenChange={setPickerOpen}
+        onOpenChange={(open) => {
+          setPickerOpen(open);
+          if (!open) setReplacing(null);
+        }}
+        mode={pickerMode}
         usedSlugs={usedSlugs}
         onAdd={handleAddExercises}
       />
@@ -651,8 +760,14 @@ export function WorkoutFocus({
         currentSetId={current?.set._id ?? null}
         onJump={(setId) => setManualSetId(setId)}
         onAddExercise={() => {
+          setPickerMode("add");
+          setReplacing(null);
           setPickerKey((k) => k + 1);
           setPickerOpen(true);
+        }}
+        onReplaceExercise={(target) => {
+          setSheetOpen(false);
+          openReplacePicker(target);
         }}
       />
 
@@ -668,20 +783,73 @@ export function WorkoutFocus({
             <SheetDescription>Exercise options</SheetDescription>
           </SheetHeader>
           <div className="flex flex-col gap-1 px-3 pb-2">
-            <Button
-              type="button"
-              variant="ghost"
-              className="text-muted-foreground hover:text-foreground h-12 justify-start gap-3 px-3 text-base"
-              onClick={() => {
-                setExerciseOptionsOpen(false);
-                setMachinePickerOpen(true);
-              }}
-            >
-              <Settings2 className="size-4" />
-              {current?.exercise.machineName
-                ? `Machine · ${current.exercise.machineName}`
-                : "Choose machine"}
-            </Button>
+            {current ? (
+              <Button
+                type="button"
+                variant="ghost"
+                className="text-muted-foreground hover:text-foreground h-12 justify-start gap-3 px-3 text-base"
+                onClick={() => {
+                  setExerciseOptionsOpen(false);
+                  openReplacePicker({
+                    id: current.exercise._id,
+                    name: catalog.name(current.exercise.slug),
+                    hasLoggedSets: replacementHasLoggedSets(
+                      current.exercise.sets,
+                    ),
+                  });
+                }}
+              >
+                <Repeat className="size-4" />
+                Replace
+              </Button>
+            ) : null}
+            {session.placeId ? (
+              <Button
+                type="button"
+                variant="ghost"
+                className="text-muted-foreground hover:text-foreground h-12 justify-start gap-3 px-3 text-base"
+                onClick={() => {
+                  setExerciseOptionsOpen(false);
+                  setMachinePickerOpen(true);
+                }}
+              >
+                <Settings2 className="size-4" />
+                {current?.exercise.machineName
+                  ? `Machine · ${current.exercise.machineName}`
+                  : "Choose machine"}
+              </Button>
+            ) : null}
+            {current ? (
+              <Button
+                type="button"
+                variant="ghost"
+                className="text-destructive hover:text-destructive h-12 justify-start gap-3 px-3 text-base"
+                onClick={() => {
+                  const target = {
+                    id: current.exercise._id,
+                    name: catalog.name(current.exercise.slug),
+                  };
+                  setExerciseOptionsOpen(false);
+                  if (replacementHasLoggedSets(current.exercise.sets)) {
+                    setExerciseToRemove(target);
+                    return;
+                  }
+                  void (async () => {
+                    try {
+                      await removeExercise({
+                        sessionExerciseId: target.id,
+                      });
+                      toast.success(`Deleted ${target.name}`);
+                    } catch {
+                      toast.error("Couldn't delete exercise");
+                    }
+                  })();
+                }}
+              >
+                <Trash2 className="size-4" />
+                Delete exercise
+              </Button>
+            ) : null}
           </div>
         </SheetContent>
       </Sheet>
@@ -696,6 +864,71 @@ export function WorkoutFocus({
           selectedMachineId={current.exercise.machineId}
         />
       ) : null}
+
+      <Dialog
+        open={exerciseToRemove !== null}
+        onOpenChange={(open) => {
+          if (!open && !removingExercise) setExerciseToRemove(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete {exerciseToRemove?.name}?</DialogTitle>
+            <DialogDescription>
+              {exerciseToRemove
+                ? deleteExerciseConfirmMessage(exerciseToRemove.name)
+                : null}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="ghost" disabled={removingExercise}>
+                Cancel
+              </Button>
+            </DialogClose>
+            <Button
+              variant="destructive"
+              disabled={removingExercise}
+              onClick={() => void handleRemoveExercise()}
+            >
+              {removingExercise ? "Deleting…" : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={replaceConfirm !== null}
+        onOpenChange={(open) => {
+          if (!open && !replacingExercise) setReplaceConfirm(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Replace {replaceConfirm?.fromName} with {replaceConfirm?.toName}?
+            </DialogTitle>
+            <DialogDescription>
+              {replaceConfirm
+                ? replaceLoggedSetsMessage(replaceConfirm.toName)
+                : null}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="ghost" disabled={replacingExercise}>
+                Cancel
+              </Button>
+            </DialogClose>
+            <Button
+              disabled={replacingExercise}
+              onClick={() => void handleReplaceExercise()}
+            >
+              {replacingExercise ? "Replacing…" : "Replace"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {finishDialogs}
 

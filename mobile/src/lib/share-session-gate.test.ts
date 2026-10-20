@@ -62,6 +62,26 @@ describe("resolveShareSessionGate", () => {
     ).toEqual({ kind: "failed", canRetry: true });
   });
 
+  it.each([undefined, null, 0])(
+    "shows offline on a cold visit before Convex resolves (outbox: %s)",
+    (pendingAttemptCount) => {
+      expect(
+        resolveShareSessionGate({
+          ...stuckOnline,
+          isWebSocketConnected: false,
+          convexRemoteId: undefined,
+          pendingAttemptCount,
+        }),
+      ).toEqual({ kind: "offline" });
+    },
+  );
+
+  it("loads after reconnecting, then follows the live sync state", () => {
+    expect(
+      resolveShareSessionGate({ ...stuckOnline, convexRemoteId: undefined }),
+    ).toEqual({ kind: "loading" });
+  });
+
   it("does not offer retry for a workout that is not on this phone", () => {
     expect(
       resolveShareSessionGate({

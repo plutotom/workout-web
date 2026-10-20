@@ -107,6 +107,60 @@ async function memory(placeId) {
 }
 
 describe("completed workout preservation contract", () => {
+  it.each([
+    ["in_progress", "before-ack"],
+    ["in_progress", "after-ack"],
+    ["abandoned", "before-ack"],
+    ["abandoned", "after-ack"],
+  ])(
+    "retries an offline finish across restart without overriding a newer discard (server: %s, %s)",
+    async (serverStatus, subscriptionOrder) => {
+      phone.subscriptionOrder = subscriptionOrder;
+      const seeded = await seedWebWorkout();
+      const original = await detail(seeded.sessionId);
+      await phone.edit((local) => local.adoptRemoteCompletedWorkout(original));
+      await phone.offline();
+      await phone.edit((local) =>
+        local.updateSet(seeded.setId, { weight: 155 }),
+      );
+      const queued = await getPendingSessionSync(phone.db);
+      const newerRevision = queued.snapshot.updatedAt + 60_000;
+      await phone.cloud.run((ctx) =>
+        ctx.db.patch(seeded.sessionId, {
+          status: serverStatus,
+          clientUpdatedAt: newerRevision,
+        }),
+      );
+      await phone.reopen();
+      phone.faults.push({ name: "pushSession", loseResponse: true });
+      await phone.connect();
+      await phone.settle();
+
+      const applied = serverStatus === "in_progress";
+      const records = await phone.records(ALICE);
+      expect(records.workoutSessions).toEqual([
+        expect.objectContaining({
+          _id: seeded.sessionId,
+          status: applied ? "completed" : "abandoned",
+          clientUpdatedAt: newerRevision,
+        }),
+      ]);
+      expect(records.sessionExercises).toHaveLength(1);
+      expect(records.sets).toEqual([
+        expect.objectContaining({
+          _id: seeded.setId,
+          weight: applied ? 155 : 135,
+        }),
+      ]);
+      expect(
+        await phone.as(ALICE).query(api.routes.social.queries.syncedSession, {
+          localId: seeded.sessionId,
+        }),
+      ).toBe(applied ? seeded.sessionId : null);
+      expect(phone.outbox()).toEqual([]);
+    },
+  );
+
   it.each(["before-ack", "after-ack"])(
     "preserves a late second-phone Health attachment across offline list edits, restart and retry (%s)",
     async (subscriptionOrder) => {
@@ -398,6 +452,64 @@ describe("completed workout preservation contract", () => {
       { weight: 235, reps: 5 },
     ]);
   });
+
+  it.each(["before-ack", "after-ack"])(
+    "replaces a completed lift offline without losing child identity (%s)",
+    async (subscriptionOrder) => {
+      phone.subscriptionOrder = subscriptionOrder;
+      const seeded = await seedWebWorkout();
+      const postId = await phone
+        .as(ALICE)
+        .mutation(api.routes.social.mutations.shareWorkout, {
+          sessionId: seeded.sessionId,
+          caption: "Original caption",
+        });
+      const original = await detail(seeded.sessionId);
+      await phone.edit((local) => local.adoptRemoteCompletedWorkout(original));
+      await phone.offline();
+      await phone.edit((local) =>
+        local.replaceExercise(seeded.exerciseId, "squat"),
+      );
+      await phone.reopen();
+      await phone.edit((local) => local.adoptRemoteCompletedWorkout(original));
+      phone.faults.push({ name: "pushSession", loseResponse: true });
+      await phone.connect();
+      await phone.settle();
+      const records = await phone.records(ALICE);
+      expect(records.workoutSessions).toHaveLength(1);
+      expect(records.workoutSessions[0]).toMatchObject({
+        _id: seeded.sessionId,
+        completedAt: seeded.completedAt,
+      });
+      expect(records.sessionExercises).toEqual([
+        expect.objectContaining({
+          _id: seeded.exerciseId,
+          exerciseSlug: "squat",
+        }),
+      ]);
+      expect(records.sets).toEqual([
+        expect.objectContaining({
+          _id: seeded.setId,
+          sessionExerciseId: seeded.exerciseId,
+        }),
+      ]);
+      expect((await detail(seeded.sessionId)).exercises[0]).toMatchObject({
+        _id: seeded.exerciseId,
+        slug: "squat",
+      });
+      const posts = await phone.cloud.run((ctx) =>
+        ctx.db.query("activityPosts").collect(),
+      );
+      expect(posts).toHaveLength(1);
+      expect(posts[0]).toMatchObject({
+        _id: postId,
+        caption: "Original caption",
+        completedAt: seeded.completedAt,
+      });
+      expect(posts[0].bundle.templates[0].exercises[0].slug).toBe("squat");
+      expect(phone.outbox()).toEqual([]);
+    },
+  );
 
   it("rejects cross-account completed edits without changing rows or issuing receipts", async () => {
     const seeded = await seedWebWorkout();

@@ -11,17 +11,8 @@ import { usePersistedDraft } from "@/hooks/use-persisted-draft";
 type SetValues = Pick<LocalWorkoutSet, "weight" | "reps">;
 type SetChanges = Partial<SetValues>;
 
-export function WorkoutSetRow({
-  set,
-  index,
-  unit,
-  barWeight,
-  usesBar,
-  onCommit,
-  onComplete,
-  onDelete,
-  canDelete,
-}: {
+type WorkoutSetRowProps = {
+  exerciseSlug: string;
   set: LocalWorkoutSet;
   index: number;
   unit: "lb" | "kg";
@@ -31,7 +22,26 @@ export function WorkoutSetRow({
   onComplete: (completed: boolean, values: SetChanges) => Promise<unknown>;
   onDelete: () => void;
   canDelete: boolean;
-}) {
+};
+
+export function WorkoutSetRow({ exerciseSlug, ...props }: WorkoutSetRowProps) {
+  // Replacement preserves database ids, but drafts belong to the old lift.
+  return (
+    <WorkoutSetRowFields key={`${exerciseSlug}:${props.set._id}`} {...props} />
+  );
+}
+
+function WorkoutSetRowFields({
+  set,
+  index,
+  unit,
+  barWeight,
+  usesBar,
+  onCommit,
+  onComplete,
+  onDelete,
+  canDelete,
+}: Omit<WorkoutSetRowProps, "exerciseSlug">) {
   const weight = usePersistedDraft(String(set.weight || ""));
   const reps = usePersistedDraft(String(set.reps || ""));
   const [error, setError] = useState<string | null>(null);

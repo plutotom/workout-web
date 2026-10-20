@@ -30,13 +30,14 @@ export function resolveShareSessionGate(input: {
   if (typeof input.convexRemoteId === "string") {
     return { kind: "ready", remoteId: input.convexRemoteId };
   }
+  // A cold offline visit cannot resolve the live query until reconnecting.
+  if (!input.isWebSocketConnected) return { kind: "offline" };
   if (
     input.convexRemoteId === undefined ||
     input.pendingAttemptCount === undefined
   ) {
     return { kind: "loading" };
   }
-  if (!input.isWebSocketConnected) return { kind: "offline" };
   if (input.pendingAttemptCount === null) {
     return { kind: "failed", canRetry: input.localCompleted };
   }
