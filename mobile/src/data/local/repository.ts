@@ -2619,23 +2619,28 @@ export async function completeTemplateSync(
   await db.withExclusiveTransactionAsync(async (txn) => {
     if (remoteTemplateId) {
       await adoptTemplateIdentity(txn, templateId, remoteTemplateId);
-      const relinked = await txn.getAllAsync<{ id: string }>(
-        "SELECT id FROM local_sessions WHERE template_id = ? AND remote_template_id IS NOT ?",
+      const relinked = await txn.getAllAsync<{
+        id: string;
+        updated_at: number;
+      }>(
+        "SELECT id, updated_at FROM local_sessions WHERE template_id = ? AND remote_template_id IS NOT ?",
         templateId,
         remoteTemplateId,
       );
-      await txn.runAsync(
-        `UPDATE local_sessions
-            SET remote_template_id = ?, updated_at = ?
-          WHERE template_id = ? AND remote_template_id IS NOT ?`,
-        remoteTemplateId,
-        now,
-        templateId,
-        remoteTemplateId,
-      );
-      // Link updates and their follow-up uploads must commit together. An
-      // app exit between them must leave the original template upload queued.
-      for (const row of relinked) await queueSessionSnapshot(txn, row.id, now);
+      // Finish may have already advanced past wall clock. A rewind here makes
+      // the follow-up upload look stale and drops the trusted template link.
+      for (const row of relinked) {
+        const updatedAt = nextClientUpdatedAt(row.updated_at, now);
+        await txn.runAsync(
+          `UPDATE local_sessions
+              SET remote_template_id = ?, updated_at = ?
+            WHERE id = ?`,
+          remoteTemplateId,
+          updatedAt,
+          row.id,
+        );
+        await queueSessionSnapshot(txn, row.id, updatedAt);
+      }
     }
     await txn.runAsync(
       "DELETE FROM local_sync_outbox WHERE operation_id = ?",

@@ -4,6 +4,7 @@ import { afterEach, expect, it, vi } from "vitest";
 vi.mock("expo-crypto", () => ({ randomUUID: () => randomUUID() }));
 import { migrateLocalDatabase } from "./migrations";
 import {
+  completeTemplateSync,
   finishLocalWorkout,
   getLocalSessionShareOutboxAttempt,
   getLocalWorkout,
@@ -41,6 +42,7 @@ async function fixture() {
   return { db, sql };
 }
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const sql of databases) sql.close();
   databases.length = 0;
 });
@@ -78,4 +80,30 @@ it("re-queues a completed workout after a stale in-progress ack emptied the outb
   expect(pending?.snapshot.status).toBe("completed");
   expect(pending?.snapshot.updatedAt).toBeGreaterThan(10);
   expect(pending?.snapshot.remoteId).toBe("remote-1");
+});
+
+it("relinks a finished workout to a newly synced template without rewinding its revision", async () => {
+  const { db } = await fixture();
+  const now = 1_700_000_000_000;
+  vi.spyOn(Date, "now").mockReturnValue(now);
+  await db.runAsync(
+    `INSERT INTO local_templates (id, remote_id, name, updated_at)
+     VALUES ('tmpl-1', 'local:tmpl-1', 'Push', 1)`,
+  );
+  await db.runAsync(
+    `INSERT INTO local_sessions (id, template_id, template_name, status, started_at, completed_at, updated_at)
+     VALUES ('local-1', 'tmpl-1', 'Push', 'completed', 1, 2, ?)`,
+    now + 5_000,
+  );
+  await db.runAsync(
+    `INSERT INTO local_sync_outbox (entity_type, entity_id, operation_id, payload_json, created_at, attempt_count)
+     VALUES ('template', 'tmpl-1', 'tmpl-op', '{}', 1, 0)`,
+  );
+  await completeTemplateSync(db, "tmpl-op", "tmpl-1", "cloud-tmpl");
+  const session = await getLocalWorkout(db, "local-1");
+  const pending = await getPendingSessionSync(db);
+  expect(session?.remoteTemplateId).toBe("cloud-tmpl");
+  expect(session?.updatedAt).toBe(now + 5_001);
+  expect(pending?.snapshot.remoteTemplateId).toBe("cloud-tmpl");
+  expect(pending?.snapshot.updatedAt).toBe(now + 5_001);
 });
