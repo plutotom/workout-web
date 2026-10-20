@@ -8,6 +8,7 @@ import { SyncCoordinator } from "@/data/sync/sync-coordinator";
 import { CatalogProvider } from "@/providers/catalog-provider";
 import { SocialQueryProvider } from "@/providers/social-query-provider";
 import { requirePublicConfig } from "@/lib/config";
+import "@/lib/workout-collapse-storage";
 import { HealthExportCoordinator } from "@/health/export-coordinator";
 import { HealthImportCoordinator } from "@/health/import-coordinator";
 import { WatchHealthCoordinator } from "@/health/watch-coordinator";

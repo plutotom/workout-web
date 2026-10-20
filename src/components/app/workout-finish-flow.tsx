@@ -20,6 +20,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { hapticSuccess } from "@/lib/haptics";
 import { useVisualViewportFrame } from "@/hooks/use-visual-viewport-frame";
+import { clearSessionCollapsed } from "@/lib/workout-collapse";
 
 type TemplateData =
   | {
@@ -175,6 +176,7 @@ export function useWorkoutFinishFlow({
     if (willPromptSave || willPromptSync) setPostFinishPending(true);
     try {
       await finish({ sessionId: sessionId as Id<"workoutSessions"> });
+      clearSessionCollapsed(sessionId);
       hapticSuccess();
       if (willPromptSave) {
         savePromptResolved.current = false;
@@ -209,6 +211,7 @@ export function useWorkoutFinishFlow({
     setFinishing(true);
     try {
       await abandon({ sessionId: sessionId as Id<"workoutSessions"> });
+      clearSessionCollapsed(sessionId);
       toast.success("Workout discarded");
       router.push("/dashboard");
     } catch {

@@ -61,6 +61,7 @@ import { useExerciseCatalog } from "@/components/app/exercise-catalog-provider";
 import { formatLb } from "@/components/app/workout-design";
 import { formatHealthDistance, formatHealthEnergy } from "@/lib/health-summary";
 import { sessionAllowsCompletedReviewEdit } from "@/lib/session-edits";
+import { useWorkoutCollapse } from "@/lib/use-workout-collapse";
 import { SessionPlaceBar } from "@/components/app/session-place-bar";
 import { MachinePickerSheet } from "@/components/app/machine-picker";
 
@@ -124,11 +125,12 @@ export function WorkoutLog({
   const [noteOpenSignals, setNoteOpenSignals] = useState<
     Partial<Record<Id<"sessionExercises">, number>>
   >({});
-  // Collapsed cards are opt-in and independent, so a session can mix open and
-  // closed exercises. Absent id means expanded.
-  const [collapsed, setCollapsed] = useState<
-    Partial<Record<Id<"sessionExercises">, true>>
-  >({});
+  const exerciseIds = session?.exercises.map((exercise) => exercise._id) ?? [];
+  const { collapsed, toggleCollapsed, expandCollapsed } = useWorkoutCollapse(
+    sessionId,
+    exerciseIds,
+    session != null,
+  );
   const [now, setNow] = useState(() => Date.now());
   const { rest, startRest, clearRest, addSeconds } = useWorkoutRest();
   const [drag, setDrag] = useState<DragState | null>(null);
@@ -550,12 +552,7 @@ export function WorkoutLog({
                       disabled={isReordering}
                       onClick={() => {
                         hapticTap();
-                        setCollapsed((current) => {
-                          const next = { ...current };
-                          if (next[exercise._id]) delete next[exercise._id];
-                          else next[exercise._id] = true;
-                          return next;
-                        });
+                        toggleCollapsed(exercise._id);
                       }}
                     >
                       {!isReordering ? (
@@ -827,12 +824,7 @@ export function WorkoutLog({
                 const id = exerciseMenu.id;
                 // The note lives in the card body, so a collapsed card has to
                 // open or the signal lands on nothing.
-                setCollapsed((current) => {
-                  if (!current[id]) return current;
-                  const next = { ...current };
-                  delete next[id];
-                  return next;
-                });
+                expandCollapsed(id);
                 setNoteOpenSignals((prev) => ({
                   ...prev,
                   [id]: (prev[id] ?? 0) + 1,
