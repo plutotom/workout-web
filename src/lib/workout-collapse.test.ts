@@ -82,14 +82,14 @@ describe("pruneCollapsed", () => {
   });
 
   it("returns the same object when nothing was removed", () => {
-    const current = { "ex-1": true };
+    const current = { "ex-1": true } as const;
     expect(pruneCollapsed(current, ["ex-1", "ex-2"])).toBe(current);
   });
 });
 
 describe("retainCollapsedAcrossReplace", () => {
   it("keeps the slot's collapse when the id is unchanged", () => {
-    const current = { "ex-1": true };
+    const current = { "ex-1": true } as const;
     expect(retainCollapsedAcrossReplace(current, "ex-1", "ex-1")).toBe(current);
   });
 
@@ -213,7 +213,7 @@ describe("session-keyed store", () => {
   });
 
   it("round-trips the serialized snapshot", () => {
-    const snapshot = { sess: { "ex-1": true } };
+    const snapshot = { sess: { "ex-1": true } } as const;
     expect(parseCollapseStore(serializeCollapseStore(snapshot))).toEqual(
       snapshot,
     );
