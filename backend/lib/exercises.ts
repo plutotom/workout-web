@@ -24,7 +24,7 @@ function toCatalogEntry(doc: Doc<"customExercises">) {
   };
 }
 
-function normalizeName(name: string): string {
+export function normalizeExerciseName(name: string): string {
   const trimmed = name.trim();
   if (!trimmed) throw new Error("Exercise name is required");
   if (trimmed.length > MAX_NAME_LENGTH)
@@ -75,7 +75,7 @@ export async function createCustomExercise(
 
   const id = await ctx.db.insert("customExercises", {
     userId,
-    name: normalizeName(args.name),
+    name: normalizeExerciseName(args.name),
     short: normalizeShort(args.short),
     category: args.category,
     usesBar: args.usesBar,
@@ -119,7 +119,7 @@ export async function upsertCustomExerciseFromClient(
     : (byClient ?? (legacy?.userId === userId ? legacy : null));
 
   const fields = {
-    name: normalizeName(args.name),
+    name: normalizeExerciseName(args.name),
     short: normalizeShort(args.short),
     category: args.category,
     usesBar: args.usesBar,
@@ -172,7 +172,7 @@ export async function updateCustomExercise(
 ) {
   await requireOwned(ctx, userId, args.exerciseId);
   await ctx.db.patch(args.exerciseId, {
-    name: normalizeName(args.name),
+    name: normalizeExerciseName(args.name),
     short: normalizeShort(args.short),
     category: args.category,
     usesBar: args.usesBar,
