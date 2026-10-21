@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   WORKOUT_COLLAPSE_STORAGE_KEY,
@@ -9,6 +9,9 @@ import {
   pruneCollapsed,
   pruneSessionCollapsed,
   readSessionCollapsed,
+  readServerCollapsed,
+  configureWorkoutCollapseStorage,
+  subscribeWorkoutCollapse,
   resetWorkoutCollapseStoreForTests,
   retainCollapsedAcrossReplace,
   retainSessionCollapsedAcrossReplace,
@@ -235,4 +238,66 @@ describe("session-keyed store", () => {
     seedWorkoutCollapseStore(JSON.stringify({ sess: { "ex-1": true } }));
     expect(readSessionCollapsed("sess")).toEqual({ "ex-1": true });
   });
+});
+
+describe("unavailable persistence", () => {
+  it.each(["setItem", "removeItem"] as const)(
+    "keeps memory and subscribers working when %s throws",
+    (operation) => {
+      const storage = memoryStorage();
+      resetWorkoutCollapseStoreForTests(storage);
+      writeSessionCollapsed("session", { exercise: true });
+      let notifications = 0;
+      const unsubscribe = subscribeWorkoutCollapse(() => {
+        notifications++;
+      });
+      configureWorkoutCollapseStorage({
+        ...storage,
+        [operation]() {
+          throw new Error("Storage unavailable");
+        },
+      });
+      try {
+        expect(() => toggleSessionCollapsed("session", "other")).not.toThrow();
+        expect(readSessionCollapsed("session")).toEqual({
+          exercise: true,
+          other: true,
+        });
+        expect(() => clearSessionCollapsed("session")).not.toThrow();
+        expect(readSessionCollapsed("session")).toEqual({});
+        expect(notifications).toBe(2);
+      } finally {
+        unsubscribe();
+      }
+    },
+  );
+
+  it("keeps the server hydration snapshot empty and stable with saved browser folds", () => {
+    const empty = readServerCollapsed();
+    seedWorkoutCollapseStore(JSON.stringify({ session: { exercise: true } }));
+    expect(readSessionCollapsed("session")).toEqual({ exercise: true });
+    expect(readServerCollapsed()).toBe(empty);
+    expect(readServerCollapsed()).toEqual({});
+  });
+});
+
+it("loads the browser collapse store even when reading localStorage throws", async () => {
+  vi.resetModules();
+  vi.stubGlobal("localStorage", {
+    getItem() {
+      throw new Error("Storage denied");
+    },
+    setItem() {},
+    removeItem() {},
+  });
+  try {
+    const fresh = await import("./workout-collapse");
+    expect(fresh.readSessionCollapsed("session")).toEqual({});
+    expect(() =>
+      fresh.toggleSessionCollapsed("session", "exercise"),
+    ).not.toThrow();
+    expect(fresh.readSessionCollapsed("session")).toEqual({ exercise: true });
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });

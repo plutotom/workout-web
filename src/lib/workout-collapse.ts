@@ -27,7 +27,7 @@ const listeners = new Set<() => void>();
 
 let storage: WorkoutCollapseStorage | null = detectWebStorage();
 let store: CollapseStore = storage
-  ? parseCollapseStore(storage.getItem(WORKOUT_COLLAPSE_STORAGE_KEY))
+  ? parseCollapseStore(readStorage(storage))
   : {};
 let dirty = false;
 let hydrated = storage !== null;
@@ -41,17 +41,32 @@ function detectWebStorage(): WorkoutCollapseStorage | null {
   }
 }
 
+function readStorage(source: WorkoutCollapseStorage): string | null {
+  try {
+    return source.getItem(WORKOUT_COLLAPSE_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
 function emit() {
   for (const listener of listeners) listener();
 }
 
 function persist() {
   if (!storage) return;
-  if (Object.keys(store).length === 0) {
-    storage.removeItem(WORKOUT_COLLAPSE_STORAGE_KEY);
-    return;
+  try {
+    if (Object.keys(store).length === 0) {
+      storage.removeItem(WORKOUT_COLLAPSE_STORAGE_KEY);
+      return;
+    }
+    storage.setItem(
+      WORKOUT_COLLAPSE_STORAGE_KEY,
+      serializeCollapseStore(store),
+    );
+  } catch {
+    // Folds remain usable in memory when browser storage is unavailable/full.
   }
-  storage.setItem(WORKOUT_COLLAPSE_STORAGE_KEY, serializeCollapseStore(store));
 }
 
 function commit(sessionId: string, collapsed: CollapsedMap): CollapsedMap {
@@ -167,6 +182,11 @@ export function subscribeWorkoutCollapse(listener: () => void): () => void {
 
 export function isWorkoutCollapseHydrated(): boolean {
   return hydrated;
+}
+
+/** Stable empty snapshot for SSR and the first browser hydration render. */
+export function readServerCollapsed(): CollapsedMap {
+  return EMPTY_COLLAPSED;
 }
 
 export function readSessionCollapsed(sessionId: string): CollapsedMap {

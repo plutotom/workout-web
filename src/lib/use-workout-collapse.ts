@@ -5,6 +5,7 @@ import {
   isWorkoutCollapseHydrated,
   pruneSessionCollapsed,
   readSessionCollapsed,
+  readServerCollapsed,
   subscribeWorkoutCollapse,
   toggleSessionCollapsed,
   type CollapsedMap,
@@ -31,7 +32,7 @@ export function useWorkoutCollapse(
   const collapsed = useSyncExternalStore(
     subscribeWorkoutCollapse,
     () => readSessionCollapsed(sessionId),
-    () => readSessionCollapsed(sessionId),
+    readServerCollapsed,
   );
 
   useEffect(() => {
