@@ -309,6 +309,7 @@ export const pushCustomExercise = mutation({
     deviceId: v.string(),
     exercise: v.object({
       clientId: v.string(),
+      remoteId: v.optional(v.union(v.id("customExercises"), v.null())),
       name: v.string(),
       short: v.union(v.string(), v.null()),
       category: muscleGroupValidator,
@@ -323,10 +324,11 @@ export const pushCustomExercise = mutation({
   }),
   handler: async (ctx, args) => {
     const user = await requireSyncUser(ctx, args.ownerWorkosId);
-    // The upsert is keyed by clientId, so a replayed operation is already
-    // idempotent; the receipt still records the attempt for auditing.
+    // Owned remote identity handles adopted cloud lifts; clientId identifies
+    // new offline lifts. The receipt records the attempt for auditing.
     const result = await upsertCustomExerciseFromClient(ctx, user._id, {
       clientId: args.exercise.clientId,
+      remoteId: args.exercise.remoteId,
       name: args.exercise.name,
       short: args.exercise.short ?? undefined,
       category: args.exercise.category,

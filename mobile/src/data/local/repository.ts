@@ -2870,6 +2870,7 @@ export async function queueCustomExerciseSnapshot(
     // The local row id doubles as the client id, so a retried upload resolves
     // to the same Convex document instead of duplicating the lift.
     clientId: row.id,
+    remoteId: row.remote_id,
     name: row.name,
     short: row.short,
     category: row.category as LocalMuscleGroup,
@@ -3348,22 +3349,42 @@ export async function applyIosBootstrap(
 
     for (const exercise of payload.customExercises) {
       const remoteSlug = remoteCustomSlug(exercise.remoteId);
-      // `clientId` is the local row id for lifts this device authored offline,
-      // so a lift that has already been uploaded is adopted rather than
-      // duplicated. Otherwise fall back to matching an earlier bootstrap.
+      // A cloud-imported lift used its remote id as a local id. Older uploads
+      // could create a second cloud row with that id as clientId. Remote identity
+      // wins: the second row must never steal an already bound local lift.
+      const clientMatch = exercise.clientId
+        ? await txn.getFirstAsync<{
+            id: string;
+            slug: string;
+            remote_id: string | null;
+          }>(
+            "SELECT id, slug, remote_id FROM local_custom_exercises WHERE id = ?",
+            exercise.clientId,
+          )
+        : null;
       const existing =
-        (exercise.clientId
-          ? await txn.getFirstAsync<{ id: string; slug: string }>(
-              "SELECT id, slug FROM local_custom_exercises WHERE id = ?",
-              exercise.clientId,
-            )
-          : null) ??
         (await txn.getFirstAsync<{ id: string; slug: string }>(
           "SELECT id, slug FROM local_custom_exercises WHERE remote_id = ?",
           exercise.remoteId,
-        ));
+        )) ??
+        (await txn.getFirstAsync<{ id: string; slug: string }>(
+          "SELECT id, slug FROM local_custom_exercises WHERE slug = ? AND (remote_id IS NULL OR remote_id = ?)",
+          remoteSlug,
+          exercise.remoteId,
+        )) ??
+        (clientMatch &&
+        (!clientMatch.remote_id || clientMatch.remote_id === exercise.remoteId)
+          ? clientMatch
+          : null);
 
       if (!existing) {
+        // Repair databases already affected by the old identity adoption. Keep
+        // their row and references; give the other cloud lift a fresh local id.
+        const occupied = await txn.getFirstAsync<{ id: string }>(
+          "SELECT id FROM local_custom_exercises WHERE id = ?",
+          exercise.remoteId,
+        );
+        const localId = occupied ? randomUUID() : exercise.remoteId;
         await txn.runAsync(
           `INSERT INTO local_custom_exercises (
              id, slug, remote_id, name, short, category, uses_bar, archived, updated_at
@@ -3376,7 +3397,7 @@ export async function applyIosBootstrap(
              uses_bar = excluded.uses_bar,
              archived = excluded.archived,
              updated_at = excluded.updated_at`,
-          exercise.remoteId,
+          localId,
           remoteSlug,
           exercise.remoteId,
           exercise.name,

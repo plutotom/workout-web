@@ -132,7 +132,13 @@ export function SyncCoordinator() {
           ownerWorkosId: owner,
           operationId: pendingExercise.operationId,
           deviceId,
-          exercise: pendingExercise.snapshot,
+          exercise: {
+            ...pendingExercise.snapshot,
+            remoteId: pendingExercise.snapshot.remoteId as
+              | Id<"customExercises">
+              | null
+              | undefined,
+          },
         });
         await syncStore.completeCustomExercise(
           pendingExercise.operationId,
