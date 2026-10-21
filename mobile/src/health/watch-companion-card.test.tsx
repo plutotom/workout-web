@@ -14,7 +14,9 @@ const mocks = vi.hoisted(() => ({
     installed: true,
     reachable: true,
   } as WatchCompanionStatus,
-  startWatchWorkout: vi.fn(async () => {}),
+  startWatchWorkout: vi.fn(
+    async (_input: { sessionId: string; startedAt: number }) => {},
+  ),
   endWatchWorkout: vi.fn(async () => {}),
   requestWriteAccess: vi.fn(async () => "connected" as const),
   isAvailable: vi.fn(async () => true),
@@ -25,7 +27,8 @@ vi.mock("@/data/local/provider", () => ({
 }));
 vi.mock("@/health/watch-bridge", () => ({
   getWatchCompanionStatus: () => mocks.status,
-  startWatchWorkout: (...args: unknown[]) => mocks.startWatchWorkout(...args),
+  startWatchWorkout: (input: { sessionId: string; startedAt: number }) =>
+    mocks.startWatchWorkout(input),
   endWatchWorkout: () => mocks.endWatchWorkout(),
   subscribeWatchEvents: () => () => {},
 }));
@@ -82,7 +85,10 @@ afterEach(async () => {
 async function mount() {
   await act(async () => {
     renderer = create(
-      <WatchCompanionCard sessionId="session-1" startedAt={1_700_000_000_000} />,
+      <WatchCompanionCard
+        sessionId="session-1"
+        startedAt={1_700_000_000_000}
+      />,
     );
   });
   await act(async () => {});
