@@ -369,7 +369,7 @@ function LocalDataState({
       if (noteBody !== undefined)
         await finishLocalNoteWorkout(db, sessionId, noteBody);
       // Watch I/O must not hold Finish on screen if the companion hangs.
-      void endWatchWorkout().catch(() => undefined);
+      void endWatchWorkout(sessionId).catch(() => undefined);
       if (noteBody === undefined) await finishLocalWorkout(db, sessionId);
       if (noteBody !== undefined) {
         // Completion is already durable. Stored UUIDs and export intent retry in
@@ -519,7 +519,7 @@ function LocalDataState({
         run(() => retryLocalSessionShareSync(db, sessionId)),
       abandon: (sessionId) =>
         run(async () => {
-          void discardWatchWorkout().catch(() => undefined);
+          void discardWatchWorkout(sessionId).catch(() => undefined);
           await abandonLocalWorkout(db, sessionId);
           clearSessionCollapsed(sessionId);
         }),

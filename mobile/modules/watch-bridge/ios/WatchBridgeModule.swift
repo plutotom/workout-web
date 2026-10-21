@@ -21,6 +21,14 @@ public class WatchBridgeModule: Module {
       WatchPhoneSession.shared.status()
     }
 
+    Function("getSessionEvents") { () -> [[String: Any]] in
+      WatchPhoneSession.shared.snapshots.events()
+    }
+
+    Function("requestWatchStatus") {
+      WatchPhoneSession.shared.requestStatus()
+    }
+
     AsyncFunction("startWatchWorkout") { (sessionId: String, startedAt: Double, syncIdentifier: String) in
       do {
         try await WatchPhoneSession.shared.startWatchWorkout(
@@ -49,6 +57,14 @@ public class WatchBridgeModule: Module {
     AsyncFunction("discardWatchWorkout") {
       WatchPhoneSession.shared.send(["type": "discard"])
     }
+
+    AsyncFunction("endWatchSession") { (sessionId: String) in
+      try WatchPhoneSession.shared.sendCommand(["type": "end", "sessionId": sessionId])
+    }
+
+    AsyncFunction("discardWatchSession") { (sessionId: String) in
+      try WatchPhoneSession.shared.sendCommand(["type": "discard", "sessionId": sessionId])
+    }
   }
 }
 
@@ -56,6 +72,7 @@ final class WatchPhoneSession: NSObject, WCSessionDelegate {
   static let shared = WatchPhoneSession()
   var onEvent: (([String: Any]) -> Void)?
   private let healthStore = HKHealthStore()
+  let snapshots = WatchSessionSnapshotCache()
 
   func activate(onEvent: @escaping ([String: Any]) -> Void) {
     self.onEvent = onEvent
@@ -63,6 +80,14 @@ final class WatchPhoneSession: NSObject, WCSessionDelegate {
     let session = WCSession.default
     session.delegate = self
     session.activate()
+  }
+
+  func requestStatus() {
+    guard WCSession.isSupported() else { return }
+    let session = WCSession.default
+    // Status queries must not enqueue stale work or launch a workout.
+    guard session.activationState == .activated, session.isReachable else { return }
+    session.sendMessage(["type": "status", "sessionId": snapshots.latestSessionId() ?? ""], replyHandler: nil, errorHandler: nil)
   }
 
   func clearEventSink() {
@@ -116,6 +141,7 @@ final class WatchPhoneSession: NSObject, WCSessionDelegate {
       "startedAt": startedAt,
       "syncIdentifier": syncIdentifier,
     ]
+    emit(["type": "state", "sessionId": sessionId, "status": "starting", "reachable": session.isReachable])
     try? session.updateApplicationContext(payload)
     send(payload)
 
@@ -125,6 +151,9 @@ final class WatchPhoneSession: NSObject, WCSessionDelegate {
     do {
       try await healthStore.startWatchApp(toHandle: configuration)
     } catch {
+      if !["recording", "ended"].contains(snapshots.status(for: sessionId) ?? "") {
+        emit(["type": "state", "sessionId": sessionId, "status": "idle", "reachable": session.isReachable])
+      }
       throw Exception(
         name: "WatchLaunchFailed",
         description: Self.launchFailureMessage(error)
@@ -162,11 +191,21 @@ final class WatchPhoneSession: NSObject, WCSessionDelegate {
     }
   }
 
+  func sendCommand(_ payload: [String: Any]) throws {
+    guard WCSession.isSupported(), WCSession.default.activationState == .activated else {
+      throw Exception(name: "WatchUnavailable", description: "Watch connection is not ready. Try again.")
+    }
+    send(payload)
+  }
+
   func session(
     _ session: WCSession,
     activationDidCompleteWith activationState: WCSessionActivationState,
     error: Error?
-  ) {}
+  ) {
+    emit(["type": "state", "sessionId": "", "status": session.isReachable ? "reachable" : "disconnected", "reachable": session.isReachable])
+    requestStatus()
+  }
 
   func sessionDidBecomeInactive(_ session: WCSession) {}
 
@@ -181,6 +220,7 @@ final class WatchPhoneSession: NSObject, WCSessionDelegate {
       "status": session.isReachable ? "reachable" : "disconnected",
       "reachable": session.isReachable,
     ])
+    if session.isReachable { requestStatus() }
   }
 
   func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
@@ -193,6 +233,7 @@ final class WatchPhoneSession: NSObject, WCSessionDelegate {
 
   private func emit(_ payload: [String: Any]) {
     DispatchQueue.main.async {
+      self.snapshots.record(payload)
       guard let onEvent = self.onEvent else { return }
       onEvent(payload)
     }

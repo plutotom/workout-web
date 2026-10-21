@@ -40,7 +40,15 @@ final class PhoneBridge: NSObject, WCSessionDelegate {
     _ session: WCSession,
     activationDidCompleteWith activationState: WCSessionActivationState,
     error: Error?
-  ) {}
+  ) {
+    DispatchQueue.main.async { WorkoutManager.shared.mirrorState() }
+  }
+
+  func sessionReachabilityDidChange(_ session: WCSession) {
+    if session.isReachable {
+      DispatchQueue.main.async { WorkoutManager.shared.mirrorState() }
+    }
+  }
 
   func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
     handle(message)
@@ -68,12 +76,15 @@ final class PhoneBridge: NSObject, WCSessionDelegate {
           syncIdentifier: message["syncIdentifier"] as? String ?? ""
         )
       case "end":
-        WorkoutManager.shared.endFromWatch()
+        WorkoutManager.shared.endFromPhone(sessionId: message["sessionId"] as? String, discard: false)
       case "discard":
-        WorkoutManager.shared.discard()
+        WorkoutManager.shared.endFromPhone(sessionId: message["sessionId"] as? String, discard: true)
+      case "status":
+        WorkoutManager.shared.replyToStatus(sessionId: message["sessionId"] as? String)
       default:
         break
       }
     }
   }
+
 }

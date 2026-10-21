@@ -10,6 +10,7 @@ import {
   recoverStoredWatchHealthUuids,
 } from "@/data/local/repository";
 import { getHealthAdapter } from "@/health";
+import { getWatchSessionSnapshot } from "@/health/watch-bridge";
 
 function isForeground() {
   return AppState.currentState === "active";
@@ -44,6 +45,15 @@ export function HealthExportCoordinator() {
         let attached = false;
         for (const item of pending) {
           try {
+            // Native evidence closes the gap before async SQLite adoption (or
+            // after an interrupted write). Never race a Watch recording/export.
+            const watch = getWatchSessionSnapshot(item.sessionId);
+            if (
+              watch.recorded ||
+              watch.status === "starting" ||
+              watch.healthUuid
+            )
+              continue;
             const { uuid } = await adapter.saveTrackedWorkout({
               sessionId: item.sessionId,
               startedAt: item.startedAt,

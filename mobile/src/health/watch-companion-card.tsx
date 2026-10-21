@@ -1,6 +1,6 @@
 import { Watch } from "lucide-react-native";
 import { useEffect, useRef, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { AppState, Pressable, Text, View } from "react-native";
 
 import { Button, Card } from "@/components/ui";
 import { useLocalPreferences } from "@/data/local/provider";
@@ -8,6 +8,8 @@ import { getHealthAdapter } from "@/health";
 import {
   endWatchWorkout,
   getWatchCompanionStatus,
+  getWatchSessionSnapshot,
+  refreshWatchSession,
   startWatchWorkout,
   subscribeWatchEvents,
 } from "@/health/watch-bridge";
@@ -24,18 +26,21 @@ import {
 } from "@/health/watch-session";
 import { colors } from "@/theme";
 
-export function WatchCompanionCard({
-  sessionId,
-  startedAt,
-}: {
-  sessionId: string;
-  startedAt: number;
-}) {
+type Props = { sessionId: string; startedAt: number };
+
+export function WatchCompanionCard(props: Props) {
+  return <WatchCompanionSession key={props.sessionId} {...props} />;
+}
+
+function WatchCompanionSession({ sessionId, startedAt }: Props) {
   const preferences = useLocalPreferences();
   const [status, setStatus] = useState(getWatchCompanionStatus);
-  const [watchStatus, setWatchStatus] = useState<WatchSessionStatus>("idle");
-  const [heartRate, setHeartRate] = useState<number | null>(null);
-  const [energyKcal, setEnergyKcal] = useState<number | null>(null);
+  const [snapshot, setSnapshot] = useState(() =>
+    getWatchSessionSnapshot(sessionId),
+  );
+  const { status: watchStatus, heartRate, energyKcal, healthUuid } = snapshot;
+  const actionPending = useRef(false);
+  const [ending, setEnding] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [healthAvailable, setHealthAvailable] = useState<boolean | null>(null);
@@ -59,20 +64,64 @@ export function WatchCompanionCard({
   }, []);
 
   useEffect(() => {
-    return subscribeWatchEvents((event) => {
+    const unsubscribe = subscribeWatchEvents((event) => {
+      if (event.type !== "metrics") {
+        const next = getWatchCompanionStatus();
+        setStatus(
+          event.type === "state"
+            ? { ...next, reachable: event.reachable }
+            : next,
+        );
+      }
       if (event.type === "metrics") {
-        setHeartRate(event.heartRate);
-        setEnergyKcal(event.activeEnergyKcal);
+        if (event.sessionId !== sessionId) return;
+        setSnapshot((current) =>
+          current.status === "ended"
+            ? current
+            : {
+                ...current,
+                heartRate: event.heartRate,
+                energyKcal: event.activeEnergyKcal,
+              },
+        );
         return;
       }
-      setWatchStatus((current) =>
-        reduceWatchSessionStatus(current, event, sessionId),
-      );
+      setSnapshot((current) => ({
+        ...current,
+        status: reduceWatchSessionStatus(current.status, event, sessionId),
+        healthUuid:
+          event.type === "ended" && event.sessionId === sessionId
+            ? event.healthUuid || current.healthUuid
+            : current.healthUuid,
+      }));
+      if (event.type === "ended" && event.sessionId === sessionId)
+        setEnding(false);
+      if (
+        event.type === "state" &&
+        event.sessionId === sessionId &&
+        event.status === "recording"
+      )
+        setError(null);
     });
+    refreshWatchSession();
+    const foreground = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        setStatus(getWatchCompanionStatus());
+        refreshWatchSession();
+      }
+    });
+    return () => {
+      unsubscribe();
+      foreground.remove();
+    };
   }, [sessionId]);
 
   useEffect(() => {
     if (preferences === undefined || autoStarted.current) return;
+    if (
+      !["idle", "reachable"].includes(getWatchSessionSnapshot(sessionId).status)
+    )
+      return;
     if (healthAvailable !== true) return;
     if (
       !shouldAutoStartWatchWorkout({
@@ -84,7 +133,7 @@ export function WatchCompanionCard({
       return;
     }
     autoStarted.current = true;
-    void begin();
+    void begin(startedAt);
     // Pairing/install is device state; starting once per mount is the existing path.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- session start is one-shot
   }, [
@@ -94,9 +143,16 @@ export function WatchCompanionCard({
     preferences,
     autoStartEnabled,
     healthAvailable,
+    watchStatus,
   ]);
 
-  async function begin() {
+  async function begin(recordingStartedAt = Date.now()) {
+    if (actionPending.current) return;
+    if (
+      !["idle", "reachable"].includes(getWatchSessionSnapshot(sessionId).status)
+    )
+      return;
+    actionPending.current = true;
     setBusy(true);
     setError(null);
     try {
@@ -108,12 +164,30 @@ export function WatchCompanionCard({
       if (write !== "connected" && write !== "limited") {
         throw new Error("Allow Health write access to start Watch recording.");
       }
-      await startWatchWorkout({ sessionId, startedAt });
-      setWatchStatus("starting");
+      await startWatchWorkout({ sessionId, startedAt: recordingStartedAt });
+      setSnapshot(getWatchSessionSnapshot(sessionId));
     } catch (caught) {
       setError(watchLaunchErrorMessage(caught));
     } finally {
+      actionPending.current = false;
       setBusy(false);
+    }
+  }
+
+  async function end() {
+    if (actionPending.current || ending) return;
+    actionPending.current = true;
+    setEnding(true);
+    setError(null);
+    try {
+      await endWatchWorkout(sessionId);
+    } catch {
+      setEnding(false);
+      setError(
+        "Couldn’t end Watch recording. Try again or end it on your Watch.",
+      );
+    } finally {
+      actionPending.current = false;
     }
   }
 
@@ -127,7 +201,10 @@ export function WatchCompanionCard({
     return null;
   }
 
-  const recording = watchStatus === "recording" || watchStatus === "starting";
+  const recording =
+    watchStatus === "recording" ||
+    watchStatus === "starting" ||
+    watchStatus === "disconnected";
   const presentation = watchCompanionPresentation({
     autoStartEnabled,
     watchStatus,
@@ -184,7 +261,12 @@ export function WatchCompanionCard({
         </Text>
       </View>
       <Text style={{ color: colors.dim, fontSize: 13, lineHeight: 19 }}>
-        {companionCopy({ status, watchStatus, recording })}
+        {companionCopy({
+          status,
+          watchStatus,
+          recording,
+          saved: Boolean(healthUuid),
+        })}
       </Text>
       {recording ? (
         <Text style={{ color: colors.text, fontSize: 15, fontWeight: "600" }}>
@@ -207,10 +289,16 @@ export function WatchCompanionCard({
         />
       ) : null}
       {recording ? (
+        <Text style={{ color: colors.dim, fontSize: 12, lineHeight: 17 }}>
+          Ends Watch recording. Your workout stays open on iPhone.
+        </Text>
+      ) : null}
+      {recording ? (
         <Button
-          label="End on Watch"
+          label={ending ? "Ending on Watch…" : "End on Watch"}
+          disabled={ending || busy}
           variant="outline"
-          onPress={() => void endWatchWorkout()}
+          onPress={() => void end()}
         />
       ) : null}
     </Card>
@@ -221,19 +309,24 @@ function companionCopy({
   status,
   watchStatus,
   recording,
+  saved,
 }: {
   status: WatchCompanionStatus;
   watchStatus: WatchSessionStatus;
   recording: boolean;
+  saved: boolean;
 }) {
-  if (!status.paired) {
-    return "Watch recording is running for this workout.";
+  if (recording && (!status.reachable || watchStatus === "disconnected")) {
+    return "Watch disconnected. Recording can continue on the Watch. An end request will be delivered when it reconnects.";
   }
   const blocked = watchStartBlockedReason(status);
   if (blocked) return blocked;
+  if (watchStatus === "starting") return "Starting Watch recording…";
   if (recording) return "Recording heart rate and active energy on Watch.";
   if (watchStatus === "ended") {
-    return "Watch saved one Health workout for this session.";
+    return saved
+      ? "Watch saved one Health workout for this session."
+      : "Watch recording ended.";
   }
   if (watchStatus === "disconnected") {
     return "Watch disconnected. Recording can continue on the Watch.";

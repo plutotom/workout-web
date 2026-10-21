@@ -22,6 +22,8 @@ export type WatchEvent =
     }
   | {
       type: "metrics";
+      /** Older Watch builds omit this; the bridge binds them to the active session. */
+      sessionId?: string;
       heartRate: number | null;
       activeEnergyKcal: number | null;
       durationSeconds: number;
@@ -102,11 +104,16 @@ export function reduceWatchSessionStatus(
   if (event.type !== "state") return current;
   if (event.sessionId && event.sessionId !== sessionId) return current;
   if (current === "ended") return current;
+  // Reachability describes the connection, not the workout lifecycle.
+  if (!event.sessionId) return current;
+  if (current === "recording" && event.status === "starting") return current;
   return event.status;
 }
 
 export function watchStartBlockedReason(status: WatchCompanionStatus) {
-  if (!status.supported || !status.paired) return null;
+  if (!status.supported)
+    return "Watch recording is not available in this build.";
+  if (!status.paired) return "No paired Apple Watch on this iPhone.";
   if (!status.installed) {
     return "Install Grayed Lift on Apple Watch from the Watch app on iPhone, then try again.";
   }
@@ -163,6 +170,9 @@ export function parseWatchEvent(payload: unknown): WatchEvent | null {
   if (type === "metrics") {
     return {
       type: "metrics",
+      ...(stringValue(value.sessionId)
+        ? { sessionId: stringValue(value.sessionId) }
+        : {}),
       heartRate: finiteNumber(value.heartRate),
       activeEnergyKcal: finiteNumber(value.activeEnergyKcal),
       durationSeconds: finiteNumber(value.durationSeconds) ?? 0,

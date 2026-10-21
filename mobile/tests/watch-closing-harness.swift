@@ -6,7 +6,8 @@ enum SessionState { case running, stopped, ended }
 
 final class TestSession {
   var state: SessionState = .running
-  func end() {}
+  var endCount = 0
+  func end() { endCount += 1 }
 }
 
 final class TestWorkout {
@@ -40,6 +41,10 @@ final class TestBuilder {
 }
 
 final class TestDefaults {
+  var values: [String: Any] = [:]
+  func stringArray(forKey key: String) -> [String]? { values[key] as? [String] }
+  func dictionary(forKey key: String) -> [String: Any]? { values[key] as? [String: Any] }
+  func set(_ value: Any, forKey key: String) { values[key] = value }
   func removeObject(forKey: String) {}
 }
 
@@ -78,8 +83,16 @@ func drainMainQueue() {
 
 let manager = TestManager()
 let builder = manager.builder!
+let session = manager.session!
 
 switch CommandLine.arguments[1] {
+case "foreign-end":
+  manager.endFromPhone(sessionId: "old-session", discard: false)
+case "finish-before-start":
+  manager.session = nil
+  manager.builder = nil
+  manager.sessionId = ""
+  manager.endFromPhone(sessionId: "test-session", discard: false)
 case "discard-then-end":
   manager.discard()
   manager.end()
@@ -125,6 +138,9 @@ let result: [String: Any] = [
   "collections": builder.endCollectionCount,
   "released": manager.session == nil && manager.builder == nil,
   "healthUuids": ended.map { $0["healthUuid"] as? String ?? "" },
+  "healthSessions": ended.map { $0["sessionId"] as? String ?? "" },
+  "endCalls": session.endCount,
+  "lateStartAllowed": WatchSessionIdentity.shouldStart("test-session", recording: false, closedIds: manager.defaults.stringArray(forKey: "watch.closedSessions") ?? []),
 ]
 let data = try JSONSerialization.data(withJSONObject: result)
 print(String(data: data, encoding: .utf8)!)

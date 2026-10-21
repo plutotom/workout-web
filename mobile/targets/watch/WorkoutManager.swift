@@ -117,13 +117,27 @@ final class WorkoutManager: NSObject, ObservableObject {
     requestEnd(discard: true)
   }
 
+  func replyToStatus(sessionId requested: String?) {
+    if let requested, !requested.isEmpty {
+      if let uuid = defaults.dictionary(forKey: "watch.closedResults")?[requested] as? String {
+        PhoneBridge.shared.send(["type": "ended", "sessionId": requested, "healthUuid": uuid])
+      } else if requested != sessionId {
+        PhoneBridge.shared.send(["type": "state", "sessionId": requested, "status": "idle", "reachable": true])
+      }
+    }
+    mirrorState()
+  }
+
   private func start(
     configuration: HKWorkoutConfiguration,
     sessionId: String,
     startedAtMs: Double,
     syncIdentifier: String
   ) {
-    if session?.state == .running { return }
+    if !WatchSessionIdentity.shouldStart(sessionId, recording: session?.state == .running, closedIds: defaults.stringArray(forKey: "watch.closedSessions") ?? []) {
+      mirrorState()
+      return
+    }
     discardOnEnd = false
     isClosing = false
     self.sessionId = sessionId
@@ -170,6 +184,16 @@ final class WorkoutManager: NSObject, ObservableObject {
     session.delegate = self
     builder = session.associatedWorkoutBuilder()
     builder?.delegate = self
+  }
+
+  func endFromPhone(sessionId requestedId: String?, discard: Bool) {
+    if WatchSessionIdentity.matchesCommand(requestedId, currentId: sessionId) {
+      requestEnd(discard: discard)
+    } else if let requestedId, !requestedId.isEmpty {
+      // Finish may beat a delayed Start. Close that identity without ending a
+      // different active session, so queued Start cannot revive it later.
+      notifyEnded(healthUuid: "", sessionId: requestedId)
+    }
   }
 
   private func requestEnd(discard: Bool) {
@@ -230,7 +254,15 @@ final class WorkoutManager: NSObject, ObservableObject {
     }
   }
 
-  private func notifyEnded(healthUuid: String) {
+  private func notifyEnded(healthUuid: String, sessionId targetId: String? = nil) {
+    let sessionId = targetId ?? self.sessionId
+    var closed = defaults.stringArray(forKey: "watch.closedSessions") ?? []
+    if !sessionId.isEmpty && !closed.contains(sessionId) { closed.append(sessionId) }
+    defaults.set(Array(closed.suffix(16)), forKey: "watch.closedSessions")
+    var results = defaults.dictionary(forKey: "watch.closedResults") as? [String: String] ?? [:]
+    if results[sessionId]?.isEmpty != false { results[sessionId] = healthUuid }
+    results = results.filter { closed.suffix(16).contains($0.key) }
+    defaults.set(results, forKey: "watch.closedResults")
     PhoneBridge.shared.send([
       "type": "ended",
       "sessionId": sessionId,
@@ -271,12 +303,15 @@ final class WorkoutManager: NSObject, ObservableObject {
       "status": status,
       "reachable": true,
     ])
-    PhoneBridge.shared.send([
+    var metrics: [String: Any] = [
       "type": "metrics",
-      "heartRate": heartRate as Any,
-      "activeEnergyKcal": activeEnergyKcal as Any,
+      "sessionId": sessionId,
       "durationSeconds": durationSeconds(),
-    ])
+    ]
+    // WatchConnectivity payloads must contain property-list values, never boxed nil.
+    if let heartRate { metrics["heartRate"] = heartRate }
+    if let activeEnergyKcal { metrics["activeEnergyKcal"] = activeEnergyKcal }
+    PhoneBridge.shared.send(metrics)
   }
 
   private func durationSeconds() -> Int {

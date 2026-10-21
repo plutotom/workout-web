@@ -20,7 +20,7 @@ describe.skipIf(!swiftAvailable)("Watch native closing lifecycle", () => {
       join(mobileRoot, "targets/watch/WorkoutManager.swift"),
       "utf8",
     );
-    const start = source.indexOf("  private func requestEnd(");
+    const start = source.indexOf("  func endFromPhone(");
     const end = source.indexOf("  private func requestAuthorization(", start);
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
@@ -30,10 +30,20 @@ describe.skipIf(!swiftAvailable)("Watch native closing lifecycle", () => {
     ).replace("  // WORKOUT_MANAGER_CLOSING_METHODS", source.slice(start, end));
     const harnessPath = join(directory, "main.swift");
     writeFileSync(harnessPath, harness);
-    execFileSync("xcrun", ["swiftc", harnessPath, "-o", executable], {
-      encoding: "utf8",
-      timeout: 30_000,
-    });
+    execFileSync(
+      "xcrun",
+      [
+        "swiftc",
+        join(mobileRoot, "targets/watch/SessionIdentity.swift"),
+        harnessPath,
+        "-o",
+        executable,
+      ],
+      {
+        encoding: "utf8",
+        timeout: 30_000,
+      },
+    );
   }, 35_000);
 
   afterAll(() => {
@@ -48,6 +58,23 @@ describe.skipIf(!swiftAvailable)("Watch native closing lifecycle", () => {
       }),
     );
   }
+
+  it("does not end a different workout when an old command is delivered", () => {
+    expect(run("foreign-end")).toMatchObject({
+      saves: 0,
+      discards: 0,
+      endCalls: 0,
+      healthSessions: ["old-session"],
+    });
+  });
+
+  it("rejects a queued start when Finish arrives before Start", () => {
+    expect(run("finish-before-start")).toMatchObject({
+      saves: 0,
+      endCalls: 0,
+      lateStartAllowed: false,
+    });
+  });
 
   it.each([
     "discard-then-end",

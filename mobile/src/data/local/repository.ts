@@ -4052,7 +4052,33 @@ export async function setHealthAutoImportAnchor(
 }
 
 export async function markWatchRecorded(db: SQLiteDatabase, sessionId: string) {
-  await setHealthStateValue(db, watchRecordedKey(sessionId), "1");
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    await setHealthStateValue(txn, watchRecordedKey(sessionId), "1");
+    await setWatchStartPending(txn, sessionId, false);
+    await txn.runAsync(
+      "UPDATE local_sessions SET health_export_pending = 0 WHERE id = ?",
+      sessionId,
+    );
+  });
+}
+
+export async function setWatchStartPending(
+  db: SQLiteDatabase,
+  sessionId: string,
+  pending: boolean,
+) {
+  await setHealthStateValue(
+    db,
+    `watch_starting:${sessionId}`,
+    pending ? "1" : "0",
+  );
+}
+
+export async function isWatchStartPending(
+  db: SQLiteDatabase,
+  sessionId: string,
+) {
+  return (await healthStateValue(db, `watch_starting:${sessionId}`)) === "1";
 }
 
 export async function wasWatchRecorded(db: SQLiteDatabase, sessionId: string) {
@@ -4120,22 +4146,24 @@ export async function queueHealthExportIfEnabled(
   db: SQLiteDatabase,
   sessionId: string,
 ) {
-  const [enabled, session, watchRecorded, watchUuid] = await Promise.all([
-    getHealthExportEnabled(db),
-    db.getFirstAsync<{
-      status: string;
-      session_kind: string | null;
-      external_id: string | null;
-    }>(
-      `SELECT status, session_kind, external_id
+  const [enabled, session, watchRecorded, watchUuid, watchStarting] =
+    await Promise.all([
+      getHealthExportEnabled(db),
+      db.getFirstAsync<{
+        status: string;
+        session_kind: string | null;
+        external_id: string | null;
+      }>(
+        `SELECT status, session_kind, external_id
          FROM local_sessions
         WHERE id = ?`,
-      sessionId,
-    ),
-    wasWatchRecorded(db, sessionId),
-    healthStateValue(db, watchHealthUuidKey(sessionId)),
-  ]);
-  if (!session || watchRecorded || watchUuid) return;
+        sessionId,
+      ),
+      wasWatchRecorded(db, sessionId),
+      healthStateValue(db, watchHealthUuidKey(sessionId)),
+      isWatchStartPending(db, sessionId),
+    ]);
+  if (!session || watchRecorded || watchUuid || watchStarting) return;
   if (
     !shouldQueueHealthExport({
       exportEnabled: enabled,
@@ -4175,6 +4203,7 @@ export async function listPendingHealthExports(
         AND NOT EXISTS (
           SELECT 1 FROM local_health_state h
            WHERE (h.key = 'watch_recorded:' || local_sessions.id AND h.value = '1')
+              OR (h.key = 'watch_starting:' || local_sessions.id AND h.value = '1')
               OR h.key = 'watch_health_uuid:' || local_sessions.id
         )
       ORDER BY COALESCE(completed_at, started_at) ASC`,
