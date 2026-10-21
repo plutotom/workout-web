@@ -53,12 +53,17 @@ import { NoteWorkoutBody } from "@/components/workout/note-workout-body";
 import { NoteWorkoutEditor } from "@/components/workout/note-workout-editor";
 import { useCompletedWorkoutRefresh } from "@/components/workout/use-completed-workout-refresh";
 import { sessionAllowsCompletedReviewEdit } from "@shared/session-edits";
+import { replacementHasLoggedSets } from "@shared/replace-exercise";
 import {
   MachinePickerModal,
   PlaceChip,
   PlacePickerModal,
 } from "@/components/workout/place-machine";
-import { ExerciseOptionsButton } from "@/components/workout/exercise-options";
+import {
+  confirmDeleteExercise,
+  ExerciseOptionsButton,
+  requestExerciseReplacement,
+} from "@/components/workout/exercise-options";
 import { WatchCompanionCard } from "@/health/watch-companion-card";
 import { useSessionAi } from "@/components/workout/use-session-ai";
 import { appleGenerateSheetCopy } from "@/lib/ai-copy";
@@ -324,12 +329,22 @@ function ListWorkout({
     deleteSet,
     addExercise,
     removeExercise,
+    replaceExercise,
     moveExercise,
     saveNote,
     saveSessionExerciseNote,
     setSessionMachine,
   } = useLocalData();
-  const [picker, setPicker] = useState(false);
+  const [picker, setPicker] = useState<
+    | { mode: "add" }
+    | {
+        mode: "replace";
+        exerciseId: string;
+        name: string;
+        hasLoggedSets: boolean;
+      }
+    | null
+  >(null);
   const [machinePicker, setMachinePicker] = useState<{
     exerciseId: string;
     slug: string;
@@ -355,6 +370,19 @@ function ListWorkout({
   }
 
   async function addPicked(slugs: string[]) {
+    if (picker?.mode === "replace") {
+      const slug = slugs[0];
+      if (!slug) return;
+      const target = picker;
+      await requestExerciseReplacement({
+        fromName: target.name,
+        toName: catalog.name(slug),
+        hasLoggedSets: target.hasLoggedSets,
+        completedWorkout: completedEdit,
+        onReplace: () => replaceExercise(target.exerciseId, slug),
+      });
+      return;
+    }
     for (const exerciseSlug of slugs)
       await addExercise(session._id, exerciseSlug);
   }
@@ -492,6 +520,22 @@ function ListWorkout({
                   </Pressable>
                   <ExerciseOptionsButton
                     machineName={exercise.machineName}
+                    onReplace={() =>
+                      setPicker({
+                        mode: "replace",
+                        exerciseId: exercise._id,
+                        name: catalog.name(exercise.slug),
+                        hasLoggedSets: replacementHasLoggedSets(exercise.sets),
+                      })
+                    }
+                    onDelete={() => {
+                      const name = catalog.name(exercise.slug);
+                      confirmDeleteExercise(
+                        name,
+                        replacementHasLoggedSets(exercise.sets),
+                        () => void removeExercise(exercise._id),
+                      );
+                    }}
                     onChooseMachine={
                       session.placeId
                         ? () =>
@@ -534,6 +578,7 @@ function ListWorkout({
                 </View>
                 {collapsed[exercise._id] ? null : (
                   <ExerciseNoteEditor
+                    key={`${exercise._id}-${exercise.slug}`}
                     initial={exercise.notes ?? ""}
                     onSave={(notes) =>
                       completedEdit
@@ -581,6 +626,7 @@ function ListWorkout({
                   {exercise.sets.map((set, setIndex) => (
                     <WorkoutSetRow
                       key={set._id}
+                      exerciseSlug={exercise.slug}
                       set={set}
                       index={setIndex}
                       unit={user.unit}
@@ -616,25 +662,6 @@ function ListWorkout({
                       await addSet(exercise._id);
                     }}
                   />
-                  <Button
-                    label="Remove exercise"
-                    variant="ghost"
-                    icon={Trash2}
-                    onPress={() =>
-                      Alert.alert(
-                        "Remove exercise?",
-                        catalog.name(exercise.slug),
-                        [
-                          { text: "Cancel", style: "cancel" },
-                          {
-                            text: "Remove",
-                            style: "destructive",
-                            onPress: () => void removeExercise(exercise._id),
-                          },
-                        ],
-                      )
-                    }
-                  />
                 </View>
               )}
             </Card>
@@ -645,7 +672,7 @@ function ListWorkout({
           size="lg"
           variant="outline"
           icon={Plus}
-          onPress={() => setPicker(true)}
+          onPress={() => setPicker({ mode: "add" })}
         />
       </Screen>
       {!completedEdit && rest.rest ? (
@@ -657,9 +684,10 @@ function ListWorkout({
         />
       ) : null}
       <ExercisePicker
-        visible={picker}
+        visible={picker !== null}
+        mode={picker?.mode ?? "add"}
         usedSlugs={session.exercises.map((exercise) => exercise.slug)}
-        onClose={() => setPicker(false)}
+        onClose={() => setPicker(null)}
         onAdd={(slugs) => void addPicked(slugs)}
       />
       <MachinePickerModal
@@ -722,7 +750,13 @@ function FocusWorkout({
   const rest = useRestTimer({
     notificationsEnabled: user.restTimerNotificationsEnabled,
   });
-  const { updateSet, setSessionMachine } = useLocalData();
+  const { updateSet, setSessionMachine, replaceExercise, removeExercise } =
+    useLocalData();
+  const [picker, setPicker] = useState<{
+    exerciseId: string;
+    name: string;
+    hasLoggedSets: boolean;
+  } | null>(null);
   const { aiAvailable, usesApple, aiOpen, setAiOpen, generate } =
     useSessionAi(session);
   const [drafts, setDrafts] = useState<
@@ -886,6 +920,21 @@ function FocusWorkout({
               </Text>
               <ExerciseOptionsButton
                 machineName={item.exercise.machineName}
+                onReplace={() =>
+                  setPicker({
+                    exerciseId: item.exercise._id,
+                    name: catalog.name(item.exercise.slug),
+                    hasLoggedSets: replacementHasLoggedSets(item.exercise.sets),
+                  })
+                }
+                onDelete={() => {
+                  const name = catalog.name(item.exercise.slug);
+                  confirmDeleteExercise(
+                    name,
+                    replacementHasLoggedSets(item.exercise.sets),
+                    () => void removeExercise(item.exercise._id),
+                  );
+                }}
                 onChooseMachine={
                   session.placeId
                     ? () => setMachineOpen(true)
@@ -1043,6 +1092,38 @@ function FocusWorkout({
         onCreated={(machineId) =>
           void setSessionMachine(item.exercise._id, machineId)
         }
+      />
+      <ExercisePicker
+        visible={picker !== null}
+        mode="replace"
+        usedSlugs={session.exercises.map((exercise) => exercise.slug)}
+        onClose={() => setPicker(null)}
+        onAdd={(slugs) => {
+          const slug = slugs[0];
+          const target = picker;
+          if (!slug || !target) return;
+          const apply = async () => {
+            await replaceExercise(target.exerciseId, slug);
+            const replacedSetIds = new Set(
+              session.exercises
+                .find((exercise) => exercise._id === target.exerciseId)
+                ?.sets.map((set) => set._id),
+            );
+            setDrafts((current) =>
+              Object.fromEntries(
+                Object.entries(current).filter(
+                  ([setId]) => !replacedSetIds.has(setId),
+                ),
+              ),
+            );
+          };
+          void requestExerciseReplacement({
+            fromName: target.name,
+            toName: catalog.name(slug),
+            hasLoggedSets: target.hasLoggedSets,
+            onReplace: apply,
+          });
+        }}
       />
       {aiModal}
     </>

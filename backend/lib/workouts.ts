@@ -12,6 +12,7 @@ import {
   nextClientUpdatedAt,
   sessionAllowsLiftEdits,
 } from "../../src/lib/session-edits";
+import { prescriptionsForReplacedExercise } from "../../src/lib/replace-exercise";
 import {
   exerciseMatchesMachine,
   findStarredPlace,
@@ -556,6 +557,94 @@ export async function addSessionExercise(
 
   await afterLiftMutation(ctx, userId, sessionId);
   return sessionExerciseId;
+}
+
+export async function replaceSessionExercise(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  {
+    sessionExerciseId,
+    exerciseSlug,
+  }: {
+    sessionExerciseId: Id<"sessionExercises">;
+    exerciseSlug: Doc<"sessionExercises">["exerciseSlug"];
+  },
+) {
+  const sessionExercise = await ctx.db.get(sessionExerciseId);
+  if (!sessionExercise) throw new Error("Exercise not found");
+  const session = await assertSessionEditable(
+    ctx,
+    userId,
+    sessionExercise.sessionId,
+  );
+
+  const slug = normalizeExerciseSlug(exerciseSlug);
+  if (sessionExercise.exerciseSlug === slug) return;
+
+  const exercises = await sessionExercisesFor(ctx, sessionExercise.sessionId);
+  if (
+    exercises.some(
+      (exercise) =>
+        exercise._id !== sessionExerciseId && exercise.exerciseSlug === slug,
+    )
+  ) {
+    throw new Error("Exercise already in workout");
+  }
+
+  const machine =
+    session.placeId != null
+      ? await lastMachineForLift(ctx, userId, session.placeId, slug)
+      : null;
+  const memory =
+    session.placeId != null
+      ? await getWorkingSets(ctx, {
+          placeId: session.placeId,
+          exerciseSlug: slug,
+          machineId: machine?._id,
+        })
+      : null;
+  const fallback =
+    memory?.[0] ??
+    (await lastSetForExercise(ctx, userId, slug, {
+      placeId: session.placeId,
+      machineId: machine?._id,
+    }));
+  const seed = fallback ?? { weight: 0, reps: 0 };
+  const uncheck = session.status === "in_progress";
+
+  await ctx.db.replace(sessionExerciseId, {
+    sessionId: sessionExercise.sessionId,
+    ...(sessionExercise.clientId ? { clientId: sessionExercise.clientId } : {}),
+    exerciseSlug: slug,
+    orderIndex: sessionExercise.orderIndex,
+    restSeconds: sessionExercise.restSeconds ?? DEFAULT_REST_SECONDS,
+    ...(machine ? { machineId: machine._id, machineName: machine.name } : {}),
+  });
+
+  const sets = await ctx.db
+    .query("sets")
+    .withIndex("by_session_exercise", (q) =>
+      q.eq("sessionExerciseId", sessionExerciseId),
+    )
+    .collect();
+  sets.sort((a, b) => a.orderIndex - b.orderIndex);
+  const rows = prescriptionsForReplacedExercise(sets.length, seed);
+  await Promise.all(
+    sets.map((set, index) => {
+      const next = rows[index] ?? seed;
+      const weight = boundedWhole(next.weight, MAX_WEIGHT, "Weight");
+      const reps = boundedWhole(next.reps, MAX_REPS, "Reps");
+      return ctx.db.patch(set._id, {
+        targetWeight: weight,
+        targetReps: reps,
+        weight,
+        reps,
+        ...(uncheck ? { completed: false, completedAt: undefined } : {}),
+      });
+    }),
+  );
+
+  await afterLiftMutation(ctx, userId, sessionExercise.sessionId);
 }
 
 const MAX_DRAFT_EXERCISES = 20;

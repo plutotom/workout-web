@@ -25,11 +25,13 @@ export function ExercisePicker({
   usedSlugs,
   onClose,
   onAdd,
+  mode = "add",
 }: {
   visible: boolean;
   usedSlugs: string[];
   onClose: () => void;
   onAdd: (slugs: string[]) => void;
+  mode?: "add" | "replace";
 }) {
   const catalog = useCatalog();
   const { archiveCustomExercise } = useLocalData();
@@ -86,7 +88,13 @@ export function ExercisePicker({
           <CreateExercise
             onCancel={() => setCreating(false)}
             onCreated={(slug) => {
-              setSelected((current) => [...current, slug]);
+              setSelected((current) =>
+                mode === "replace"
+                  ? [slug]
+                  : current.includes(slug)
+                    ? current
+                    : [...current, slug],
+              );
               setCreating(false);
             }}
           />
@@ -114,7 +122,7 @@ export function ExercisePicker({
                     fontWeight: "700",
                   }}
                 >
-                  Add exercises
+                  {mode === "replace" ? "Replace exercise" : "Add exercises"}
                 </Text>
                 <Pressable onPress={close} hitSlop={12}>
                   <X color={colors.text} size={23} />
@@ -193,11 +201,14 @@ export function ExercisePicker({
                 return (
                   <Pressable
                     onPress={() =>
-                      setSelected((current) =>
-                        active
+                      setSelected((current) => {
+                        if (mode === "replace") {
+                          return active ? [] : [item.slug];
+                        }
+                        return active
                           ? current.filter((slug) => slug !== item.slug)
-                          : [...current, item.slug],
-                      )
+                          : [...current, item.slug];
+                      })
                     }
                     onLongPress={() => archiveCustom(item.slug, item.name)}
                     style={({ pressed }) => ({
@@ -268,9 +279,13 @@ export function ExercisePicker({
             >
               <Button
                 label={
-                  selected.length
-                    ? `Add ${selected.length} exercise${selected.length === 1 ? "" : "s"}`
-                    : "Select exercises"
+                  mode === "replace"
+                    ? selected.length
+                      ? "Replace"
+                      : "Select exercise"
+                    : selected.length
+                      ? `Add ${selected.length} exercise${selected.length === 1 ? "" : "s"}`
+                      : "Select exercises"
                 }
                 size="lg"
                 disabled={!selected.length}

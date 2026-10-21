@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   ownsAccount: true,
   auth: { isAuthenticated: true, user: { id: "user-1" } },
   revision: 0,
+  refresh: vi.fn(),
   applyBootstrap: vi.fn(),
   pending: [] as Array<{
     operationId: string;
@@ -74,6 +75,7 @@ vi.mock("react-native", () => ({
 vi.mock("@/data/local/provider", () => ({
   useLocalData: () => ({
     applyBootstrap: mocks.applyBootstrap,
+    refresh: mocks.refresh,
     owner: mocks.owner,
   }),
   useLocalSyncStore: () => ({
@@ -131,6 +133,7 @@ beforeEach(async () => {
   mocks.ownsAccount = true;
   mocks.auth = { isAuthenticated: true, user: { id: "user-1" } };
   mocks.revision = 0;
+  mocks.refresh.mockReset();
   mocks.pending = [queued("op-1")];
   mocks.pendingNotes = [];
   mocks.quarantineNote
@@ -164,6 +167,16 @@ async function mount() {
 }
 
 describe("sync subscription and outbox coordination", () => {
+  it("refreshes the visible outbox after a failed upload rather than waiting for an ack", async () => {
+    mocks.push.mockRejectedValueOnce(new Error("Network unavailable"));
+    await mount();
+    expect(mocks.refresh).toHaveBeenCalledOnce();
+    expect(mocks.complete).not.toHaveBeenCalled();
+    await tick(2_000);
+    expect(mocks.complete).toHaveBeenCalledOnce();
+    expect(mocks.refresh).toHaveBeenCalledOnce();
+  });
+
   it("waits for the initial query and its reconciliation to finish before uploading", async () => {
     mocks.bootstrap = undefined;
     const reconciliation = deferred();

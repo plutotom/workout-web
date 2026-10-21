@@ -43,9 +43,10 @@ afterEach(async () => {
   if (renderer) await act(async () => renderer!.unmount());
   renderer = undefined;
 });
-async function render(set = initial) {
+async function render(set = initial, exerciseSlug = "bench-press") {
   const row = (
     <WorkoutSetRow
+      exerciseSlug={exerciseSlug}
       set={set}
       index={0}
       unit="lb"
@@ -65,6 +66,78 @@ async function render(set = initial) {
 function field(name: "weight" | "reps") {
   return renderer!.root.findByProps({ accessibilityLabel: `Set 1 ${name}` });
 }
+
+describe("workout set drafts when replacing an exercise", () => {
+  it.each([false, true])(
+    "discards failed old-lift drafts and modal state while preserving replacement completion (%s)",
+    async (completed) => {
+      await render();
+      commit.mockRejectedValueOnce(new Error("disk full"));
+      await act(async () => {
+        field("weight").props.onChangeText("150");
+        field("reps").props.onChangeText("9");
+      });
+      await act(async () => field("weight").props.onBlur());
+      const plates = renderer!.root
+        .findAllByType("Pressable" as never)
+        .find((node) => node.props.hitSlop)!;
+      await act(async () => plates.props.onPress());
+      expect(
+        renderer!.root.findByType("PlateModal" as never).props.visible,
+      ).toBe(true);
+      expect(
+        renderer!.root.findAllByProps({ accessibilityLiveRegion: "polite" }),
+      ).toHaveLength(1);
+
+      // The real replacement keeps the set id and changes its prescription.
+      await render({ ...initial, weight: 0, reps: 12, completed }, "dip");
+      expect(field("weight").props.value).toBe("");
+      expect(field("reps").props.value).toBe("12");
+      expect(
+        renderer!.root.findByType("PlateModal" as never).props.visible,
+      ).toBe(false);
+      expect(
+        renderer!.root.findAllByProps({ accessibilityLiveRegion: "polite" }),
+      ).toHaveLength(0);
+      await act(async () => {
+        field("weight").props.onBlur();
+        field("reps").props.onBlur();
+      });
+      expect(commit).toHaveBeenCalledTimes(1);
+      const toggle = renderer!.root
+        .findAllByType("Pressable" as never)
+        .find((node) => node.props.onPress && !node.props.hitSlop)!;
+      await act(async () => toggle.props.onPress());
+      expect(complete).toHaveBeenCalledWith(!completed, {});
+
+      // Replacing back must not resurrect the discarded bench draft either.
+      await render(initial, "bench-press");
+      expect(field("weight").props.value).toBe("135");
+      expect(field("reps").props.value).toBe("5");
+    },
+  );
+
+  it.each(["unsaved", "pending"])(
+    "does not transfer an %s draft or a late save acknowledgement to the replacement",
+    async (state) => {
+      await render();
+      let finishSave: (() => void) | undefined;
+      await act(async () => field("weight").props.onChangeText("150"));
+      if (state === "pending") {
+        commit.mockImplementationOnce(
+          () => new Promise<void>((resolve) => (finishSave = resolve)),
+        );
+        await act(async () => field("weight").props.onBlur());
+      }
+      await render({ ...initial, weight: 225, reps: 8 }, "squat");
+      if (finishSave) await act(async () => finishSave!());
+      expect(field("weight").props.value).toBe("225");
+      expect(field("reps").props.value).toBe("8");
+      await act(async () => field("weight").props.onBlur());
+      expect(commit).toHaveBeenCalledTimes(state === "pending" ? 1 : 0);
+    },
+  );
+});
 
 describe("workout set drafts across completed-workout refresh", () => {
   it("shows adopted corrections and never saves an untouched field on blur", async () => {

@@ -309,6 +309,7 @@ export const pushCustomExercise = mutation({
     deviceId: v.string(),
     exercise: v.object({
       clientId: v.string(),
+      remoteId: v.optional(v.union(v.id("customExercises"), v.null())),
       name: v.string(),
       short: v.union(v.string(), v.null()),
       category: muscleGroupValidator,
@@ -323,10 +324,11 @@ export const pushCustomExercise = mutation({
   }),
   handler: async (ctx, args) => {
     const user = await requireSyncUser(ctx, args.ownerWorkosId);
-    // The upsert is keyed by clientId, so a replayed operation is already
-    // idempotent; the receipt still records the attempt for auditing.
+    // Owned remote identity handles adopted cloud lifts; clientId identifies
+    // new offline lifts. The receipt records the attempt for auditing.
     const result = await upsertCustomExerciseFromClient(ctx, user._id, {
       clientId: args.exercise.clientId,
+      remoteId: args.exercise.remoteId,
       name: args.exercise.name,
       short: args.exercise.short ?? undefined,
       category: args.exercise.category,
@@ -595,9 +597,13 @@ export const pushSession = mutation({
           ? existingByClient
           : existingByExternal
         : null;
+    // Recover a lost finish without reviving a newer, explicitly discarded row.
+    const completingInProgress =
+      args.session.status === "completed" && existing?.status === "in_progress";
     if (
       existing?.clientUpdatedAt !== undefined &&
       existing.clientUpdatedAt > args.session.updatedAt &&
+      !completingInProgress &&
       !(resolution.action === "apply" && resolution.ignoreStale)
     ) {
       return {
@@ -684,7 +690,9 @@ export const pushSession = mutation({
       // that metadata after acknowledgement instead of ignoring an equal echo.
       clientUpdatedAt: restoresHealthMetadata
         ? Math.max(args.session.updatedAt, existing?.clientUpdatedAt ?? 0) + 1
-        : args.session.updatedAt,
+        : completingInProgress
+          ? Math.max(args.session.updatedAt, existing?.clientUpdatedAt ?? 0)
+          : args.session.updatedAt,
       templateName: args.session.templateName,
       status: args.session.status,
       startedAt: args.session.startedAt,
