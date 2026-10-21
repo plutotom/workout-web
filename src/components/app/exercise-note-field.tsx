@@ -13,7 +13,6 @@ import { cn } from "@/lib/utils";
 import {
   exerciseNoteLengthHint,
   MAX_EXERCISE_NOTE_LENGTH,
-  sizeExerciseNoteTextarea,
 } from "@/lib/exercise-notes";
 
 export function ExerciseNoteField({
@@ -49,7 +48,6 @@ export function ExerciseNoteField({
     () => !compact || initial.length > 0,
   );
   const [focusToken, setFocusToken] = useState(0);
-  const [focused, setFocused] = useState(false);
   const [prevOpenSignal, setPrevOpenSignal] = useState(openSignal);
 
   if (openSignal !== prevOpenSignal) {
@@ -93,12 +91,6 @@ export function ExerciseNoteField({
     textareaRef.current?.focus();
   }, [expanded, focusToken]);
 
-  useLayoutEffect(() => {
-    if (!expanded) return;
-    const el = textareaRef.current;
-    if (el) sizeExerciseNoteTextarea(el, focused);
-  }, [expanded, focused, value]);
-
   if (!editable && !hasNote) return null;
 
   if (!expanded) {
@@ -109,7 +101,7 @@ export function ExerciseNoteField({
           disabled={!editable}
           onClick={() => editable && openEditor()}
           className={cn(
-            "w-full rounded-md border px-3 py-2 text-left text-sm break-words whitespace-pre-wrap",
+            "w-full rounded-md border px-3 py-2 text-left text-sm whitespace-pre-wrap",
             editable
               ? "bg-muted/40 hover:bg-muted/60 transition-colors"
               : "bg-muted/30 text-muted-foreground",
@@ -144,15 +136,13 @@ export function ExerciseNoteField({
         value={value}
         placeholder="What is this exercise? Add cues for next time."
         disabled={!editable || saving}
-        rows={1}
+        rows={2}
         aria-label="Exercise note"
         aria-invalid={overLimit || undefined}
         aria-describedby={hint ? `note-${exerciseSlug}-hint` : undefined}
-        className="min-h-12 resize-none overflow-hidden break-words whitespace-pre-wrap [field-sizing:fixed]"
+        className="min-h-0"
         onChange={(e) => setValue(e.target.value)}
-        onFocus={() => setFocused(true)}
         onBlur={() => {
-          setFocused(false);
           void commit();
           if (compact && !overLimit) setExpanded(false);
         }}

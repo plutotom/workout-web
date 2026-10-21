@@ -27,26 +27,6 @@ export function exerciseNoteFieldScrolls(
   );
 }
 
-/** Size a textarea to its text; cap and scroll only while the caret is in it. */
-export function sizeExerciseNoteTextarea(
-  el: {
-    style: { height: string; overflowY: string };
-    scrollHeight: number;
-  },
-  focused: boolean,
-): void {
-  el.style.height = "auto";
-  const content = el.scrollHeight;
-  const maxHeight = exerciseNoteFieldMaxHeight(focused);
-  if (maxHeight != null && content > maxHeight) {
-    el.style.height = `${maxHeight}px`;
-    el.style.overflowY = "auto";
-    return;
-  }
-  el.style.height = `${Math.max(content, 0)}px`;
-  el.style.overflowY = "hidden";
-}
-
 export function normalizeExerciseNote(notes: string): string {
   if (notes.length > MAX_EXERCISE_NOTE_LENGTH) {
     throw new Error(

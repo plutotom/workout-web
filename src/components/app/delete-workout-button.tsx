@@ -18,7 +18,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { clearSessionCollapsed } from "@/lib/workout-collapse";
 
 export function DeleteWorkoutButton({
   sessionId,
@@ -43,7 +42,6 @@ export function DeleteWorkoutButton({
     setDeleting(true);
     try {
       await deleteSession({ sessionId });
-      clearSessionCollapsed(sessionId);
       toast.success("Workout deleted");
       setOpen(false);
       onDeleted?.();

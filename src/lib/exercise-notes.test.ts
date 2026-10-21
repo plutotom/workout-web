@@ -5,7 +5,6 @@ import {
   exerciseNoteFieldScrolls,
   exerciseNoteLengthHint,
   normalizeExerciseNote,
-  sizeExerciseNoteTextarea,
 } from "./exercise-notes";
 
 describe("exercise notes", () => {
@@ -53,17 +52,5 @@ describe("exercise note input sizing", () => {
     expect(
       exerciseNoteFieldScrolls(true, EXERCISE_NOTE_INPUT_MAX_HEIGHT + 1),
     ).toBe(true);
-  });
-
-  it("grows a textarea to wrap the full note, then caps while editing", () => {
-    const el = { style: { height: "", overflowY: "" }, scrollHeight: 88 };
-    sizeExerciseNoteTextarea(el, false);
-    expect(el.style.height).toBe("88px");
-    expect(el.style.overflowY).toBe("hidden");
-
-    el.scrollHeight = EXERCISE_NOTE_INPUT_MAX_HEIGHT + 40;
-    sizeExerciseNoteTextarea(el, true);
-    expect(el.style.height).toBe(`${EXERCISE_NOTE_INPUT_MAX_HEIGHT}px`);
-    expect(el.style.overflowY).toBe("auto");
   });
 });

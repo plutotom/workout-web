@@ -59,7 +59,6 @@ import { useExerciseCatalog } from "@/components/app/exercise-catalog-provider";
 import { formatLb } from "@/components/app/workout-design";
 import { formatHealthDistance, formatHealthEnergy } from "@/lib/health-summary";
 import { sessionAllowsCompletedReviewEdit } from "@/lib/session-edits";
-import { useWorkoutCollapse } from "@/lib/use-workout-collapse";
 import {
   deleteExerciseConfirmMessage,
   replaceLoggedSetsMessage,
@@ -144,12 +143,11 @@ export function WorkoutLog({
   const [noteOpenSignals, setNoteOpenSignals] = useState<
     Partial<Record<Id<"sessionExercises">, number>>
   >({});
-  const exerciseIds = session?.exercises.map((exercise) => exercise._id) ?? [];
-  const { collapsed, toggleCollapsed, expandCollapsed } = useWorkoutCollapse(
-    sessionId,
-    exerciseIds,
-    session != null,
-  );
+  // Collapsed cards are opt-in and independent, so a session can mix open and
+  // closed exercises. Absent id means expanded.
+  const [collapsed, setCollapsed] = useState<
+    Partial<Record<Id<"sessionExercises">, true>>
+  >({});
   const [now, setNow] = useState(() => Date.now());
   const { rest, startRest, clearRest, addSeconds } = useWorkoutRest();
   const [drag, setDrag] = useState<DragState | null>(null);
@@ -616,7 +614,12 @@ export function WorkoutLog({
                       disabled={isReordering}
                       onClick={() => {
                         hapticTap();
-                        toggleCollapsed(exercise._id);
+                        setCollapsed((current) => {
+                          const next = { ...current };
+                          if (next[exercise._id]) delete next[exercise._id];
+                          else next[exercise._id] = true;
+                          return next;
+                        });
                       }}
                     >
                       {!isReordering ? (
@@ -895,7 +898,12 @@ export function WorkoutLog({
                 const id = exerciseMenu.id;
                 // The note lives in the card body, so a collapsed card has to
                 // open or the signal lands on nothing.
-                expandCollapsed(id);
+                setCollapsed((current) => {
+                  if (!current[id]) return current;
+                  const next = { ...current };
+                  delete next[id];
+                  return next;
+                });
                 setNoteOpenSignals((prev) => ({
                   ...prev,
                   [id]: (prev[id] ?? 0) + 1,
