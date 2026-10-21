@@ -399,6 +399,47 @@ describe("completed workout preservation contract", () => {
     ]);
   });
 
+  it("web replacement enforces ownership and preserves completed workout and child identities", async () => {
+    const seeded = await seedWebWorkout();
+    const args = {
+      sessionExerciseId: seeded.exerciseId,
+      exerciseSlug: "squat",
+    };
+    await expect(
+      phone.cloud.mutation(api.routes.workouts.mutations.replaceExercise, args),
+    ).rejects.toThrow();
+    await expect(
+      phone
+        .as("user_test_bob")
+        .mutation(api.routes.workouts.mutations.replaceExercise, args),
+    ).rejects.toThrow();
+    expect((await detail(seeded.sessionId)).exercises[0].slug).toBe("bench");
+    await phone
+      .as(ALICE)
+      .mutation(api.routes.workouts.mutations.replaceExercise, args);
+    const workout = await detail(seeded.sessionId);
+    expect(workout).toMatchObject({
+      _id: seeded.sessionId,
+      completedAt: seeded.completedAt,
+    });
+    expect(workout.exercises[0]).toMatchObject({
+      _id: seeded.exerciseId,
+      slug: "squat",
+      sets: [
+        expect.objectContaining({
+          _id: seeded.setId,
+          weight: 0,
+          reps: 0,
+          completed: true,
+        }),
+      ],
+    });
+    await phone
+      .as(ALICE)
+      .mutation(api.routes.workouts.mutations.replaceExercise, args);
+    expect((await detail(seeded.sessionId)).exercises).toHaveLength(1);
+  });
+
   it.each(["before-ack", "after-ack"])(
     "replaces a completed lift offline without losing child identity (%s)",
     async (subscriptionOrder) => {
