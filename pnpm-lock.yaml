@@ -123,6 +123,9 @@ importers:
       '@types/react-dom':
         specifier: ^19
         version: 19.2.3(@types/react@19.2.17)
+      '@types/react-test-renderer':
+        specifier: ^19.1.0
+        version: 19.1.0
       convex-test:
         specifier: 0.0.50
         version: 0.0.50(convex@1.42.0(react@19.2.3))
@@ -147,6 +150,9 @@ importers:
       prettier:
         specifier: ^3.8.5
         version: 3.8.5
+      react-test-renderer:
+        specifier: 19.2.3
+        version: 19.2.3(react@19.2.3)
       sharp:
         specifier: ^0.35.2
         version: 0.35.2

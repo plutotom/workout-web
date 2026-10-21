@@ -13,9 +13,11 @@ import {
   deleteLocalSet,
   addLocalExercise,
   removeLocalExercise,
+  replaceLocalExercise,
   moveLocalExercise,
   setLocalSessionPlace,
   setLocalSessionMachine,
+  startLocalBlankWorkout,
 } from "./repository";
 import { DEFAULT_MACHINE_KEY } from "@shared/place-memory";
 
@@ -180,12 +182,98 @@ it("a cloud refresh between the set write and outbox cannot erase the edit", asy
   ).toBe(155);
 });
 
+it("replaces a completed lift in place, reseeds from the new exercise, and queues one snapshot", async () => {
+  const { db, sql } = await fixture();
+  await adoptRemoteCompletedListWorkout(
+    db,
+    remote({ placeId: "gym", placeName: "Gym" }),
+  );
+  await saveLocalSessionExerciseNote(db, "exercise", "Bench cue for this day");
+  sql
+    .prepare(
+      "INSERT INTO local_exercise_place_weights (place_id, exercise_slug, machine_key, sets_json, updated_at) VALUES (?, ?, ?, ?, ?)",
+    )
+    .run(
+      "gym",
+      "squat",
+      DEFAULT_MACHINE_KEY,
+      JSON.stringify([{ weight: 225, reps: 8 }]),
+      500,
+    );
+  await replaceLocalExercise(db, "exercise", "squat");
+  const row = sql
+    .prepare("SELECT id, slug, notes, order_index FROM local_session_exercises")
+    .get();
+  expect(row).toMatchObject({
+    id: "exercise",
+    slug: "squat",
+    notes: null,
+    order_index: 0,
+  });
+  const set = sql
+    .prepare(
+      "SELECT id, weight, reps, target_weight, target_reps, completed FROM local_sets WHERE id = ?",
+    )
+    .get("set");
+  expect(set).toMatchObject({
+    id: "set",
+    weight: 225,
+    reps: 8,
+    target_weight: 225,
+    target_reps: 8,
+    completed: 1,
+  });
+  const snapshot = (await getPendingSessionSync(db)).snapshot;
+  expect(snapshot.exercises[0]).toMatchObject({
+    clientId: "exercise",
+    slug: "squat",
+    sets: [{ clientId: "set", weight: 225, reps: 8, completed: true }],
+  });
+});
+
+it("unchecks logged sets when replacing during an active workout", async () => {
+  const { db } = await fixture();
+  const sessionId = await startLocalBlankWorkout(db);
+  const exerciseId = await addLocalExercise(db, sessionId, "push-up");
+  const workout = await getLocalWorkout(db, sessionId);
+  const setId = workout.exercises[0].sets[0]._id;
+  await updateLocalSet(db, setId, { completed: true, reps: 15 });
+  await replaceLocalExercise(db, exerciseId, "dip");
+  const replaced = await getLocalWorkout(db, sessionId);
+  expect(replaced.exercises[0]).toMatchObject({
+    _id: exerciseId,
+    slug: "dip",
+  });
+  expect(replaced.exercises[0].sets[0]).toMatchObject({
+    _id: setId,
+    completed: false,
+    weight: 0,
+    reps: 0,
+  });
+  expect(replaced.exercises[0].sets).toHaveLength(
+    workout.exercises[0].sets.length,
+  );
+});
+
+it("rejects replacing with a lift already in the workout", async () => {
+  const { db } = await fixture();
+  await adoptRemoteCompletedListWorkout(db, remote());
+  await addLocalExercise(db, "remote-workout", "squat");
+  await expect(replaceLocalExercise(db, "exercise", "squat")).rejects.toThrow(
+    "Exercise already in workout",
+  );
+  expect((await getLocalWorkout(db, "remote-workout")).exercises[0].slug).toBe(
+    "bench-press",
+  );
+});
+
 it.each([
   ["set values", (db) => updateLocalSet(db, "set", { weight: 155 })],
   ["add set", (db) => addLocalSet(db, "exercise")],
   ["delete set", (db) => deleteLocalSet(db, "set")],
   ["add exercise", (db) => addLocalExercise(db, "remote-workout", "squat")],
   ["remove exercise", (db) => removeLocalExercise(db, "exercise")],
+  ["replace exercise", (db) => replaceLocalExercise(db, "exercise", "squat")],
   ["reorder exercise", (db) => moveLocalExercise(db, "exercise", 1)],
   [
     "session note",

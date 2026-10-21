@@ -184,6 +184,7 @@ export function remoteCustomSlug(remoteId: string) {
 
 export type CustomExerciseSyncSnapshot = {
   clientId: string;
+  remoteId?: string | null;
   name: string;
   short: string | null;
   category: LocalMuscleGroup;

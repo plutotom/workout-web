@@ -24,7 +24,7 @@ function toCatalogEntry(doc: Doc<"customExercises">) {
   };
 }
 
-function normalizeName(name: string): string {
+export function normalizeExerciseName(name: string): string {
   const trimmed = name.trim();
   if (!trimmed) throw new Error("Exercise name is required");
   if (trimmed.length > MAX_NAME_LENGTH)
@@ -75,7 +75,7 @@ export async function createCustomExercise(
 
   const id = await ctx.db.insert("customExercises", {
     userId,
-    name: normalizeName(args.name),
+    name: normalizeExerciseName(args.name),
     short: normalizeShort(args.short),
     category: args.category,
     usesBar: args.usesBar,
@@ -85,14 +85,15 @@ export async function createCustomExercise(
 }
 
 /**
- * Create-or-update a lift that was authored offline, keyed by the phone's
- * client ID. Idempotent: a retried upload patches the row it already created.
+ * Create-or-update an owned lift from a phone. Cloud identity survives adoption;
+ * new offline lifts use client ID so retries patch the row already created.
  */
 export async function upsertCustomExerciseFromClient(
   ctx: MutationCtx,
   userId: Id<"users">,
   args: {
     clientId: string;
+    remoteId?: Id<"customExercises"> | null;
     name: string;
     short?: string;
     category: MuscleGroup;
@@ -100,15 +101,25 @@ export async function upsertCustomExerciseFromClient(
     archived: boolean;
   },
 ) {
-  const existing = await ctx.db
+  const byClient = await ctx.db
     .query("customExercises")
     .withIndex("by_user_client_id", (q) =>
       q.eq("userId", userId).eq("clientId", args.clientId),
     )
     .first();
+  // Explicit cloud identity survives adoption onto a different phone. Legacy
+  // snapshots have no remoteId; a cloud-imported row used its cloud id as clientId.
+  const legacyId =
+    !byClient && !args.remoteId
+      ? ctx.db.normalizeId("customExercises", args.clientId)
+      : null;
+  const legacy = legacyId ? await ctx.db.get(legacyId) : null;
+  const existing = args.remoteId
+    ? await requireOwned(ctx, userId, args.remoteId)
+    : (byClient ?? (legacy?.userId === userId ? legacy : null));
 
   const fields = {
-    name: normalizeName(args.name),
+    name: normalizeExerciseName(args.name),
     short: normalizeShort(args.short),
     category: args.category,
     usesBar: args.usesBar,
@@ -161,7 +172,7 @@ export async function updateCustomExercise(
 ) {
   await requireOwned(ctx, userId, args.exerciseId);
   await ctx.db.patch(args.exerciseId, {
-    name: normalizeName(args.name),
+    name: normalizeExerciseName(args.name),
     short: normalizeShort(args.short),
     category: args.category,
     usesBar: args.usesBar,

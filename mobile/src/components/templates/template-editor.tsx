@@ -17,6 +17,7 @@ import { useMobileAuth } from "@/auth/auth-provider";
 import { AiPromptModal } from "@/components/ai-prompt-modal";
 import { buildMuscleSegments, MuscleBand } from "@/components/charts";
 import { ExercisePicker } from "@/components/exercise-picker";
+import { ExerciseOptionsButton } from "@/components/workout/exercise-options";
 import {
   Button,
   Card,
@@ -58,7 +59,7 @@ export function TemplateEditor({
   const [name, setName] = useState(initial.name);
   const [exercises, setExercises] = useState(initial.exercises);
   const [expanded, setExpanded] = useState(initial.exercises.length ? 0 : -1);
-  const [picker, setPicker] = useState(false);
+  const [picker, setPicker] = useState<"add" | number | false>(false);
   const [aiOpen, setAiOpen] = useState(openAi);
   const [saving, setSaving] = useState(false);
   const [localNotes, setLocalNotes] = useState<Record<string, string>>({});
@@ -113,6 +114,19 @@ export function TemplateEditor({
         })),
     ]);
     setExpanded(exercises.length);
+  }
+
+  function replaceExerciseAt(index: number, slug: string) {
+    setExercises((current) =>
+      current.map((exercise, currentIndex) =>
+        currentIndex === index
+          ? {
+              slug,
+              sets: exercise.sets.map(() => ({ weight: 0, reps: 0 })),
+            }
+          : exercise,
+      ),
+    );
   }
 
   function move(index: number, delta: number) {
@@ -331,6 +345,21 @@ export function TemplateEditor({
                       {exercise.sets.length} sets
                     </Text>
                   </View>
+                  <ExerciseOptionsButton
+                    onReplace={() => setPicker(index)}
+                    onDelete={() => {
+                      setExercises((current) =>
+                        current.filter(
+                          (_, currentIndex) => currentIndex !== index,
+                        ),
+                      );
+                      setExpanded((current) => {
+                        if (current === index) return -1;
+                        if (current > index) return current - 1;
+                        return current;
+                      });
+                    }}
+                  />
                   {open ? (
                     <ChevronUp size={19} color={colors.dim} />
                   ) : (
@@ -354,6 +383,7 @@ export function TemplateEditor({
                       }
                       placeholder="Cues, setup, or reminders"
                       multiline
+                      autoGrow
                     />
                     <View
                       style={{ flexDirection: "row", paddingHorizontal: 5 }}
@@ -489,18 +519,6 @@ export function TemplateEditor({
                         }))
                       }
                     />
-                    <Button
-                      label="Remove exercise"
-                      variant="ghost"
-                      icon={Trash2}
-                      onPress={() =>
-                        setExercises((current) =>
-                          current.filter(
-                            (_, currentIndex) => currentIndex !== index,
-                          ),
-                        )
-                      }
-                    />
                   </View>
                 ) : null}
               </Card>
@@ -512,7 +530,7 @@ export function TemplateEditor({
           size="lg"
           variant="outline"
           icon={Plus}
-          onPress={() => setPicker(true)}
+          onPress={() => setPicker("add")}
         />
         {templateId ? (
           <Button
@@ -524,10 +542,18 @@ export function TemplateEditor({
         ) : null}
       </Screen>
       <ExercisePicker
-        visible={picker}
+        visible={picker !== false}
+        mode={typeof picker === "number" ? "replace" : "add"}
         usedSlugs={slugs}
         onClose={() => setPicker(false)}
-        onAdd={addExercises}
+        onAdd={(nextSlugs) => {
+          if (typeof picker === "number") {
+            const slug = nextSlugs[0];
+            if (slug) replaceExerciseAt(picker, slug);
+            return;
+          }
+          addExercises(nextSlugs);
+        }}
       />
       {aiAvailable ? (
         <AiPromptModal
