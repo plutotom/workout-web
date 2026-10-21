@@ -107,6 +107,99 @@ async function memory(placeId) {
 }
 
 describe("completed workout preservation contract", () => {
+  it("updates Share's subscribed outbox state after an upload fails before commit and recovers after restart", async () => {
+    await phone.offline();
+    const sessionId = await phone.edit((local) => local.startBlank());
+    await phone.edit((local) =>
+      local.addExercise(sessionId, "bench", [{ weight: 135, reps: 5 }]),
+    );
+    await phone.edit((local) => local.finish(sessionId));
+    phone.shareSessionId = sessionId;
+    await phone.reopen();
+    expect(phone.shareAttempt).toBe(0);
+    const operationId = phone.outbox()[0].operation_id;
+    phone.faults.push({
+      name: "pushSession",
+      beforeCommit: async () => {
+        throw new TypeError("Connection interrupted");
+      },
+    });
+    await phone.connect();
+    await phone.tick();
+    expect(phone.shareAttempt).toBe(1);
+    expect(phone.outbox()[0].operation_id).toBe(operationId);
+    expect((await phone.records(ALICE)).workoutSessions).toHaveLength(0);
+    await phone.offline();
+    await phone.reopen();
+    expect(phone.shareAttempt).toBe(1);
+    await phone.connect();
+    await phone.settle();
+    expect(phone.shareAttempt).toBe(null);
+    const records = await phone.records(ALICE);
+    expect(records.workoutSessions).toHaveLength(1);
+    expect(records.sessionExercises).toHaveLength(1);
+    expect(records.sets).toHaveLength(1);
+    expect(
+      await phone
+        .as(ALICE)
+        .query(api.routes.social.queries.syncedSession, { localId: sessionId }),
+    ).toBe(records.workoutSessions[0]._id);
+  });
+
+  it.each([
+    ["in_progress", "before-ack"],
+    ["in_progress", "after-ack"],
+    ["abandoned", "before-ack"],
+    ["abandoned", "after-ack"],
+  ])(
+    "retries an offline finish across restart without overriding a newer discard (server: %s, %s)",
+    async (serverStatus, subscriptionOrder) => {
+      phone.subscriptionOrder = subscriptionOrder;
+      const seeded = await seedWebWorkout();
+      const original = await detail(seeded.sessionId);
+      await phone.edit((local) => local.adoptRemoteCompletedWorkout(original));
+      await phone.offline();
+      await phone.edit((local) =>
+        local.updateSet(seeded.setId, { weight: 155 }),
+      );
+      const queued = await getPendingSessionSync(phone.db);
+      const newerRevision = queued.snapshot.updatedAt + 60_000;
+      await phone.cloud.run((ctx) =>
+        ctx.db.patch(seeded.sessionId, {
+          status: serverStatus,
+          clientUpdatedAt: newerRevision,
+        }),
+      );
+      await phone.reopen();
+      phone.faults.push({ name: "pushSession", loseResponse: true });
+      await phone.connect();
+      await phone.settle();
+
+      const applied = serverStatus === "in_progress";
+      const records = await phone.records(ALICE);
+      expect(records.workoutSessions).toEqual([
+        expect.objectContaining({
+          _id: seeded.sessionId,
+          status: applied ? "completed" : "abandoned",
+          clientUpdatedAt: newerRevision,
+        }),
+      ]);
+      expect(records.sessionExercises).toHaveLength(1);
+      expect(records.sets).toEqual([
+        expect.objectContaining({
+          _id: seeded.setId,
+          weight: applied ? 155 : 135,
+        }),
+      ]);
+      expect(
+        await phone.as(ALICE).query(api.routes.social.queries.syncedSession, {
+          localId: seeded.sessionId,
+        }),
+      ).toBe(applied ? seeded.sessionId : null);
+      expect(phone.outbox()).toEqual([]);
+    },
+  );
+
   it.each(["before-ack", "after-ack"])(
     "preserves a late second-phone Health attachment across offline list edits, restart and retry (%s)",
     async (subscriptionOrder) => {

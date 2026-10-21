@@ -1957,25 +1957,63 @@ export async function finishLocalWorkout(
   sessionId: string,
 ) {
   return withWorkoutTransaction(db, async (txn) => {
-    const session = await txn.getFirstAsync<{ status: string }>(
-      "SELECT status FROM local_sessions WHERE id = ?",
-      sessionId,
-    );
+    const session = await txn.getFirstAsync<{
+      status: string;
+      updated_at: number;
+    }>("SELECT status, updated_at FROM local_sessions WHERE id = ?", sessionId);
     if (!session) throw new Error("Session not found");
     if (session.status !== "in_progress")
       throw new Error("Workout is no longer active");
     const now = Date.now();
+    // A last-set revision can already be >= now. Share looks up a *completed*
+    // Convex row; a stale ack would drop this snapshot and leave the gate stuck.
+    const updatedAt = nextClientUpdatedAt(session.updated_at, now);
     await txn.runAsync(
       `UPDATE local_sessions
           SET status = 'completed', completed_at = ?, updated_at = ?
         WHERE id = ?`,
       now,
-      now,
+      updatedAt,
       sessionId,
     );
     await recordLocalSessionPlaceMemory(txn, sessionId);
-    await queueSessionSnapshot(txn, sessionId, now);
+    await queueSessionSnapshot(txn, sessionId, updatedAt);
   });
+}
+
+/** Re-queue a finished workout so Share can recover after a dropped/stale ack. */
+export async function retryLocalSessionShareSync(
+  db: SQLiteDatabase,
+  sessionId: string,
+) {
+  return withWorkoutTransaction(db, async (txn) => {
+    const session = await txn.getFirstAsync<{
+      status: string;
+      updated_at: number;
+    }>("SELECT status, updated_at FROM local_sessions WHERE id = ?", sessionId);
+    if (!session || session.status !== "completed") {
+      throw new Error("Only a completed workout can sync for sharing");
+    }
+    const updatedAt = nextClientUpdatedAt(session.updated_at);
+    await txn.runAsync(
+      "UPDATE local_sessions SET updated_at = ? WHERE id = ?",
+      updatedAt,
+      sessionId,
+    );
+    await queueSessionSnapshot(txn, sessionId, updatedAt);
+  });
+}
+
+export async function getLocalSessionShareOutboxAttempt(
+  db: SQLiteDatabase,
+  sessionId: string,
+) {
+  const row = await db.getFirstAsync<{ attempt_count: number }>(
+    `SELECT attempt_count FROM local_sync_outbox
+      WHERE entity_type = 'session' AND entity_id = ?`,
+    sessionId,
+  );
+  return row ? row.attempt_count : null;
 }
 
 export async function abandonLocalWorkout(
@@ -2685,23 +2723,28 @@ export async function completeTemplateSync(
   await db.withExclusiveTransactionAsync(async (txn) => {
     if (remoteTemplateId) {
       await adoptTemplateIdentity(txn, templateId, remoteTemplateId);
-      const relinked = await txn.getAllAsync<{ id: string }>(
-        "SELECT id FROM local_sessions WHERE template_id = ? AND remote_template_id IS NOT ?",
+      const relinked = await txn.getAllAsync<{
+        id: string;
+        updated_at: number;
+      }>(
+        "SELECT id, updated_at FROM local_sessions WHERE template_id = ? AND remote_template_id IS NOT ?",
         templateId,
         remoteTemplateId,
       );
-      await txn.runAsync(
-        `UPDATE local_sessions
-            SET remote_template_id = ?, updated_at = ?
-          WHERE template_id = ? AND remote_template_id IS NOT ?`,
-        remoteTemplateId,
-        now,
-        templateId,
-        remoteTemplateId,
-      );
-      // Link updates and their follow-up uploads must commit together. An
-      // app exit between them must leave the original template upload queued.
-      for (const row of relinked) await queueSessionSnapshot(txn, row.id, now);
+      // Finish may have already advanced past wall clock. A rewind here makes
+      // the follow-up upload look stale and drops the trusted template link.
+      for (const row of relinked) {
+        const updatedAt = nextClientUpdatedAt(row.updated_at, now);
+        await txn.runAsync(
+          `UPDATE local_sessions
+              SET remote_template_id = ?, updated_at = ?
+            WHERE id = ?`,
+          remoteTemplateId,
+          updatedAt,
+          row.id,
+        );
+        await queueSessionSnapshot(txn, row.id, updatedAt);
+      }
     }
     await txn.runAsync(
       "DELETE FROM local_sync_outbox WHERE operation_id = ?",
@@ -2827,6 +2870,7 @@ export async function queueCustomExerciseSnapshot(
     // The local row id doubles as the client id, so a retried upload resolves
     // to the same Convex document instead of duplicating the lift.
     clientId: row.id,
+    remoteId: row.remote_id,
     name: row.name,
     short: row.short,
     category: row.category as LocalMuscleGroup,
@@ -3305,22 +3349,42 @@ export async function applyIosBootstrap(
 
     for (const exercise of payload.customExercises) {
       const remoteSlug = remoteCustomSlug(exercise.remoteId);
-      // `clientId` is the local row id for lifts this device authored offline,
-      // so a lift that has already been uploaded is adopted rather than
-      // duplicated. Otherwise fall back to matching an earlier bootstrap.
+      // A cloud-imported lift used its remote id as a local id. Older uploads
+      // could create a second cloud row with that id as clientId. Remote identity
+      // wins: the second row must never steal an already bound local lift.
+      const clientMatch = exercise.clientId
+        ? await txn.getFirstAsync<{
+            id: string;
+            slug: string;
+            remote_id: string | null;
+          }>(
+            "SELECT id, slug, remote_id FROM local_custom_exercises WHERE id = ?",
+            exercise.clientId,
+          )
+        : null;
       const existing =
-        (exercise.clientId
-          ? await txn.getFirstAsync<{ id: string; slug: string }>(
-              "SELECT id, slug FROM local_custom_exercises WHERE id = ?",
-              exercise.clientId,
-            )
-          : null) ??
         (await txn.getFirstAsync<{ id: string; slug: string }>(
           "SELECT id, slug FROM local_custom_exercises WHERE remote_id = ?",
           exercise.remoteId,
-        ));
+        )) ??
+        (await txn.getFirstAsync<{ id: string; slug: string }>(
+          "SELECT id, slug FROM local_custom_exercises WHERE slug = ? AND (remote_id IS NULL OR remote_id = ?)",
+          remoteSlug,
+          exercise.remoteId,
+        )) ??
+        (clientMatch &&
+        (!clientMatch.remote_id || clientMatch.remote_id === exercise.remoteId)
+          ? clientMatch
+          : null);
 
       if (!existing) {
+        // Repair databases already affected by the old identity adoption. Keep
+        // their row and references; give the other cloud lift a fresh local id.
+        const occupied = await txn.getFirstAsync<{ id: string }>(
+          "SELECT id FROM local_custom_exercises WHERE id = ?",
+          exercise.remoteId,
+        );
+        const localId = occupied ? randomUUID() : exercise.remoteId;
         await txn.runAsync(
           `INSERT INTO local_custom_exercises (
              id, slug, remote_id, name, short, category, uses_bar, archived, updated_at
@@ -3333,7 +3397,7 @@ export async function applyIosBootstrap(
              uses_bar = excluded.uses_bar,
              archived = excluded.archived,
              updated_at = excluded.updated_at`,
-          exercise.remoteId,
+          localId,
           remoteSlug,
           exercise.remoteId,
           exercise.name,

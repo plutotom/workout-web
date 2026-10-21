@@ -4,7 +4,6 @@ import { mutation } from "../../_generated/server";
 import { requireUserFromApiKey } from "../../lib/apiKeys";
 import {
   archiveCustomExercise as archiveCustomExerciseLib,
-  createCustomExercise as createCustomExerciseLib,
   updateCustomExercise as updateCustomExerciseLib,
 } from "../../lib/exercises";
 import {
@@ -14,6 +13,7 @@ import {
   updateTemplate as updateTemplateLib,
 } from "../../lib/templates";
 import { muscleGroupValidator } from "../../schemas/exercises";
+import { ensureMcpExercise } from "../../lib/mcp_exercises";
 import {
   abandonWorkout as abandonWorkoutLib,
   addSet as addSetLib,
@@ -69,7 +69,7 @@ export const createCustomExercise = mutation({
   },
   handler: async (ctx, { apiKey, ...args }) => {
     const user = await requireUserFromApiKey(ctx, apiKey);
-    return createCustomExerciseLib(ctx, user._id, args);
+    return ensureMcpExercise(ctx, user._id, args);
   },
 });
 
