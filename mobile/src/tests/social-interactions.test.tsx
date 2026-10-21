@@ -34,6 +34,7 @@ const mocks = vi.hoisted(() => ({
   remoteWorkout: null as unknown,
   haptic: vi.fn().mockResolvedValue(undefined),
   alert: vi.fn(),
+  actionSheet: vi.fn(),
   shareSyncAttempt: null as number | null | undefined,
   retrySessionSync: vi.fn(),
   mutate: Object.assign(vi.fn().mockResolvedValue(false), {
@@ -100,10 +101,15 @@ vi.mock("@/components/keyboard-sticky-footer", () => ({
   KeyboardStickyFooter: "KeyboardStickyFooter",
 }));
 vi.mock("@/components/cowboy-hat-icon", () => ({ CowboyHatIcon: "Hat" }));
-vi.mock("lucide-react-native", () => ({ MessageCircle: "MessageCircle" }));
+vi.mock("lucide-react-native", () => ({
+  MessageCircle: "MessageCircle",
+  MoreHorizontal: "MoreHorizontal",
+}));
 vi.mock("react-native", () => ({
+  ActionSheetIOS: { showActionSheetWithOptions: mocks.actionSheet },
   ActivityIndicator: "Spinner",
   Alert: { alert: mocks.alert },
+  Platform: { OS: "ios" },
   Text: "Text",
   TextInput: "TextInput",
   Pressable: "Pressable",
@@ -195,6 +201,24 @@ async function render(element: React.ReactElement) {
 }
 function button(label: string) {
   return renderer.root.findByProps({ label });
+}
+function postOptions() {
+  return renderer.root.findByProps({ accessibilityLabel: "Post options" });
+}
+function chooseCopyAsTemplate() {
+  const call = mocks.actionSheet.mock.calls.at(-1);
+  expect(call).toBeDefined();
+  const [config, callback] = call as [
+    { options: string[] },
+    (index: number) => void,
+  ];
+  const index = config.options.indexOf("Copy as template");
+  expect(index).toBeGreaterThan(0);
+  callback(index);
+}
+function openCopyConfirmation() {
+  postOptions().props.onPress();
+  chooseCopyAsTemplate();
 }
 function deferred() {
   let resolve!: (postId: string) => void;
@@ -487,9 +511,46 @@ function confirmationButton(text: string) {
 }
 
 describe("copying a social workout to the template library", () => {
+  it("keeps Copy as template in the overflow menu on feed and detail posts", async () => {
+    await render(<SocialPost post={post} />);
+    expect(renderer.root.findAllByProps({ label: "Copy as template" })).toEqual(
+      [],
+    );
+    postOptions().props.onPress();
+    expect(mocks.actionSheet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: ["Cancel", "Copy as template"],
+        cancelButtonIndex: 0,
+      }),
+      expect.any(Function),
+    );
+    expect(mocks.router.push).not.toHaveBeenCalled();
+    const dismiss = mocks.actionSheet.mock.calls.at(-1)![1] as (
+      index: number,
+    ) => void;
+    dismiss(0);
+    expect(mocks.alert).not.toHaveBeenCalled();
+    await act(async () => renderer.update(<SocialPost post={post} detail />));
+    expect(renderer.root.findAllByProps({ label: "Copy as template" })).toEqual(
+      [],
+    );
+    postOptions().props.onPress();
+    expect(mocks.actionSheet).toHaveBeenCalledTimes(2);
+    expect(mocks.router.push).not.toHaveBeenCalled();
+  });
+
+  it("does not open the post when copying from the feed overflow menu", async () => {
+    await render(<SocialPost post={post} />);
+    openCopyConfirmation();
+    expect(mocks.router.push).not.toHaveBeenCalled();
+    await act(async () => confirmationButton("Add template")());
+    expect(mocks.copy).toHaveBeenCalledWith({ postId: "post_1" });
+    expect(mocks.router.push).not.toHaveBeenCalled();
+  });
+
   it("requires confirmation, and cancellation adds nothing", async () => {
     await render(<SocialPost post={post} detail />);
-    button("Copy as template").props.onPress();
+    openCopyConfirmation();
     expect(mocks.alert).toHaveBeenCalledWith(
       "Add to your library?",
       "Add “Leg day” as a new workout template?",
@@ -499,7 +560,7 @@ describe("copying a social workout to the template library", () => {
     expect(mocks.copy).not.toHaveBeenCalled();
     confirmationButton("Cancel")();
     expect(mocks.copy).not.toHaveBeenCalled();
-    button("Copy as template").props.onPress();
+    openCopyConfirmation();
     expect(mocks.alert).toHaveBeenCalledTimes(2);
   });
 
@@ -507,9 +568,11 @@ describe("copying a social workout to the template library", () => {
     const request = deferred();
     mocks.copy.mockReturnValue(request.promise);
     await render(<SocialPost post={post} detail />);
-    const press = button("Copy as template").props.onPress;
-    press();
-    press();
+    const pressMenu = postOptions().props.onPress;
+    pressMenu();
+    pressMenu();
+    expect(mocks.actionSheet).toHaveBeenCalledOnce();
+    chooseCopyAsTemplate();
     expect(mocks.alert).toHaveBeenCalledOnce();
     expect(mocks.copy).not.toHaveBeenCalled();
     const confirm = confirmationButton("Add template");
@@ -517,11 +580,11 @@ describe("copying a social workout to the template library", () => {
     await act(async () => {
       task = confirm() as Promise<void>;
       void confirm();
-      void press();
+      void pressMenu();
     });
     expect(mocks.copy).toHaveBeenCalledOnce();
     expect(mocks.copy).toHaveBeenCalledWith({ postId: "post_1" });
-    expect(button("Adding…").props.disabled).toBe(true);
+    expect(postOptions().props.disabled).toBe(true);
     expect(
       renderer.root.findByProps({
         accessibilityLabel: "Adding template to library",
@@ -541,15 +604,15 @@ describe("copying a social workout to the template library", () => {
       "Added to library",
       "This workout is now in your template library.",
     );
-    expect(button("Copy as template").props.disabled).toBe(false);
+    expect(postOptions().props.disabled).toBe(false);
   });
 
-  it("reports rejection, restores the button, and requires confirmation for retry", async () => {
+  it("reports rejection, restores the menu, and requires confirmation for retry", async () => {
     mocks.copy.mockRejectedValueOnce(
       new Error("At most 100 templates are allowed"),
     );
     await render(<SocialPost post={post} detail />);
-    button("Copy as template").props.onPress();
+    openCopyConfirmation();
     await act(async () => confirmationButton("Add template")());
     expect(mocks.alert).toHaveBeenLastCalledWith(
       "Couldn't add template",
@@ -558,7 +621,7 @@ describe("copying a social workout to the template library", () => {
     expect(JSON.stringify(renderer.toJSON())).toContain(
       "At most 100 templates are allowed",
     );
-    button("Copy as template").props.onPress();
+    openCopyConfirmation();
     expect(mocks.copy).toHaveBeenCalledOnce();
     await act(async () => confirmationButton("Add template")());
     expect(mocks.copy).toHaveBeenCalledTimes(2);
@@ -570,7 +633,7 @@ describe("copying a social workout to the template library", () => {
       const request = deferred();
       mocks.copy.mockReturnValue(request.promise);
       await render(<SocialPost post={post} detail />);
-      button("Copy as template").props.onPress();
+      openCopyConfirmation();
       const confirm = confirmationButton("Add template");
       let task!: Promise<void>;
       await act(async () => {
