@@ -161,6 +161,7 @@ import type { HealthAutoImportPrefs } from "@/health/types";
 import type { WorkoutExportBundle } from "@shared/workout-export";
 import type { NoteConversionPreview } from "@shared/note-conversion-preview";
 import type { NoteUnit } from "@shared/note-workouts";
+import { clearSessionCollapsed } from "@shared/workout-collapse";
 
 type LocalTemplateInput = {
   templateId?: string;
@@ -506,16 +507,24 @@ function LocalDataState({
       createBackup: () => createLocalBackup(db),
       restoreBackup: (snapshot) => run(() => restoreLocalBackup(db, snapshot)),
       noteBackupSaved: () => run(() => markBackupSaved(db)),
-      finish: (sessionId) => run(() => finishTracked(sessionId)),
+      finish: (sessionId) =>
+        run(async () => {
+          await finishTracked(sessionId);
+          clearSessionCollapsed(sessionId);
+        }),
       retrySessionSync: (sessionId) =>
         run(() => retryLocalSessionShareSync(db, sessionId)),
       abandon: (sessionId) =>
         run(async () => {
           void discardWatchWorkout().catch(() => undefined);
           await abandonLocalWorkout(db, sessionId);
+          clearSessionCollapsed(sessionId);
         }),
       deleteSession: (sessionId) =>
-        run(() => deleteLocalWorkout(db, sessionId)),
+        run(async () => {
+          await deleteLocalWorkout(db, sessionId);
+          clearSessionCollapsed(sessionId);
+        }),
       importHealthSummary: (workout) =>
         run(() => importHealthSummarySession(db, workout)),
       linkHealthSummary: (sessionId, workout) =>

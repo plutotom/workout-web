@@ -71,6 +71,10 @@ import { formatDate, formatDuration, formatWeight } from "@/lib/format";
 import { formatHealthDistance, formatHealthEnergy } from "@/health/mapping";
 import { inProgressWorkoutLayout } from "@/data/local/preferences";
 import {
+  useWorkoutCollapse,
+  useWorkoutCollapseHydrated,
+} from "@shared/use-workout-collapse";
+import {
   useLocalData,
   useLocalLastSet,
   useLocalPlaces,
@@ -135,6 +139,7 @@ export function WorkoutScreen({
   const { adoptRemoteCompletedWorkout } = useLocalData();
   const user = useLocalPreferences();
   const { isAuthenticated } = useMobileAuth();
+  const collapseReady = useWorkoutCollapseHydrated();
   const [editingCompleted, setEditingCompleted] = useState(startInEdit);
   const remoteSessionId =
     session === null
@@ -208,6 +213,8 @@ export function WorkoutScreen({
       : editingCompleted && sessionAllowsCompletedReviewEdit(session)
         ? "list"
         : "completed";
+  if (layout === "list" && !collapseReady)
+    return <FullScreenLoader label="Loading workout…" />;
   return (
     <>
       <WorkoutFinishController />
@@ -350,9 +357,10 @@ function ListWorkout({
     slug: string;
     machineId: string | null;
   } | null>(null);
-  // Collapsed cards are opt-in and independent, so a session can mix open and
-  // closed exercises. Missing id means expanded.
-  const [collapsed, setCollapsed] = useState<Record<string, true>>({});
+  const { collapsed, toggleCollapsed: toggleCollapsedId } = useWorkoutCollapse(
+    session._id,
+    session.exercises.map((exercise) => exercise._id),
+  );
   const rest = useRestTimer({
     notificationsEnabled: user.restTimerNotificationsEnabled,
   });
@@ -361,12 +369,7 @@ function ListWorkout({
 
   function toggleCollapsed(exerciseId: string) {
     void Haptics.selectionAsync();
-    setCollapsed((current) => {
-      const next = { ...current };
-      if (next[exerciseId]) delete next[exerciseId];
-      else next[exerciseId] = true;
-      return next;
-    });
+    toggleCollapsedId(exerciseId);
   }
 
   async function addPicked(slugs: string[]) {
@@ -585,7 +588,6 @@ function ListWorkout({
                         ? saveSessionExerciseNote(exercise._id, notes)
                         : saveNote(exercise.slug, notes)
                     }
-                    multiline={false}
                   />
                 )}
               </View>

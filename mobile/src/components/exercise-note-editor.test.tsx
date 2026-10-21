@@ -153,4 +153,10 @@ describe("exercise note editing", () => {
     await act(async () => field().props.onBlur());
     expect(save).toHaveBeenCalledTimes(3);
   });
+
+  it("wraps as a growing multiline field so Return inserts a newline", async () => {
+    await render("long cue that used to clip");
+    expect(field().props.multiline).toBe(true);
+    expect(field().props.autoGrow).toBe(true);
+  });
 });
