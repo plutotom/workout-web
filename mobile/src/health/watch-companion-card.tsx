@@ -1,8 +1,9 @@
 import { Watch } from "lucide-react-native";
 import { useEffect, useRef, useState } from "react";
-import { Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 
 import { Button, Card } from "@/components/ui";
+import { useLocalPreferences } from "@/data/local/provider";
 import { getHealthAdapter } from "@/health";
 import {
   endWatchWorkout,
@@ -11,6 +12,10 @@ import {
   subscribeWatchEvents,
 } from "@/health/watch-bridge";
 import {
+  DEFAULT_AUTO_START_WATCH_WORKOUT,
+  shouldAutoStartWatchWorkout,
+  shouldShowWatchCompanion,
+  watchCompanionPresentation,
   watchLaunchErrorMessage,
   watchStartBlockedReason,
   reduceWatchSessionStatus,
@@ -26,13 +31,32 @@ export function WatchCompanionCard({
   sessionId: string;
   startedAt: number;
 }) {
+  const preferences = useLocalPreferences();
   const [status, setStatus] = useState(getWatchCompanionStatus);
   const [watchStatus, setWatchStatus] = useState<WatchSessionStatus>("idle");
   const [heartRate, setHeartRate] = useState<number | null>(null);
   const [energyKcal, setEnergyKcal] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [healthAvailable, setHealthAvailable] = useState<boolean | null>(null);
   const autoStarted = useRef(false);
+  const autoStartEnabled =
+    preferences?.autoStartWatchWorkout ?? DEFAULT_AUTO_START_WATCH_WORKOUT;
+
+  useEffect(() => {
+    let active = true;
+    void getHealthAdapter()
+      .isAvailable()
+      .then((value) => {
+        if (active) setHealthAvailable(value);
+      })
+      .catch(() => {
+        if (active) setHealthAvailable(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     return subscribeWatchEvents((event) => {
@@ -48,12 +72,29 @@ export function WatchCompanionCard({
   }, [sessionId]);
 
   useEffect(() => {
-    if (!status.paired || !status.installed || autoStarted.current) return;
+    if (preferences === undefined || autoStarted.current) return;
+    if (healthAvailable !== true) return;
+    if (
+      !shouldAutoStartWatchWorkout({
+        autoStartEnabled,
+        status,
+        healthAvailable,
+      })
+    ) {
+      return;
+    }
     autoStarted.current = true;
     void begin();
-    // Pairing/install is device state; starting once per mount is the spike path.
+    // Pairing/install is device state; starting once per mount is the existing path.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- session start is one-shot
-  }, [sessionId, status.paired, status.installed]);
+  }, [
+    sessionId,
+    status.paired,
+    status.installed,
+    preferences,
+    autoStartEnabled,
+    healthAvailable,
+  ]);
 
   async function begin() {
     setBusy(true);
@@ -76,9 +117,56 @@ export function WatchCompanionCard({
     }
   }
 
-  if (!status.supported) return null;
+  if (healthAvailable !== true) return null;
+  if (
+    !shouldShowWatchCompanion({
+      status,
+      watchStatus,
+    })
+  ) {
+    return null;
+  }
 
   const recording = watchStatus === "recording" || watchStatus === "starting";
+  const presentation = watchCompanionPresentation({
+    autoStartEnabled,
+    watchStatus,
+    hasError: Boolean(error),
+  });
+
+  if (presentation === "compact") {
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Start on Apple Watch"
+        accessibilityState={{ busy, disabled: busy }}
+        disabled={busy}
+        onPress={() => void begin()}
+        style={({ pressed }) => [
+          {
+            minHeight: 44,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 10,
+            paddingVertical: 4,
+          },
+          pressed && { opacity: 0.72 },
+        ]}
+      >
+        <Watch color={colors.text} size={18} strokeWidth={2.3} />
+        <Text
+          style={{
+            color: colors.text,
+            fontSize: 16,
+            fontWeight: "600",
+            flex: 1,
+          }}
+        >
+          {busy ? "Starting Apple Watch…" : "Start on Apple Watch"}
+        </Text>
+      </Pressable>
+    );
+  }
 
   return (
     <Card>
@@ -112,7 +200,7 @@ export function WatchCompanionCard({
       ) : null}
       {status.paired && !recording && watchStatus !== "ended" ? (
         <Button
-          label={busy ? "Starting…" : "Start Watch"}
+          label={busy ? "Starting…" : "Start on Apple Watch"}
           variant="outline"
           disabled={busy}
           onPress={() => void begin()}
@@ -139,7 +227,7 @@ function companionCopy({
   recording: boolean;
 }) {
   if (!status.paired) {
-    return "No paired Watch. This spike still builds the companion into the iPhone app.";
+    return "Watch recording is running for this workout.";
   }
   const blocked = watchStartBlockedReason(status);
   if (blocked) return blocked;

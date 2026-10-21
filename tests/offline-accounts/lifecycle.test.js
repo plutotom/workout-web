@@ -472,10 +472,10 @@ describe("offline account lifecycle with SQLite and Convex", () => {
       .run(JSON.stringify(payload), queue.operation_id);
     // Reconstruct the prior shipped schema, preserving its actual rows and ids.
     phone.sql.exec(
-      "ALTER TABLE local_sessions DROP COLUMN input_mode; ALTER TABLE local_sessions DROP COLUMN note_body; ALTER TABLE local_sessions DROP COLUMN note_unit; PRAGMA user_version = 7;",
+      "ALTER TABLE local_sessions DROP COLUMN input_mode; ALTER TABLE local_sessions DROP COLUMN note_body; ALTER TABLE local_sessions DROP COLUMN note_unit; ALTER TABLE local_preferences DROP COLUMN auto_start_watch_workout; PRAGMA user_version = 7;",
     );
     await phone.reopen();
-    expect(phone.sql.prepare("PRAGMA user_version").get().user_version).toBe(8);
+    expect(phone.sql.prepare("PRAGMA user_version").get().user_version).toBe(9);
     await phone.assertLocalData(sessionId, {
       inputMode: "list",
       exercises: [{ slug: "bench", sets: [{ weight: 100, reps: 5 }] }],
@@ -1142,7 +1142,7 @@ describe("data preservation requirements", () => {
   it("exports an old version-7 recovery file without migrating or clearing the retained source", async () => {
     await seedOfflineData();
     phone.sql.exec(
-      "ALTER TABLE local_sessions DROP COLUMN input_mode; ALTER TABLE local_sessions DROP COLUMN note_body; ALTER TABLE local_sessions DROP COLUMN note_unit; PRAGMA user_version = 7;",
+      "ALTER TABLE local_sessions DROP COLUMN input_mode; ALTER TABLE local_sessions DROP COLUMN note_body; ALTER TABLE local_sessions DROP COLUMN note_unit; ALTER TABLE local_preferences DROP COLUMN auto_start_watch_workout; PRAGMA user_version = 7;",
     );
     await moveCurrentDatabaseToLegacy(false);
     await phone.reopen();

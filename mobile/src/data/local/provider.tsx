@@ -111,6 +111,7 @@ import {
   setHealthExportEnabled as writeHealthExportEnabled,
   patchLocalPreferences,
   setLocalNotificationPreferences as writeLocalNotificationPreferences,
+  setLocalWatchPreferences as writeLocalWatchPreferences,
   setLocalSessionMachine,
   setLocalSessionPlace,
   startLocalBlankWorkout,
@@ -151,6 +152,7 @@ import type {
   LocalNotificationPreferences,
   LocalPlace,
   LocalPreferences,
+  LocalWatchPreferences,
   LocalTemplate,
   LocalWorkoutSession,
 } from "@/data/local/types";
@@ -301,6 +303,7 @@ type LocalDataContextValue = {
   setNotificationPreferences: (
     preferences: LocalNotificationPreferences,
   ) => Promise<void>;
+  setWatchPreferences: (preferences: LocalWatchPreferences) => Promise<void>;
   setGeneralPreferences: (patch: LocalGeneralPreferencePatch) => Promise<void>;
   applyBootstrap: (payload: IosBootstrapPayload) => Promise<void>;
 };
@@ -519,6 +522,8 @@ function LocalDataState({
         run(() => writeHealthAutoImportPrefs(db, prefs)),
       setNotificationPreferences: (preferences) =>
         run(() => writeLocalNotificationPreferences(db, preferences)),
+      setWatchPreferences: (preferences) =>
+        run(() => writeLocalWatchPreferences(db, preferences)),
       setGeneralPreferences: (patch) =>
         run(() => patchLocalPreferences(db, patch)),
       applyBootstrap: (payload) => run(() => applyIosBootstrap(db, payload)),

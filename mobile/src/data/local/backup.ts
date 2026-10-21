@@ -635,7 +635,8 @@ export async function restoreLocalBackup(
             SET unit = ?, bar_weight_lb = ?, bar_weight_kg = ?,
                 active_workout_mode = ?, rest_timer_enabled = ?,
                 rest_timer_notifications_enabled = ?,
-                apple_health_import_notifications_enabled = ?
+                apple_health_import_notifications_enabled = ?,
+                auto_start_watch_workout = ?
           WHERE id = 1`,
         snapshot.preferences.unit,
         snapshot.preferences.barWeightLb,
@@ -644,6 +645,7 @@ export async function restoreLocalBackup(
         snapshot.preferences.restTimerEnabled ? 1 : 0,
         snapshot.preferences.restTimerNotificationsEnabled ? 1 : 0,
         snapshot.preferences.appleHealthImportNotificationsEnabled ? 1 : 0,
+        snapshot.preferences.autoStartWatchWorkout ? 1 : 0,
       );
     }
 

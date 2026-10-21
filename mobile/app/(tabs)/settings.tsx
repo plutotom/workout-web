@@ -27,6 +27,7 @@ import { DevProOverrideCard } from "@/components/settings/dev-pro-override-card"
 import { GeneralPreferencesCard } from "@/components/settings/general-preferences-card";
 import { DataRecoveryCard } from "@/components/settings/data-recovery-card";
 import { NotificationSettingsCard } from "@/components/settings/notification-settings-card";
+import { WatchSettingsCard } from "@/components/settings/watch-settings-card";
 import { useEntitlement } from "@/hooks/use-entitlement";
 import { PlacesSettingsCard } from "@/components/settings/places-settings-card";
 import { useBackupStatus, useLocalData } from "@/data/local/provider";
@@ -69,6 +70,7 @@ export default function SettingsScreen() {
       <GeneralPreferencesCard />
       <PlacesSettingsCard />
       <HealthSettingsCard />
+      <WatchSettingsCard />
       <NotificationSettingsCard />
       <BackupCard signedIn={isAuthenticated} />
       <DataRecoveryCard />

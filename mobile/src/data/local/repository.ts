@@ -47,6 +47,7 @@ import type {
   LocalMuscleGroup,
   LocalNotificationPreferences,
   LocalPreferences,
+  LocalWatchPreferences,
   LocalSessionKind,
   LocalTemplate,
   LocalWorkoutExercise,
@@ -3396,10 +3397,12 @@ export async function getLocalPreferences(
     rest_timer_enabled: number;
     rest_timer_notifications_enabled: number;
     apple_health_import_notifications_enabled: number;
+    auto_start_watch_workout: number;
   }>(
     `SELECT unit, bar_weight_lb, bar_weight_kg, active_workout_mode,
             rest_timer_enabled, rest_timer_notifications_enabled,
-            apple_health_import_notifications_enabled
+            apple_health_import_notifications_enabled,
+            auto_start_watch_workout
        FROM local_preferences
       WHERE id = 1`,
   );
@@ -3413,6 +3416,7 @@ export async function getLocalPreferences(
       (row?.rest_timer_notifications_enabled ?? 1) === 1,
     appleHealthImportNotificationsEnabled:
       (row?.apple_health_import_notifications_enabled ?? 0) === 1,
+    autoStartWatchWorkout: (row?.auto_start_watch_workout ?? 1) === 1,
   };
 }
 
@@ -3470,6 +3474,18 @@ export async function setLocalNotificationPreferences(
       WHERE id = 1`,
     preferences.restTimerNotificationsEnabled ? 1 : 0,
     preferences.appleHealthImportNotificationsEnabled ? 1 : 0,
+  );
+}
+
+export async function setLocalWatchPreferences(
+  db: SQLiteDatabase,
+  preferences: LocalWatchPreferences,
+) {
+  await db.runAsync(
+    `UPDATE local_preferences
+        SET auto_start_watch_workout = ?
+      WHERE id = 1`,
+    preferences.autoStartWatchWorkout ? 1 : 0,
   );
 }
 

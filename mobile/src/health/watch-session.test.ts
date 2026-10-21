@@ -3,12 +3,122 @@ import { describe, expect, it } from "vitest";
 import {
   parseWatchEvent,
   reduceWatchSessionStatus,
+  shouldAutoStartWatchWorkout,
+  shouldShowWatchCompanion,
   shouldSkipPhoneHealthExport,
+  watchCompanionPresentation,
   watchHealthUuidKey,
   watchLaunchErrorMessage,
   watchRecordedKey,
   watchStartBlockedReason,
 } from "./watch-session";
+
+const readyWatch = {
+  supported: true,
+  paired: true,
+  installed: true,
+  reachable: true,
+};
+
+describe("Watch auto-start gating", () => {
+  it("auto-starts only when the setting is on and a Watch app is ready", () => {
+    expect(
+      shouldAutoStartWatchWorkout({
+        autoStartEnabled: true,
+        status: readyWatch,
+      }),
+    ).toBe(true);
+    expect(
+      shouldAutoStartWatchWorkout({
+        autoStartEnabled: false,
+        status: readyWatch,
+      }),
+    ).toBe(false);
+    expect(
+      shouldAutoStartWatchWorkout({
+        autoStartEnabled: true,
+        status: { ...readyWatch, paired: false },
+      }),
+    ).toBe(false);
+    expect(
+      shouldAutoStartWatchWorkout({
+        autoStartEnabled: true,
+        status: { ...readyWatch, installed: false },
+      }),
+    ).toBe(false);
+    expect(
+      shouldAutoStartWatchWorkout({
+        autoStartEnabled: true,
+        status: { ...readyWatch, supported: false },
+      }),
+    ).toBe(false);
+    expect(
+      shouldAutoStartWatchWorkout({
+        autoStartEnabled: true,
+        status: readyWatch,
+        healthAvailable: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("hides the control without a paired Watch unless a session is already live", () => {
+    expect(
+      shouldShowWatchCompanion({
+        status: { ...readyWatch, supported: false },
+        watchStatus: "idle",
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowWatchCompanion({
+        status: { ...readyWatch, paired: false },
+        watchStatus: "idle",
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowWatchCompanion({
+        status: { ...readyWatch, paired: false },
+        watchStatus: "recording",
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowWatchCompanion({
+        status: readyWatch,
+        watchStatus: "idle",
+      }),
+    ).toBe(true);
+  });
+
+  it("uses a compact Start on Apple Watch control when auto-start is off", () => {
+    expect(
+      watchCompanionPresentation({
+        autoStartEnabled: false,
+        watchStatus: "idle",
+        hasError: false,
+      }),
+    ).toBe("compact");
+    expect(
+      watchCompanionPresentation({
+        autoStartEnabled: true,
+        watchStatus: "idle",
+        hasError: false,
+      }),
+    ).toBe("expanded");
+    expect(
+      watchCompanionPresentation({
+        autoStartEnabled: false,
+        watchStatus: "recording",
+        hasError: false,
+      }),
+    ).toBe("expanded");
+    expect(
+      watchCompanionPresentation({
+        autoStartEnabled: false,
+        watchStatus: "idle",
+        hasError: true,
+      }),
+    ).toBe("expanded");
+  });
+});
 
 describe("shouldSkipPhoneHealthExport", () => {
   it("skips when Watch recorded or already saved a Health UUID", () => {

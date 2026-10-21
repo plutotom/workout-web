@@ -47,6 +47,51 @@ export function shouldSkipPhoneHealthExport(input: {
   return input.watchRecorded || Boolean(input.watchHealthUuid);
 }
 
+/** Default ON so existing installs keep today's auto-start Watch session. */
+export const DEFAULT_AUTO_START_WATCH_WORKOUT = true;
+
+export function shouldAutoStartWatchWorkout(input: {
+  autoStartEnabled: boolean;
+  status: WatchCompanionStatus;
+  healthAvailable?: boolean | null;
+}) {
+  if (input.healthAvailable === false) return false;
+  return (
+    input.autoStartEnabled &&
+    input.status.supported &&
+    input.status.paired &&
+    input.status.installed
+  );
+}
+
+export function shouldShowWatchCompanion(input: {
+  status: WatchCompanionStatus;
+  watchStatus: WatchSessionStatus;
+}) {
+  if (!input.status.supported) return false;
+  if (
+    input.watchStatus === "starting" ||
+    input.watchStatus === "recording" ||
+    input.watchStatus === "ended" ||
+    input.watchStatus === "disconnected"
+  ) {
+    return true;
+  }
+  return input.status.paired;
+}
+
+export function watchCompanionPresentation(input: {
+  autoStartEnabled: boolean;
+  watchStatus: WatchSessionStatus;
+  hasError: boolean;
+}): "compact" | "expanded" {
+  if (input.autoStartEnabled || input.hasError) return "expanded";
+  if (input.watchStatus === "idle" || input.watchStatus === "reachable") {
+    return "compact";
+  }
+  return "expanded";
+}
+
 /** Keep a finished/discarded Watch session from flipping back to idle. */
 export function reduceWatchSessionStatus(
   current: WatchSessionStatus,

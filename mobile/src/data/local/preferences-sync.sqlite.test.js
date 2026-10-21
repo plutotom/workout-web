@@ -27,6 +27,7 @@ import {
   setHealthAutoImportPrefs,
   setHealthExportEnabled,
   setLocalNotificationPreferences,
+  setLocalWatchPreferences,
 } from "./repository";
 
 const databases = new Set();
@@ -315,6 +316,7 @@ describe("offline settings with real SQLite and the sync mutation", () => {
       restTimerNotificationsEnabled: false,
       appleHealthImportNotificationsEnabled: true,
     });
+    await setLocalWatchPreferences(db, { autoStartWatchWorkout: false });
     await setHealthExportEnabled(db, true);
     const health = { enabled: true, importAllTypes: false, types: ["running"] };
     await setHealthAutoImportPrefs(db, health);
@@ -323,9 +325,19 @@ describe("offline settings with real SQLite and the sync mutation", () => {
     expect(await getLocalPreferences(db)).toMatchObject({
       restTimerNotificationsEnabled: false,
       appleHealthImportNotificationsEnabled: true,
+      autoStartWatchWorkout: false,
     });
     expect(await getHealthExportEnabled(db)).toBe(true);
     expect(await getHealthAutoImportPrefs(db)).toEqual(health);
+  });
+
+  it("defaults Watch auto-start on and keeps a local off toggle through bootstrap", async () => {
+    const { db } = await openDatabase();
+    expect((await getLocalPreferences(db)).autoStartWatchWorkout).toBe(true);
+    await setLocalWatchPreferences(db, { autoStartWatchWorkout: false });
+    await applyIosBootstrap(db, await cloudFixture().bootstrap());
+    expect((await getLocalPreferences(db)).autoStartWatchWorkout).toBe(false);
+    expect((await getLocalPreferences(db)).unit).toBe("lb");
   });
 
   it("converges after an hour of settings edits with one-minute upload windows and five-minute gaps", async () => {
