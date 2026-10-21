@@ -82,6 +82,27 @@ describe("resolveShareSessionGate", () => {
     ).toEqual({ kind: "loading" });
   });
 
+  it.each([undefined, 0])(
+    "offers retry after a bounded online wait (outbox: %s)",
+    (pendingAttemptCount) => {
+      expect(
+        resolveShareSessionGate({
+          ...stuckOnline,
+          pendingAttemptCount,
+          waitExpired: true,
+        }),
+      ).toEqual({ kind: "failed", canRetry: true });
+      expect(
+        resolveShareSessionGate({
+          ...stuckOnline,
+          convexRemoteId: "remote_1",
+          pendingAttemptCount,
+          waitExpired: true,
+        }),
+      ).toEqual({ kind: "ready", remoteId: "remote_1" });
+    },
+  );
+
   it("does not offer retry for a workout that is not on this phone", () => {
     expect(
       resolveShareSessionGate({

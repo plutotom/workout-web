@@ -1,7 +1,7 @@
 import { api } from "@backend/api";
 import { useConvexConnectionState, useMutation, useQuery } from "convex/react";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Text, TextInput, View } from "react-native";
 
 import { Button, Card, PageHeader, Screen } from "@/components/ui";
@@ -22,6 +22,8 @@ import {
   SHARE_SYNC_FAILED_COPY,
   SHARE_SYNC_OFFLINE_COPY,
   SHARE_SYNC_PENDING_COPY,
+  SHARE_SYNC_SLOW_COPY,
+  SHARE_SYNC_WAIT_MS,
 } from "@/lib/share-session-gate";
 
 export default function ShareWorkoutScreen() {
@@ -63,12 +65,31 @@ export default function ShareWorkoutScreen() {
       : "skip",
   );
   const workout = localWorkout ?? remoteWorkout;
+  const [syncWait, setSyncWait] = useState({
+    sessionId,
+    attempt: 0,
+    expired: false,
+  });
+  const waitingForSync = isAuthenticated && isWebSocketConnected && !remoteId;
+  useEffect(() => {
+    if (!waitingForSync) return;
+    const timer = setTimeout(
+      () => setSyncWait((value) => ({ ...value, expired: true })),
+      SHARE_SYNC_WAIT_MS,
+    );
+    return () => clearTimeout(timer);
+  }, [waitingForSync, sessionId, syncWait.attempt]);
+  // A different workout gets a fresh bounded wait rather than the last one's error.
+  if (syncWait.sessionId !== sessionId) {
+    setSyncWait({ sessionId, attempt: 0, expired: false });
+  }
   const gate = resolveShareSessionGate({
     isAuthenticated,
     isWebSocketConnected,
     convexRemoteId: remoteId,
     localCompleted: localWorkout?.status === "completed",
     pendingAttemptCount,
+    waitExpired: syncWait.sessionId === sessionId && syncWait.expired,
   });
   const [caption, setCaption] = useState("");
   const [posting, setPosting] = useState(false);
@@ -87,6 +108,11 @@ export default function ShareWorkoutScreen() {
     setError(null);
     try {
       await retrySessionSync(sessionId);
+      setSyncWait((value) => ({
+        ...value,
+        attempt: value.attempt + 1,
+        expired: false,
+      }));
     } catch (e) {
       const message = e instanceof Error ? e.message : "Try again.";
       setError(message);
@@ -223,7 +249,7 @@ export default function ShareWorkoutScreen() {
           accessibilityRole="alert"
           style={{ color: colors.dim, marginBottom: 20 }}
         >
-          {SHARE_SYNC_FAILED_COPY}
+          {syncWait.expired ? SHARE_SYNC_SLOW_COPY : SHARE_SYNC_FAILED_COPY}
         </Text>
       ) : null}
       {shared && !posting ? (

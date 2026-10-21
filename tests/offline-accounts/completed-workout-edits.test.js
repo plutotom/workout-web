@@ -107,6 +107,45 @@ async function memory(placeId) {
 }
 
 describe("completed workout preservation contract", () => {
+  it("updates Share's subscribed outbox state after an upload fails before commit and recovers after restart", async () => {
+    await phone.offline();
+    const sessionId = await phone.edit((local) => local.startBlank());
+    await phone.edit((local) =>
+      local.addExercise(sessionId, "bench", [{ weight: 135, reps: 5 }]),
+    );
+    await phone.edit((local) => local.finish(sessionId));
+    phone.shareSessionId = sessionId;
+    await phone.reopen();
+    expect(phone.shareAttempt).toBe(0);
+    const operationId = phone.outbox()[0].operation_id;
+    phone.faults.push({
+      name: "pushSession",
+      beforeCommit: async () => {
+        throw new TypeError("Connection interrupted");
+      },
+    });
+    await phone.connect();
+    await phone.tick();
+    expect(phone.shareAttempt).toBe(1);
+    expect(phone.outbox()[0].operation_id).toBe(operationId);
+    expect((await phone.records(ALICE)).workoutSessions).toHaveLength(0);
+    await phone.offline();
+    await phone.reopen();
+    expect(phone.shareAttempt).toBe(1);
+    await phone.connect();
+    await phone.settle();
+    expect(phone.shareAttempt).toBe(null);
+    const records = await phone.records(ALICE);
+    expect(records.workoutSessions).toHaveLength(1);
+    expect(records.sessionExercises).toHaveLength(1);
+    expect(records.sets).toHaveLength(1);
+    expect(
+      await phone
+        .as(ALICE)
+        .query(api.routes.social.queries.syncedSession, { localId: sessionId }),
+    ).toBe(records.workoutSessions[0]._id);
+  });
+
   it.each([
     ["in_progress", "before-ack"],
     ["in_progress", "after-ack"],

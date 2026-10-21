@@ -416,6 +416,50 @@ describe("share interactions", () => {
     ).toBeDefined();
   });
 
+  it("offers recovery when a queued workout never gets an upload attempt", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.remoteId = null;
+      mocks.shareSyncAttempt = 0;
+      await render(<ShareScreen />);
+      expect(JSON.stringify(renderer.toJSON())).toContain(
+        "Syncing this workout…",
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_000);
+      });
+      expect(JSON.stringify(renderer.toJSON())).toContain(
+        "Your workout is saved on this phone",
+      );
+      expect(
+        renderer.root.findAllByProps({ accessibilityLabel: "Syncing workout" }),
+      ).toHaveLength(0);
+      await act(async () => button("Retry sync").props.onPress());
+      expect(mocks.retrySessionSync).toHaveBeenCalledWith("local_1");
+      expect(JSON.stringify(renderer.toJSON())).toContain(
+        "Syncing this workout…",
+      );
+      mocks.remoteId = "remote_1";
+      await act(async () => renderer.update(<ShareScreen />));
+      expect(button("Post workout").props.disabled).toBe(false);
+      expect(mocks.share).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows a failed upload immediately when the outbox attempt changes", async () => {
+    mocks.remoteId = null;
+    mocks.shareSyncAttempt = 0;
+    await render(<ShareScreen />);
+    mocks.shareSyncAttempt = 1;
+    await act(async () => renderer.update(<ShareScreen />));
+    expect(button("Retry sync").props.disabled).toBe(false);
+    expect(
+      renderer.root.findAllByProps({ accessibilityLabel: "Syncing workout" }),
+    ).toHaveLength(0);
+  });
+
   it("uses a server preview for a workout logged on the web", async () => {
     mocks.localWorkout = null;
     mocks.remoteWorkout = { templateName: "Web workout", exercises: [] };
