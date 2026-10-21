@@ -2,7 +2,15 @@
 
 import { useState } from "react";
 import { useMutation } from "convex/react";
-import { ArrowDown, ArrowUp, Minus, Plus, Trash2 } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  Minus,
+  MoreHorizontal,
+  Plus,
+  Repeat,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { api } from "@backend/api";
@@ -29,6 +37,10 @@ import {
 } from "@/components/ui/sheet";
 import { useVisualViewportFrame } from "@/hooks/use-visual-viewport-frame";
 import { cn } from "@/lib/utils";
+import {
+  deleteExerciseConfirmMessage,
+  replacementHasLoggedSets,
+} from "@/lib/replace-exercise";
 
 type SheetSet = {
   _id: Id<"sets">;
@@ -57,6 +69,7 @@ export function WorkoutFocusSessionSheet({
   currentSetId,
   onJump,
   onAddExercise,
+  onReplaceExercise,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -65,6 +78,11 @@ export function WorkoutFocusSessionSheet({
   currentSetId: Id<"sets"> | null;
   onJump: (setId: Id<"sets">) => void;
   onAddExercise: () => void;
+  onReplaceExercise: (exercise: {
+    id: Id<"sessionExercises">;
+    name: string;
+    hasLoggedSets: boolean;
+  }) => void;
 }) {
   const catalog = useExerciseCatalog();
   const addSet = useMutation(api.routes.workouts.mutations.addSet);
@@ -74,6 +92,11 @@ export function WorkoutFocusSessionSheet({
     api.routes.workouts.mutations.removeExercise,
   );
 
+  const [exerciseMenu, setExerciseMenu] = useState<{
+    id: Id<"sessionExercises">;
+    name: string;
+    hasLoggedSets: boolean;
+  } | null>(null);
   const [exerciseToRemove, setExerciseToRemove] = useState<{
     id: Id<"sessionExercises">;
     name: string;
@@ -94,10 +117,10 @@ export function WorkoutFocusSessionSheet({
     setRemovingExercise(true);
     try {
       await removeExercise({ sessionExerciseId: exerciseToRemove.id });
-      toast.success(`Removed ${exerciseToRemove.name}`);
+      toast.success(`Deleted ${exerciseToRemove.name}`);
       setExerciseToRemove(null);
     } catch {
-      toast.error("Couldn't remove exercise");
+      toast.error("Couldn't delete exercise");
     } finally {
       setRemovingExercise(false);
     }
@@ -167,13 +190,19 @@ export function WorkoutFocusSessionSheet({
                         type="button"
                         size="icon"
                         variant="ghost"
-                        className="text-destructive hover:text-destructive size-10"
-                        aria-label={`Remove ${name}`}
+                        className="text-muted-foreground hover:text-foreground size-10"
+                        aria-label={`${name} options`}
                         onClick={() =>
-                          setExerciseToRemove({ id: exercise._id, name })
+                          setExerciseMenu({
+                            id: exercise._id,
+                            name,
+                            hasLoggedSets: replacementHasLoggedSets(
+                              exercise.sets,
+                            ),
+                          })
                         }
                       >
-                        <Trash2 className="size-4" />
+                        <MoreHorizontal className="size-4" />
                       </Button>
                     </div>
                   </div>
@@ -235,7 +264,7 @@ export function WorkoutFocusSessionSheet({
 
                   <div className="mt-2">
                     <ExerciseNoteField
-                      key={`${exercise.slug}-${exercise.notes ?? ""}`}
+                      key={`${exercise._id}-${exercise.slug}-${exercise.notes ?? ""}`}
                       exerciseSlug={exercise.slug}
                       initialNotes={exercise.notes}
                       compact
@@ -273,6 +302,76 @@ export function WorkoutFocusSessionSheet({
         </SheetContent>
       </Sheet>
 
+      <Sheet
+        open={exerciseMenu !== null}
+        onOpenChange={(open) => {
+          if (!open) setExerciseMenu(null);
+        }}
+      >
+        <SheetContent
+          side="bottom"
+          className="gap-0 rounded-t-2xl pb-[max(1rem,env(safe-area-inset-bottom))]"
+        >
+          <SheetHeader className="px-3 pb-2">
+            <SheetTitle className="truncate text-lg">
+              {exerciseMenu?.name ?? "Exercise"}
+            </SheetTitle>
+            <SheetDescription>Exercise options</SheetDescription>
+          </SheetHeader>
+          <div className="flex flex-col gap-1 px-3 pb-2">
+            <Button
+              type="button"
+              variant="ghost"
+              className="text-muted-foreground hover:text-foreground h-12 justify-start gap-3 px-3 text-base"
+              onClick={() => {
+                if (!exerciseMenu) return;
+                const target = exerciseMenu;
+                setExerciseMenu(null);
+                onReplaceExercise({
+                  id: target.id,
+                  name: target.name,
+                  hasLoggedSets: target.hasLoggedSets,
+                });
+              }}
+            >
+              <Repeat className="size-4" />
+              Replace
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              className="text-destructive hover:text-destructive h-12 justify-start gap-3 px-3 text-base"
+              onClick={() => {
+                if (!exerciseMenu) return;
+                const target = {
+                  id: exerciseMenu.id,
+                  name: exerciseMenu.name,
+                };
+                const hasLoggedSets = exerciseMenu.hasLoggedSets;
+                setExerciseMenu(null);
+                if (hasLoggedSets) {
+                  setExerciseToRemove(target);
+                  return;
+                }
+                void (async () => {
+                  try {
+                    await removeExercise({
+                      sessionExerciseId: target.id,
+                    });
+                    toast.success(`Deleted ${target.name}`);
+                  } catch {
+                    toast.error("Couldn't delete exercise");
+                  }
+                })();
+              }}
+            >
+              <Trash2 className="size-4" />
+              Delete exercise
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
+
       <Dialog
         open={exerciseToRemove !== null}
         onOpenChange={(dialogOpen) => {
@@ -281,10 +380,11 @@ export function WorkoutFocusSessionSheet({
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Remove {exerciseToRemove?.name}?</DialogTitle>
+            <DialogTitle>Delete {exerciseToRemove?.name}?</DialogTitle>
             <DialogDescription>
-              This removes the exercise and its sets from this workout. You can
-              add it again later.
+              {exerciseToRemove
+                ? deleteExerciseConfirmMessage(exerciseToRemove.name)
+                : null}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -298,7 +398,7 @@ export function WorkoutFocusSessionSheet({
               disabled={removingExercise}
               onClick={() => void handleRemoveExercise()}
             >
-              {removingExercise ? "Removing…" : "Remove"}
+              {removingExercise ? "Deleting…" : "Delete"}
             </Button>
           </DialogFooter>
         </DialogContent>

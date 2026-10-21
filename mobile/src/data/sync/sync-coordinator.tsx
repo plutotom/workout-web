@@ -27,7 +27,7 @@ const MAX_PUSHES_PER_PASS = 20;
  */
 export function SyncCoordinator() {
   const { isAuthenticated, user } = useMobileAuth();
-  const { applyBootstrap, owner } = useLocalData();
+  const { applyBootstrap, owner, refresh } = useLocalData();
   const scopeReady = isAuthenticated && owner === user?.id;
   const bootstrap = useQuery(
     api.routes.ios.bootstrap.get,
@@ -132,7 +132,13 @@ export function SyncCoordinator() {
           ownerWorkosId: owner,
           operationId: pendingExercise.operationId,
           deviceId,
-          exercise: pendingExercise.snapshot,
+          exercise: {
+            ...pendingExercise.snapshot,
+            remoteId: pendingExercise.snapshot.remoteId as
+              | Id<"customExercises">
+              | null
+              | undefined,
+          },
         });
         await syncStore.completeCustomExercise(
           pendingExercise.operationId,
@@ -320,8 +326,12 @@ export function SyncCoordinator() {
       workerRef.current ??
       new SyncWorker(
         (canContinue) => drainRef.current(canContinue),
-        (error) =>
-          console.warn("[sync] retry scheduled after failed sync", error),
+        (error) => {
+          console.warn("[sync] retry scheduled after failed sync", error);
+          // Failed attempts have no acknowledgment to refresh SQLite readers.
+          // Publish their attempt counts so Share can offer recovery.
+          refresh();
+        },
       );
     workerRef.current = worker;
     appliedBootstrap.current = undefined;
@@ -333,7 +343,7 @@ export function SyncCoordinator() {
       worker.setEnabled(false);
       subscription.remove();
     };
-  }, [scopeReady, user?.id]);
+  }, [scopeReady, user?.id, refresh]);
 
   useEffect(() => {
     workerRef.current?.wake();

@@ -121,7 +121,11 @@ vi.mock("convex/react", async () => {
 import schema from "../../backend/schema";
 import { api } from "../../backend/_generated/api";
 import { MobileSessionController } from "@/auth/session-controller";
-import { LocalDatabaseProvider, useLocalData } from "@/data/local/provider";
+import {
+  LocalDatabaseProvider,
+  useLocalData,
+  useLocalSessionShareOutboxAttempt,
+} from "@/data/local/provider";
 import { SyncCoordinator } from "@/data/sync/sync-coordinator";
 import {
   getLocalPreferences,
@@ -177,9 +181,13 @@ function deferred() {
 
 function Probe() {
   const local = useLocalData();
+  const shareAttempt = useLocalSessionShareOutboxAttempt(
+    native.phone.shareSessionId ?? "",
+  );
   React.useEffect(() => {
     native.phone.local = local;
-  }, [local]);
+    native.phone.shareAttempt = shareAttempt;
+  }, [local, shareAttempt]);
   return null;
 }
 

@@ -35,6 +35,7 @@ type ExercisePickerProps = {
   onOpenChange: (open: boolean) => void;
   usedSlugs: string[];
   onAdd: (slugs: string[]) => void;
+  mode?: "add" | "replace";
 };
 
 /** Map exercise slug → template names that include it. */
@@ -58,6 +59,7 @@ export function ExercisePicker({
   onOpenChange,
   usedSlugs,
   onAdd,
+  mode = "add",
 }: ExercisePickerProps) {
   const catalog = useExerciseCatalog();
   const archive = useMutation(api.routes.exercises.mutations.archive);
@@ -79,9 +81,12 @@ export function ExercisePicker({
   const results = catalog.search(query, group);
 
   function toggleSlug(slug: string) {
-    setSelected((prev) =>
-      prev.includes(slug) ? prev.filter((s) => s !== slug) : [...prev, slug],
-    );
+    setSelected((prev) => {
+      if (mode === "replace") return prev[0] === slug ? [] : [slug];
+      return prev.includes(slug)
+        ? prev.filter((s) => s !== slug)
+        : [...prev, slug];
+    });
   }
 
   function handleAdd() {
@@ -114,7 +119,9 @@ export function ExercisePicker({
           )}
         >
           <SheetHeader className="shrink-0 px-3 pt-[max(0.75rem,env(safe-area-inset-top))] pr-12 pb-0">
-            <SheetTitle className="text-lg">Add exercises</SheetTitle>
+            <SheetTitle className="text-lg">
+              {mode === "replace" ? "Replace exercise" : "Add exercises"}
+            </SheetTitle>
           </SheetHeader>
 
           <form
@@ -272,7 +279,11 @@ export function ExercisePicker({
               disabled={selected.length === 0}
               onClick={handleAdd}
             >
-              Add ({selected.length})
+              {mode === "replace"
+                ? selected.length
+                  ? "Replace"
+                  : "Select"
+                : `Add (${selected.length})`}
             </Button>
           </SheetFooter>
         </SheetContent>
@@ -283,7 +294,13 @@ export function ExercisePicker({
         onOpenChange={setCreateOpen}
         defaultGroup={group === "all" ? "chest" : group}
         onCreated={(slug) => {
-          setSelected((prev) => (prev.includes(slug) ? prev : [...prev, slug]));
+          setSelected((prev) =>
+            mode === "replace"
+              ? [slug]
+              : prev.includes(slug)
+                ? prev
+                : [...prev, slug],
+          );
           setCreateOpen(false);
         }}
       />
