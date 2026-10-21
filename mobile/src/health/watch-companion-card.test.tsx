@@ -2,9 +2,10 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { WatchCompanionCard } from "./watch-companion-card";
-import type { WatchCompanionStatus } from "./watch-session";
+import type { WatchCompanionStatus, WatchEvent } from "./watch-session";
 
 const mocks = vi.hoisted(() => ({
+  listener: undefined as ((event: WatchEvent) => void) | undefined,
   preferences: {
     autoStartWatchWorkout: true,
   } as { autoStartWatchWorkout?: boolean } | undefined,
@@ -30,7 +31,12 @@ vi.mock("@/health/watch-bridge", () => ({
   startWatchWorkout: (input: { sessionId: string; startedAt: number }) =>
     mocks.startWatchWorkout(input),
   endWatchWorkout: () => mocks.endWatchWorkout(),
-  subscribeWatchEvents: () => () => {},
+  subscribeWatchEvents: (listener: (event: WatchEvent) => void) => {
+    mocks.listener = listener;
+    return () => {
+      mocks.listener = undefined;
+    };
+  },
 }));
 vi.mock("@/health", () => ({
   getHealthAdapter: () => ({
@@ -99,6 +105,75 @@ function labels() {
 }
 
 describe("WatchCompanionCard", () => {
+  it("retains the stop control after a manually started Watch disconnects and reconnects", async () => {
+    mocks.preferences = { autoStartWatchWorkout: false };
+    await mount();
+    const start = renderer!.root.find(
+      (node) =>
+        String(node.type) === "Pressable" &&
+        node.props.accessibilityLabel === "Start on Apple Watch",
+    );
+    await act(async () => start.props.onPress());
+    await act(async () =>
+      mocks.listener!({
+        type: "state",
+        sessionId: "session-1",
+        status: "recording",
+        reachable: true,
+      }),
+    );
+    expect(labels()).toContain("End on Watch");
+    await act(async () =>
+      mocks.listener!({
+        type: "state",
+        sessionId: "",
+        status: "disconnected",
+        reachable: false,
+      }),
+    );
+    await act(async () =>
+      mocks.listener!({
+        type: "state",
+        sessionId: "",
+        status: "reachable",
+        reachable: true,
+      }),
+    );
+    await act(async () =>
+      mocks.listener!({
+        type: "metrics",
+        heartRate: 120,
+        activeEnergyKcal: 20,
+        durationSeconds: 300,
+      }),
+    );
+    expect(labels()).toContain("End on Watch");
+  });
+
+  it("restores the stop control when reopening a manually started workout", async () => {
+    mocks.preferences = { autoStartWatchWorkout: false };
+    await mount();
+    const start = renderer!.root.find(
+      (node) =>
+        String(node.type) === "Pressable" &&
+        node.props.accessibilityLabel === "Start on Apple Watch",
+    );
+    await act(async () => start.props.onPress());
+    await act(async () =>
+      mocks.listener!({
+        type: "state",
+        sessionId: "session-1",
+        status: "recording",
+        reachable: true,
+      }),
+    );
+    expect(labels()).toContain("End on Watch");
+    await act(async () => renderer!.unmount());
+    renderer = undefined;
+    await mount();
+    expect(labels()).toContain("End on Watch");
+  });
+
   it("auto-starts a paired Watch when the setting is on", async () => {
     await mount();
     expect(mocks.startWatchWorkout).toHaveBeenCalledWith({
