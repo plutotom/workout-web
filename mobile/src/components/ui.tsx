@@ -24,10 +24,7 @@ import {
   type KeyboardScrollMode,
 } from "@/components/keyboard-aware-scroll";
 import { colors, radius, space } from "@/theme";
-import {
-  exerciseNoteFieldMaxHeight,
-  exerciseNoteFieldScrolls,
-} from "@shared/exercise-notes";
+import { exerciseNoteFieldMaxHeight } from "@shared/exercise-notes";
 
 export function Screen({
   children,
@@ -229,7 +226,6 @@ export function Field({
   editable = true,
   onFocus,
   onBlur,
-  onContentSizeChange,
   ...props
 }: {
   label?: string;
@@ -244,10 +240,8 @@ export function Field({
   editable?: boolean;
 } & Omit<TextInputProps, "style">) {
   const [focused, setFocused] = useState(false);
-  const [contentHeight, setContentHeight] = useState(0);
   const grow = Boolean(multiline && autoGrow);
   const growMax = grow ? exerciseNoteFieldMaxHeight(focused) : undefined;
-  const overflowing = grow && exerciseNoteFieldScrolls(focused, contentHeight);
   return (
     <View style={{ gap: 7 }}>
       {label ? <Text style={styles.label}>{label}</Text> : null}
@@ -259,9 +253,10 @@ export function Field({
         placeholderTextColor={colors.faint}
         keyboardType={keyboardType}
         multiline={multiline}
-        // Growing notes stay in the parent KeyboardAwareScroll until they
-        // hit the focused cap; then the field scrolls internally.
-        scrollEnabled={grow ? overflowing : multiline ? false : undefined}
+        // Native layout grows to maxHeight and only scrolls when necessary.
+        // Keep this stable while typing: content-size-driven React updates can
+        // replay a stale controlled value and interrupt native text/selection.
+        scrollEnabled={grow ? focused : multiline ? false : undefined}
         blurOnSubmit={multiline ? false : props.blurOnSubmit}
         editable={editable}
         selectionColor={colors.text}
@@ -272,10 +267,6 @@ export function Field({
         onBlur={(event) => {
           setFocused(false);
           onBlur?.(event);
-        }}
-        onContentSizeChange={(event) => {
-          if (grow) setContentHeight(event.nativeEvent.contentSize.height);
-          onContentSizeChange?.(event);
         }}
         style={[
           styles.input,
