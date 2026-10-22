@@ -275,6 +275,15 @@ function WatchCompanionSession({ sessionId, startedAt }: Props) {
           {energyKcal != null ? `${Math.round(energyKcal)} kcal` : "kcal —"}
         </Text>
       ) : null}
+      {watchStatus === "recording" &&
+      status.reachable &&
+      (heartRate == null || energyKcal == null) ? (
+        <Text style={{ color: colors.dim, fontSize: 13, lineHeight: 19 }}>
+          Keep your Watch on your wrist and unlocked. If readings stay blank,
+          open iPhone Health → profile → Apps → Grayed Lift and allow reading
+          Heart Rate and Active Energy.
+        </Text>
+      ) : null}
       {error ? (
         <Text style={{ color: colors.danger, fontSize: 13, lineHeight: 19 }}>
           {error}

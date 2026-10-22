@@ -9,6 +9,8 @@ final class WorkoutManager: NSObject, ObservableObject {
   @Published private(set) var heartRate: Double?
   @Published private(set) var activeEnergyKcal: Double?
   @Published private(set) var startedAt: Date?
+  @Published private(set) var healthAccessError: String?
+  @Published private(set) var requestingHealthAccess = false
   /// Drives smooth UI updates for the duration label.
   @Published private(set) var now: Date = Date()
 
@@ -90,9 +92,23 @@ final class WorkoutManager: NSObject, ObservableObject {
     )
   }
 
+  @MainActor
+  func reviewHealthAccess() async {
+    guard !requestingHealthAccess else { return }
+    requestingHealthAccess = true
+    defer { requestingHealthAccess = false }
+    do {
+      try await requestAuthorization()
+      // Completing a request does not prove read access was granted. HealthKit
+      // deliberately keeps that decision private; missing data gets neutral help.
+      healthAccessError = nil
+    } catch {
+      healthAccessError = "Couldn’t request Health access. Try again with your Watch unlocked."
+    }
+  }
+
   func prepare() {
     recoverIfNeeded()
-    Task { try? await requestAuthorization() }
   }
 
   func recoverIfNeeded() {
@@ -156,10 +172,6 @@ final class WorkoutManager: NSObject, ObservableObject {
         configuration: configuration
       )
       let builder = session.associatedWorkoutBuilder()
-      builder.dataSource = HKLiveWorkoutDataSource(
-        healthStore: healthStore,
-        workoutConfiguration: configuration
-      )
       attach(session: session, sessionId: sessionId)
       self.builder = builder
       session.startActivity(with: startedAt ?? Date())
@@ -184,6 +196,12 @@ final class WorkoutManager: NSObject, ObservableObject {
     session.delegate = self
     builder = session.associatedWorkoutBuilder()
     builder?.delegate = self
+    // HealthKit restores the session and builder after a crash, but the live
+    // data source must be attached again to resume metric delivery.
+    builder?.dataSource = HKLiveWorkoutDataSource(
+      healthStore: healthStore,
+      workoutConfiguration: session.workoutConfiguration
+    )
   }
 
   func endFromPhone(sessionId requestedId: String?, discard: Bool) {
@@ -283,12 +301,14 @@ final class WorkoutManager: NSObject, ObservableObject {
   }
 
   private func requestAuthorization() async throws {
-    let types: Set<HKSampleType> = [
+    let readTypes: Set<HKObjectType> = [
       HKObjectType.workoutType(),
       HKQuantityType.quantityType(forIdentifier: .heartRate)!,
       HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned)!,
     ]
-    try await healthStore.requestAuthorization(toShare: types, read: types)
+    try await healthStore.requestAuthorization(
+      toShare: [HKObjectType.workoutType()], read: readTypes
+    )
   }
 
   func mirrorState() {

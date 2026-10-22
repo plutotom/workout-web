@@ -26,6 +26,18 @@ phones. Existing and newly created SQLite databases default Watch auto-start on.
   checks native recording evidence before saving, covering delayed/interrupted
   SQLite adoption.
 - Editing a completed workout does not start Watch recording.
+- Every phone start requests read access for workouts, heart rate, and active
+  energy, with write access only for workouts. The Watch requests the same types
+  after its view appears and offers an explicit retry if that request fails.
+  An older workout-only grant does not bypass requests for newly added types.
+- Blank readings show Health-settings guidance on both devices. A completed
+  authorization request is not treated as proof that read access was granted:
+  HealthKit intentionally hides individual read-permission decisions. Previously
+  declined types must be enabled in Health settings.
+- Restoring a Watch session reattaches its live data source as well as delegates.
+
+Authorization follows Apple's [workout-session guidance](https://developer.apple.com/documentation/healthkit/running-workout-sessions)
+and [Health privacy contract](https://developer.apple.com/documentation/healthkit/authorizing-access-to-health-data).
 
 ## Automated release checks
 
@@ -39,7 +51,8 @@ pnpm test:watch-native # macOS and Xcode required
 
 The native command checks the complete Watch app and the phone Watch transport
 against Apple's simulator SDKs, then executes the production snapshot cache,
-command-identity policy, and HealthKit closing logic in Swift test harnesses.
+command-identity policy, Health authorization requests, recovered data-source
+attachment, and HealthKit closing logic in Swift test harnesses.
 The **Watch native lifecycle** macOS CI job runs this alongside both mandatory
 Linux review jobs. The offline account gate includes Watch delivery before and
 after Finish, process restart, lost upload responses, both subscription orders,
@@ -96,9 +109,30 @@ Watch. The existing app preferences were retained, and the updated app launched
 successfully. The iPhone remains on its validated 0.3.2 / build 19 binary.
 
 Device Hub requires watchOS 27 for screen sharing, so Watch-screen observations
-on this device require the tester's assistance. Paired recording and Health
-behavior remain unverified; installation and launch do not complete the
-checklist below.
+on this device require the tester's assistance.
+
+## Recorded paired-device checks
+
+On the installed `45c4c1a` candidate, with auto-start off:
+
+- Manual start began the Watch timer near zero after the phone workout had
+  already started. The iPhone displayed Recording and End on Watch.
+- Force-closing and reopening only the iPhone retained the same workout identity,
+  start time, and recording flag. The tester confirmed the Watch timer continued.
+- Initially both devices showed blank heart-rate and energy values. Enabling
+  their Health read permissions restored both live readings on both devices.
+  This confirms missing access caused the symptom; the original permission
+  prompt history cannot be reconstructed from HealthKit.
+- Discarding the temporary workout stopped the Watch. SQLite confirmed the test
+  session was abandoned with no pending phone Health export. The Watch retained
+  a closed acknowledgement with no saved Health UUID. Existing session rows
+  matched the pre-test baseline and all database integrity checks passed.
+
+The permission-flow improvements and recovered live-data-source attachment were
+added after those observations. They pass native regression tests and Apple SDK
+typechecking; their final binaries still need an on-device pass. Auto-start,
+radio disconnect/reconnect, Watch process recovery, Finish, and the single-Health
+workout checks below remain release gates.
 
 ## Required paired-device validation
 

@@ -119,7 +119,14 @@ final class WatchPhoneSession: NSObject, WCSessionDelegate {
     syncIdentifier: String
   ) async throws {
     let workoutType = HKObjectType.workoutType()
-    try await healthStore.requestAuthorization(toShare: [workoutType], read: [workoutType])
+    // Request the full current read set on every start. HealthKit only presents
+    // undecided types, including metrics added after an older workout-only grant.
+    let readTypes: Set<HKObjectType> = [
+      workoutType,
+      HKQuantityType.quantityType(forIdentifier: .heartRate)!,
+      HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned)!,
+    ]
+    try await healthStore.requestAuthorization(toShare: [workoutType], read: readTypes)
 
     guard WCSession.isSupported() else {
       throw Exception(name: "WatchUnavailable", description: "Watch recording needs an iPhone.")

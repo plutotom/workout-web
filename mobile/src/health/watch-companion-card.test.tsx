@@ -174,6 +174,29 @@ describe("Watch workout controls with the production session bridge", () => {
     expect(labels()).toContain("120 bpm");
     expect(mocks.start).toHaveBeenCalledTimes(1);
   });
+  it("offers neutral Health access help until both live metrics arrive", async () => {
+    await mount();
+    await recording();
+    expect(labels()).toContain("If readings stay blank");
+    expect(labels()).not.toContain("permission denied");
+    await emit({
+      type: "metrics",
+      sessionId,
+      heartRate: 110,
+      activeEnergyKcal: null,
+      durationSeconds: 30,
+    });
+    expect(labels()).toContain("If readings stay blank");
+    await emit({
+      type: "metrics",
+      sessionId,
+      heartRate: 110,
+      activeEnergyKcal: 0,
+      durationSeconds: 31,
+    });
+    expect(labels()).not.toContain("If readings stay blank");
+    expect(labels()).toContain("0 kcal");
+  });
   it("restores controls after reopening without starting the Watch again", async () => {
     mocks.preferences = { autoStartWatchWorkout: false };
     await mount();
