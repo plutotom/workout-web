@@ -76,11 +76,17 @@ over 0.3.1 / build 18 on an iPhone 15 Pro running iOS 27.0:
   records remained unchanged across that restart.
 - The user-assisted exercise-note typing check passed: the user reported that
   typing felt good after the requested multiline and cursor-editing check.
+- With Airplane Mode on and Wi-Fi off, cold launches loaded the dashboard,
+  an existing completed workout with its sets and note, and a template with
+  its saved exercise note. All SQLite tables matched the fresh pre-test
+  snapshots and passed integrity checks. Settings retained the saved account
+  with the expected temporary "Account unavailable" message. This check read
+  existing data; it did not create or modify workouts or queue test writes.
 
 Paired Watch recording is still unverified. The connected Series 7 runs
 watchOS 26.6, and development deployment is blocked by Developer Mode being
-disabled. Offline cold-launch checks remain pending. These
-iPhone results do not complete the paired-device checklist below.
+disabled. Account recovery after restoring connectivity remains pending.
+These iPhone results do not complete the paired-device checklist below.
 
 ## Required paired-device validation
 
