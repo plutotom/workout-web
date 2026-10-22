@@ -22,6 +22,20 @@ case "terminal-order":
   cache.record(["type": "ended", "sessionId": "a", "healthUuid": ""])
   let restarted = WatchSessionSnapshotCache(defaults: defaults)
   result = ["status": restarted.status(for: "a") ?? "", "events": restarted.events()]
+case "locked-save":
+  cache.record(["type": "ended", "sessionId": "a", "healthUuid": "", "healthSaved": true])
+  cache.record(["type": "ended", "sessionId": "a", "healthUuid": "", "healthSaved": false])
+  let restarted = WatchSessionSnapshotCache(defaults: defaults)
+  result = ["events": restarted.events()]
+case "save-retry":
+  cache.record(state("a", "saving"))
+  cache.record(state("a", "recording"))
+  cache.record(state("a", "saveFailed"))
+  cache.record(state("a", "starting"))
+  let restarted = WatchSessionSnapshotCache(defaults: defaults)
+  result = ["failed": restarted.status(for: "a") ?? ""]
+  restarted.record(state("a", "saving"))
+  result["retry"] = restarted.status(for: "a") ?? ""
 case "metrics":
   cache.record(state("a", "recording"))
   cache.record(["type": "metrics", "sessionId": "a", "heartRate": 110.0, "activeEnergyKcal": Double.nan])

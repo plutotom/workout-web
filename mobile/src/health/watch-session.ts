@@ -9,6 +9,9 @@ export type WatchSessionStatus =
   | "idle"
   | "starting"
   | "recording"
+  | "recovering"
+  | "saving"
+  | "saveFailed"
   | "ended"
   | "disconnected"
   | "reachable";
@@ -32,6 +35,8 @@ export type WatchEvent =
       type: "ended";
       sessionId: string;
       healthUuid: string | null;
+      /** HealthKit can save successfully without returning a UUID while locked. */
+      healthSaved?: boolean;
     };
 
 export function watchHealthUuidKey(sessionId: string) {
@@ -74,6 +79,9 @@ export function shouldShowWatchCompanion(input: {
   if (
     input.watchStatus === "starting" ||
     input.watchStatus === "recording" ||
+    input.watchStatus === "recovering" ||
+    input.watchStatus === "saving" ||
+    input.watchStatus === "saveFailed" ||
     input.watchStatus === "ended" ||
     input.watchStatus === "disconnected"
   ) {
@@ -106,7 +114,16 @@ export function reduceWatchSessionStatus(
   if (current === "ended") return current;
   // Reachability describes the connection, not the workout lifecycle.
   if (!event.sessionId) return current;
-  if (current === "recording" && event.status === "starting") return current;
+  if (
+    ["recording", "saving", "saveFailed"].includes(current) &&
+    ["starting", "recovering"].includes(event.status)
+  )
+    return current;
+  if (
+    ["saving", "saveFailed"].includes(current) &&
+    event.status === "recording"
+  )
+    return current;
   return event.status;
 }
 
@@ -184,6 +201,9 @@ export function parseWatchEvent(payload: unknown): WatchEvent | null {
       type: "ended",
       sessionId: stringValue(value.sessionId),
       healthUuid: uuid || null,
+      ...(typeof value.healthSaved === "boolean"
+        ? { healthSaved: value.healthSaved }
+        : {}),
     };
   }
   return null;
@@ -194,6 +214,9 @@ function parseWatchStatus(value: unknown): WatchSessionStatus | null {
     value === "idle" ||
     value === "starting" ||
     value === "recording" ||
+    value === "recovering" ||
+    value === "saving" ||
+    value === "saveFailed" ||
     value === "ended" ||
     value === "disconnected" ||
     value === "reachable"

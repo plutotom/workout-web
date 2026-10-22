@@ -158,7 +158,7 @@ final class WatchPhoneSession: NSObject, WCSessionDelegate {
     do {
       try await healthStore.startWatchApp(toHandle: configuration)
     } catch {
-      if !["recording", "ended"].contains(snapshots.status(for: sessionId) ?? "") {
+      if !["recording", "recovering", "saving", "saveFailed", "ended"].contains(snapshots.status(for: sessionId) ?? "") {
         emit(["type": "state", "sessionId": sessionId, "status": "idle", "reachable": session.isReachable])
       }
       throw Exception(

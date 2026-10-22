@@ -35,7 +35,22 @@ phones. Existing and newly created SQLite databases default Watch auto-start on.
   HealthKit intentionally hides individual read-permission decisions. Previously
   declined types must be enabled in Health settings.
 - Restoring a Watch session reattaches its live data source as well as delegates.
+- Finish/Discard received during Watch startup wait for HealthKit recovery.
+  Closure commands are retained locally until acknowledged and are applied
+  before queued starts. Recovery errors remain visible with an explicit retry.
+- A new start waits until the previous session and builder finish closing.
+  Collection/save callbacks check their originating session, builder, identity,
+  and attempt, so late callbacks cannot save or clear a newer workout.
+- Collection/save errors remain visible and retryable on Watch, with saving and
+  retry states mirrored to iPhone. Failed saves do not create successful terminal
+  acknowledgements or trigger phone fallback exports. If an ended builder cannot
+  be recovered after process death, its failure remains visible for recovery or
+  explicit discard; the app does not claim its Health data was saved.
+- HealthKit can successfully save while locked without returning a workout UUID.
+  A separate retained saved flag distinguishes that success from Discard and
+  prevents a second phone export even when the recording event was missed.
 
+Successful saves without UUIDs follow Apple's [finishWorkout contract](<https://developer.apple.com/documentation/healthkit/hkworkoutbuilder/finishworkout(completion:)>).
 Authorization follows Apple's [workout-session guidance](https://developer.apple.com/documentation/healthkit/running-workout-sessions)
 and [Health privacy contract](https://developer.apple.com/documentation/healthkit/authorizing-access-to-health-data).
 
@@ -52,7 +67,11 @@ pnpm test:watch-native # macOS and Xcode required
 The native command checks the complete Watch app and the phone Watch transport
 against Apple's simulator SDKs, then executes the production snapshot cache,
 command-identity policy, Health authorization requests, recovered data-source
-attachment, and HealthKit closing logic in Swift test harnesses.
+attachment, and HealthKit closing logic in Swift test harnesses. Closing tests
+include recovery-time commands, retained commands through restart, starts during
+finalization, obsolete callbacks, collection/save failures and retries, and
+successful locked-device saves. SQLite and the offline gate cover retry/saving
+ownership plus locked-device success without an initial recording event.
 The **Watch native lifecycle** macOS CI job runs this alongside both mandatory
 Linux review jobs. The offline account gate includes Watch delivery before and
 after Finish, process restart, lost upload responses, both subscription orders,
@@ -128,9 +147,10 @@ On the installed `45c4c1a` candidate, with auto-start off:
   a closed acknowledgement with no saved Health UUID. Existing session rows
   matched the pre-test baseline and all database integrity checks passed.
 
-The permission-flow improvements and recovered live-data-source attachment were
-added after those observations. They pass native regression tests and Apple SDK
-typechecking; their final binaries still need an on-device pass. Auto-start,
+The permission-flow improvements, recovered live-data-source attachment, and
+subsequent recovery/finalization/save-error fixes were added after those
+observations. They pass native regression tests and Apple SDK typechecking;
+their final binaries still need an on-device pass. Auto-start,
 radio disconnect/reconnect, Watch process recovery, Finish, and the single-Health
 workout checks below remain release gates.
 

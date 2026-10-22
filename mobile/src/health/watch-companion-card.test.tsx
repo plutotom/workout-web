@@ -174,6 +174,35 @@ describe("Watch workout controls with the production session bridge", () => {
     expect(labels()).toContain("120 bpm");
     expect(mocks.start).toHaveBeenCalledTimes(1);
   });
+  it("shows save failure and retry controls without starting another recording", async () => {
+    await mount();
+    await recording();
+    await emit({ type: "state", sessionId, status: "saving", reachable: true });
+    expect(labels()).toContain("Saving to Apple Health");
+    expect(labels()).not.toContain("End on Watch");
+    await emit({
+      type: "state",
+      sessionId,
+      status: "saveFailed",
+      reachable: true,
+    });
+    expect(labels()).toContain("couldn’t save to Health");
+    const retry = renderer!.root.find(
+      (node) =>
+        String(node.type) === "Button" &&
+        node.children.join("") === "Retry Health save",
+    );
+    await act(async () => retry.props.onPress());
+    expect(mocks.end).toHaveBeenLastCalledWith(sessionId);
+    expect(mocks.start).toHaveBeenCalledTimes(1);
+    await emit({
+      type: "ended",
+      sessionId,
+      healthUuid: null,
+      healthSaved: true,
+    });
+    expect(labels()).toContain("Watch saved one Health workout");
+  });
   it("offers neutral Health access help until both live metrics arrive", async () => {
     await mount();
     await recording();

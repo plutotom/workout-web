@@ -36,12 +36,18 @@ export function WatchHealthCoordinator() {
         // Native replay survives sign-out. Only the owning account may adopt it.
         const workout = await getLocalWorkout(db, event.sessionId);
         if (!workout) return;
-        if (event.type === "state" && event.status === "starting") {
+        if (
+          event.type === "state" &&
+          ["starting", "recovering"].includes(event.status)
+        ) {
           if (!(await wasWatchRecorded(db, event.sessionId)))
             await setWatchStartPending(db, event.sessionId, true);
           return;
         }
-        if (event.type === "state" && event.status === "recording") {
+        if (
+          event.type === "state" &&
+          ["recording", "saving", "saveFailed"].includes(event.status)
+        ) {
           if (!(await wasWatchRecorded(db, event.sessionId)))
             await markWatchRecorded(db, event.sessionId);
           return;
@@ -58,6 +64,7 @@ export function WatchHealthCoordinator() {
         }
         if (event.type !== "ended" || !event.sessionId) return;
         await setWatchStartPending(db, event.sessionId, false);
+        if (event.healthSaved) await markWatchRecorded(db, event.sessionId);
         if (event.healthUuid) {
           if (workout.health?.externalId === event.healthUuid) return;
           await saveWatchHealthUuid(db, event.sessionId, event.healthUuid);

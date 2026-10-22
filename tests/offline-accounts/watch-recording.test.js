@@ -41,6 +41,32 @@ const ended = (sessionId) => ({
 });
 
 describe("Watch recording account and sync preservation", () => {
+  it.each(["saving", "saveFailed", "locked-success"])(
+    "preserves Watch ownership through offline restart and recovery (%s)",
+    async (phase) => {
+      await phone.offline();
+      await setHealthExportEnabled(phone.db, true);
+      const id = await phone.edit((local) => local.startBlank());
+      await phone.watchEvent(
+        phase === "locked-success"
+          ? { type: "ended", sessionId: id, healthUuid: "", healthSaved: true }
+          : { type: "state", sessionId: id, status: phase, reachable: true },
+      );
+      await phone.edit((local) => local.finish(id));
+      expect(await wasWatchRecorded(phone.db, id)).toBe(true);
+      expect(await listPendingHealthExports(phone.db)).toHaveLength(0);
+      await phone.reopen();
+      expect(await wasWatchRecorded(phone.db, id)).toBe(true);
+      expect(await listPendingHealthExports(phone.db)).toHaveLength(0);
+      await phone.watchEvent(ended(id));
+      await phone.connect();
+      await phone.settle();
+      expect((await phone.records(ALICE)).workoutSessions).toHaveLength(1);
+      expect((await getLocalWorkout(phone.db, id)).health.externalId).toBe(
+        ended(id).healthUuid,
+      );
+    },
+  );
   it("resumes the phone export if Watch launch fails after Finish and restart", async () => {
     await phone.offline();
     await setHealthExportEnabled(phone.db, true);

@@ -48,6 +48,7 @@ export type WatchSessionSnapshot = {
   heartRate: number | null;
   energyKcal: number | null;
   healthUuid: string | null;
+  healthSaved: boolean;
 };
 type CachedSession = WatchSessionSnapshot & { events: WatchEvent[] };
 const sessions = new Map<string, CachedSession>();
@@ -69,6 +70,7 @@ function remember(event: WatchEvent): WatchEvent {
     heartRate: null,
     energyKcal: null,
     healthUuid: null,
+    healthSaved: false,
     events: [],
   };
   if (event.type === "metrics") {
@@ -78,16 +80,30 @@ function remember(event: WatchEvent): WatchEvent {
     current.energyKcal = event.activeEnergyKcal;
   } else {
     current.status = reduceWatchSessionStatus(current.status, event, sessionId);
-    if (event.type === "state" && event.status === "recording")
+    if (
+      event.type === "state" &&
+      ["recording", "saving", "saveFailed"].includes(event.status)
+    )
       current.recorded = true;
     if (event.type === "ended") {
       current.healthUuid = event.healthUuid || current.healthUuid;
-      event = { ...event, healthUuid: current.healthUuid };
+      current.healthSaved =
+        current.healthSaved ||
+        Boolean(event.healthSaved) ||
+        Boolean(current.healthUuid);
+      if (current.healthSaved) current.recorded = true;
+      event = {
+        ...event,
+        healthUuid: current.healthUuid,
+        ...(current.healthSaved ? { healthSaved: true } : {}),
+      };
       if (activeSessionId === sessionId) activeSessionId = "";
     }
     if (
       event.type === "state" &&
-      (event.status === "starting" || event.status === "recording")
+      ["starting", "recording", "recovering", "saving", "saveFailed"].includes(
+        event.status,
+      )
     )
       activeSessionId = sessionId;
     // Cache reduced state so late start/reconnect events cannot rewind it.
@@ -141,6 +157,7 @@ export function getWatchSessionSnapshot(
     heartRate: state?.heartRate ?? null,
     energyKcal: state?.energyKcal ?? null,
     healthUuid: state?.healthUuid ?? null,
+    healthSaved: state?.healthSaved ?? false,
   };
 }
 
@@ -171,7 +188,16 @@ export async function startWatchWorkout(input: {
 }) {
   if (!native) throw new Error("Watch recording is only available on iPhone.");
   const current = getWatchSessionSnapshot(input.sessionId).status;
-  if (current === "starting" || current === "recording" || current === "ended")
+  if (
+    [
+      "starting",
+      "recording",
+      "recovering",
+      "saving",
+      "saveFailed",
+      "ended",
+    ].includes(current)
+  )
     return;
   publish({
     type: "state",
@@ -188,7 +214,7 @@ export async function startWatchWorkout(input: {
   } catch (caught) {
     // A launch timeout can arrive after the Watch confirms recording.
     if (
-      ["recording", "ended"].includes(
+      ["recording", "recovering", "saving", "saveFailed", "ended"].includes(
         getWatchSessionSnapshot(input.sessionId).status,
       )
     )

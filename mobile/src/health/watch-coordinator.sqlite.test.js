@@ -153,7 +153,7 @@ function events() {
 }
 
 describe("Watch Health acknowledgements with file-backed SQLite", () => {
-  it.each(["starting", "recording"])(
+  it.each(["starting", "recording", "recovering", "saving", "saveFailed"])(
     "uses native evidence to prevent a racing phone export before SQLite adoption (%s)",
     async (status) => {
       seed();
@@ -176,6 +176,38 @@ describe("Watch Health acknowledgements with file-backed SQLite", () => {
     },
   );
 
+  it("persists a successful locked-device save with no UUID and never exports it again", async () => {
+    seed();
+    await setHealthExportEnabled(mocks.db, true);
+    sql
+      .prepare(
+        "UPDATE local_sessions SET health_export_pending = 1 WHERE id = ?",
+      )
+      .run(id);
+    // The initial recording event was missed: terminal saved evidence must suffice.
+    mocks.events = [
+      { type: "ended", sessionId: id, healthUuid: "", healthSaved: true },
+    ];
+    await mount();
+    expect(row().health_export_pending).toBe(0);
+    await act(async () => renderer.unmount());
+    renderer = undefined;
+    sql.close();
+    await open();
+    await mount();
+    await act(async () => renderer.unmount());
+    await act(async () => {
+      renderer = create(createElement(HealthExportCoordinator));
+    });
+    await settle();
+    expect(mocks.export).not.toHaveBeenCalled();
+    expect(row().external_id).toBeNull();
+    expect(
+      sql
+        .prepare("SELECT value FROM local_health_state WHERE key = ?")
+        .get(`watch_recorded:${id}`).value,
+    ).toBe("1");
+  });
   it("allows a phone export once native state confirms a failed start", async () => {
     seed();
     await setHealthExportEnabled(mocks.db, true);

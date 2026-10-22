@@ -16,7 +16,16 @@ struct ContentView: View {
         Text(manager.durationLabel)
           .font(.title2.monospacedDigit())
           .foregroundStyle(.secondary)
-        if manager.isRecording {
+        if let error = manager.workoutError {
+          Text(error).font(.footnote).foregroundStyle(.red)
+            .multilineTextAlignment(.center)
+          Button(manager.status == "saveFailed" ? "Retry saving" : "Retry recovery", action: manager.retryWorkoutOperation)
+          if manager.status == "saveFailed" {
+            Button("Discard failed recording", role: .destructive, action: manager.discard)
+          }
+        } else if manager.status == "saving" || manager.status == "recovering" {
+          ProgressView()
+        } else if manager.isRecording {
           Button("End", role: .destructive, action: manager.endFromWatch)
         } else {
           Text("Start a lift on iPhone to record here.")

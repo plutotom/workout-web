@@ -38,7 +38,13 @@ function WatchCompanionSession({ sessionId, startedAt }: Props) {
   const [snapshot, setSnapshot] = useState(() =>
     getWatchSessionSnapshot(sessionId),
   );
-  const { status: watchStatus, heartRate, energyKcal, healthUuid } = snapshot;
+  const {
+    status: watchStatus,
+    heartRate,
+    energyKcal,
+    healthUuid,
+    healthSaved,
+  } = snapshot;
   const actionPending = useRef(false);
   const [ending, setEnding] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -93,8 +99,17 @@ function WatchCompanionSession({ sessionId, startedAt }: Props) {
           event.type === "ended" && event.sessionId === sessionId
             ? event.healthUuid || current.healthUuid
             : current.healthUuid,
+        healthSaved:
+          current.healthSaved ||
+          (event.type === "ended" &&
+            event.sessionId === sessionId &&
+            Boolean(event.healthSaved || event.healthUuid)),
       }));
-      if (event.type === "ended" && event.sessionId === sessionId)
+      if (
+        (event.type === "ended" ||
+          (event.type === "state" && event.status === "saveFailed")) &&
+        event.sessionId === sessionId
+      )
         setEnding(false);
       if (
         event.type === "state" &&
@@ -201,10 +216,16 @@ function WatchCompanionSession({ sessionId, startedAt }: Props) {
     return null;
   }
 
-  const recording =
-    watchStatus === "recording" ||
-    watchStatus === "starting" ||
-    watchStatus === "disconnected";
+  const recording = [
+    "recording",
+    "starting",
+    "disconnected",
+    "recovering",
+    "saving",
+    "saveFailed",
+  ].includes(watchStatus);
+  const saving = watchStatus === "saving";
+  const saveFailed = watchStatus === "saveFailed";
   const presentation = watchCompanionPresentation({
     autoStartEnabled,
     watchStatus,
@@ -265,7 +286,7 @@ function WatchCompanionSession({ sessionId, startedAt }: Props) {
           status,
           watchStatus,
           recording,
-          saved: Boolean(healthUuid),
+          saved: healthSaved || Boolean(healthUuid),
         })}
       </Text>
       {recording ? (
@@ -297,14 +318,20 @@ function WatchCompanionSession({ sessionId, startedAt }: Props) {
           onPress={() => void begin()}
         />
       ) : null}
-      {recording ? (
+      {recording && !saving && !saveFailed ? (
         <Text style={{ color: colors.dim, fontSize: 12, lineHeight: 17 }}>
           Ends Watch recording. Your workout stays open on iPhone.
         </Text>
       ) : null}
-      {recording ? (
+      {recording && !saving ? (
         <Button
-          label={ending ? "Ending on Watch…" : "End on Watch"}
+          label={
+            ending
+              ? "Ending on Watch…"
+              : saveFailed
+                ? "Retry Health save"
+                : "End on Watch"
+          }
           disabled={ending || busy}
           variant="outline"
           onPress={() => void end()}
@@ -325,6 +352,12 @@ function companionCopy({
   recording: boolean;
   saved: boolean;
 }) {
+  if (watchStatus === "saveFailed")
+    return "Watch couldn’t save to Health. Unlock your Watch and retry saving. Your phone workout is kept.";
+  if (watchStatus === "saving")
+    return "Watch recording stopped. Saving to Apple Health…";
+  if (watchStatus === "recovering")
+    return "Restoring the Watch workout before applying pending commands. Open Grayed Lift on your Watch if it needs attention.";
   if (recording && (!status.reachable || watchStatus === "disconnected")) {
     return "Watch disconnected. Recording can continue on the Watch. An end request will be delivered when it reconnects.";
   }

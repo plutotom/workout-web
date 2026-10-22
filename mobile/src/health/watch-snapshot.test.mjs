@@ -55,6 +55,19 @@ describe("native Watch snapshots and command identity", () => {
       result.events.find((event) => event.type === "ended").healthUuid,
     ).toBe("health-a");
   });
+  it("persists locked-device saved evidence through a later empty discard replay", () => {
+    expect(run("locked-save")).toEqual({
+      events: [
+        { type: "ended", sessionId: "a", healthUuid: "", healthSaved: true },
+      ],
+    });
+  });
+  it("retains save failure through restart and stale recording/start delivery, then permits retry", () => {
+    expect(run("save-retry")).toEqual({
+      failed: "saveFailed",
+      retry: "saving",
+    });
+  });
   it("scopes metrics and keeps them out of durable storage", () => {
     const result = run("metrics");
     expect(result.live.filter((event) => event.type === "metrics")).toEqual([

@@ -50,7 +50,9 @@ export function HealthExportCoordinator() {
             const watch = getWatchSessionSnapshot(item.sessionId);
             if (
               watch.recorded ||
-              watch.status === "starting" ||
+              ["starting", "recovering", "saving", "saveFailed"].includes(
+                watch.status,
+              ) ||
               watch.healthUuid
             )
               continue;
