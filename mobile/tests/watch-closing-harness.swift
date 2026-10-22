@@ -430,6 +430,34 @@ case "reconcile-query-retry":
   extra["phaseAfterQueryError"] = manager.defaults.dictionary(forKey: "watch.finalization")?["phase"] as? String ?? "missing"
   manager.healthStore.failQuery = false
   manager.endFromPhone(sessionId: "test-session", discard: false); drainMainQueue()
+case "queued-start-status", "queued-start-retry", "queued-start-terminal":
+  // A's save committed, but its callback was lost. Reconciliation blocks B.
+  trackedBuilder!.deferSave = true
+  manager.end(); manager.deliverEnded(); trackedBuilder!.completeCollection()
+  let committed = HKWorkout(); committed.metadata = trackedBuilder!.metadata
+  let restarted = TestManager(); restarted.defaults = manager.defaults
+  restarted.healthStore.storedWorkouts = [committed]; restarted.healthStore.deferQuery = true
+  manager = restarted
+  manager.startFromPhone(sessionId: "next-session", startedAtMs: 2000, syncIdentifier: "next")
+  manager.replyToStatus(sessionId: "next-session")
+  manager.healthStore.completeRecovery(nil)
+  extra["recoveryEvents"] = PhoneBridge.shared.events
+  PhoneBridge.shared.events.removeAll()
+  if scenario == "queued-start-terminal" {
+    manager.endFromPhone(sessionId: "next-session", discard: true)
+    PhoneBridge.shared.events.removeAll()
+  }
+  if scenario == "queued-start-retry" {
+    manager.retryFromPhone(sessionId: "next-session")
+    manager.retryFromPhone(sessionId: "next-session")
+  } else {
+    manager.replyToStatus(sessionId: "next-session")
+    manager.replyToStatus(sessionId: "next-session")
+  }
+  extra["queuedReplyEvents"] = PhoneBridge.shared.events
+  extra["queuedStartCount"] = manager.pendingStarts.count
+  manager.healthStore.completeQuery(); drainMainQueue()
+  extra["startedQueuedWorkout"] = manager.sessionId == "next-session" && manager.session?.state == .running
 case "phone-recovery-retry":
   // Legacy failure without a journal must remain compatible with old candidates.
   manager.session = nil; manager.builder = nil; manager.status = "saveFailed"

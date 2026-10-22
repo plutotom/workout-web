@@ -2,23 +2,43 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { act, create } from "react-test-renderer";
 import { WatchCompanionCard } from "./watch-companion-card";
+import { WatchHealthCoordinator } from "./watch-coordinator";
+import { HealthExportCoordinator } from "./export-coordinator";
+import { migrateLocalDatabase } from "@/data/local/migrations";
+import {
+  isWatchStartPending,
+  listPendingHealthExports,
+  setHealthExportEnabled,
+} from "@/data/local/repository";
 
 const ui = vi.hoisted(() => ({
   listener: undefined,
   retry: vi.fn(),
   end: vi.fn(),
+  db: undefined,
+  export: vi.fn(),
+  refresh: vi.fn(),
 }));
+vi.mock("expo-crypto", () => ({ randomUUID: () => randomUUID() }));
+vi.mock("expo-sqlite", () => ({ useSQLiteContext: () => ui.db }));
 vi.mock("@/data/local/provider", () => ({
   useLocalPreferences: () => ({ autoStartWatchWorkout: false }),
+  useLocalData: () => ({
+    owner: "test-native-watch-owner",
+    refresh: ui.refresh,
+  }),
 }));
 vi.mock("@/health", () => ({
   getHealthAdapter: () => ({
     isAvailable: async () => true,
     requestWriteAccess: async () => "connected",
+    saveTrackedWorkout: (...args) => ui.export(...args),
   }),
 }));
 vi.mock("expo-modules-core", () => ({
@@ -50,7 +70,10 @@ vi.mock("@/components/ui", async () => {
 vi.mock("lucide-react-native", () => ({ Watch: "Watch" }));
 vi.mock("react-native", () => ({
   Platform: { OS: "ios" },
-  AppState: { addEventListener: () => ({ remove() {} }) },
+  AppState: {
+    currentState: "active",
+    addEventListener: () => ({ remove() {} }),
+  },
   Pressable: "Pressable",
   Text: "Text",
   View: "View",
@@ -382,6 +405,140 @@ describe.skipIf(!swiftAvailable)("Watch native closing lifecycle", () => {
       saves: 0,
     });
   });
+  it.each(["queued-start-status", "queued-start-retry"])(
+    "keeps queued-start ownership in production native replies (%s)",
+    (scenario) => {
+      const result = run(scenario);
+      expect(result).toMatchObject({
+        queuedStartCount: 1,
+        startedQueuedWorkout: true,
+      });
+      for (const events of [result.recoveryEvents, result.queuedReplyEvents]) {
+        const replies = events.filter(
+          (event) => event.sessionId === "next-session",
+        );
+        expect(replies.length).toBeGreaterThan(0);
+        expect(
+          replies.every((event) =>
+            ["recovering", "starting"].includes(event.status),
+          ),
+        ).toBe(true);
+      }
+    },
+  );
+  it("preserves terminal-result precedence over a queued Start", () => {
+    const result = run("queued-start-terminal");
+    expect(result.startedQueuedWorkout).toBe(false);
+    expect(
+      result.queuedReplyEvents.filter(
+        (event) => event.sessionId === "next-session",
+      ),
+    ).toEqual([
+      {
+        type: "ended",
+        sessionId: "next-session",
+        healthUuid: "",
+        healthSaved: false,
+      },
+      {
+        type: "ended",
+        sessionId: "next-session",
+        healthUuid: "",
+        healthSaved: false,
+      },
+    ]);
+  });
+  it.each(["queued-start-status", "queued-start-retry"])(
+    "suppresses phone export through real Swift replies, bridge, coordinators and SQLite (%s)",
+    async (scenario) => {
+      Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+      const native = run(scenario);
+      const sql = new DatabaseSync(join(directory, `${scenario}.db`));
+      const binds = (values) =>
+        values.length === 1 && Array.isArray(values[0]) ? values[0] : values;
+      let transaction = Promise.resolve();
+      const transact = (operation) => {
+        const pending = transaction
+          .catch(() => {})
+          .then(async () => {
+            sql.exec("BEGIN");
+            try {
+              const result = await operation();
+              sql.exec("COMMIT");
+              return result;
+            } catch (error) {
+              sql.exec("ROLLBACK");
+              throw error;
+            }
+          });
+        transaction = pending;
+        return pending;
+      };
+      const db = {
+        execAsync: async (statement) => sql.exec(statement),
+        runAsync: async (statement, ...values) =>
+          sql.prepare(statement).run(...binds(values)),
+        getFirstAsync: async (statement, ...values) =>
+          sql.prepare(statement).get(...binds(values)) ?? null,
+        getAllAsync: async (statement, ...values) =>
+          sql.prepare(statement).all(...binds(values)),
+        withTransactionAsync: transact,
+        withExclusiveTransactionAsync: (operation) =>
+          transact(() => operation(db)),
+      };
+      ui.db = db;
+      ui.export
+        .mockReset()
+        .mockResolvedValue({ uuid: "unexpected-phone-export" });
+      await migrateLocalDatabase(db);
+      await setHealthExportEnabled(db, true);
+      sql
+        .prepare(
+          "INSERT INTO local_sessions (id, template_name, status, started_at, completed_at, updated_at) VALUES ('next-session', 'Queued workout', 'completed', 100, 200, 200)",
+        )
+        .run();
+      let coordinator, exporter;
+      try {
+        await act(async () => {
+          coordinator = create(createElement(WatchHealthCoordinator));
+        });
+        // Deliver recovery, then later Status/duplicate Retry before delayed End.
+        for (const payload of [
+          ...native.recoveryEvents,
+          ...native.queuedReplyEvents,
+        ]) {
+          await act(async () => {
+            ui.listener(payload);
+            await new Promise((resolve) => setImmediate(resolve));
+          });
+        }
+        expect(await isWatchStartPending(db, "next-session")).toBe(true);
+        expect(await listPendingHealthExports(db)).toHaveLength(0);
+        await act(async () => {
+          exporter = create(createElement(HealthExportCoordinator));
+        });
+        await act(async () => {
+          await new Promise((resolve) => setImmediate(resolve));
+        });
+        expect(ui.export).not.toHaveBeenCalled();
+        expect(
+          sql
+            .prepare(
+              "SELECT external_id FROM local_sessions WHERE id = 'next-session'",
+            )
+            .get().external_id,
+        ).toBeNull();
+      } finally {
+        await act(async () => {
+          exporter?.unmount();
+          coordinator?.unmount();
+        });
+        await transaction.catch(() => {});
+        sql.close();
+        ui.db = undefined;
+      }
+    },
+  );
   it.each([
     "recovery-idle-context",
     "recovery-idle-request-only",

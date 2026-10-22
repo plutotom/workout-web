@@ -41,6 +41,38 @@ const ended = (sessionId) => ({
 });
 
 describe("Watch recording account and sync preservation", () => {
+  it("retains queued Watch ownership through repeated replies, Finish and offline restart", async () => {
+    await phone.offline();
+    await setHealthExportEnabled(phone.db, true);
+    const id = await phone.edit((local) => local.startBlank());
+    const queued = {
+      type: "state",
+      sessionId: id,
+      status: "starting",
+      reachable: true,
+    };
+    await phone.watchEvent(queued);
+    await phone.edit((local) => local.finish(id));
+    await phone.reopen();
+    // Status and duplicate Retry still report a queued start while an older
+    // Watch workout is reconciling. They must not enable phone fallback.
+    await phone.watchEvent(queued);
+    await phone.watchEvent(queued);
+    expect(await listPendingHealthExports(phone.db)).toHaveLength(0);
+    await phone.watchEvent(recording(id));
+    await phone.watchEvent(ended(id));
+    await phone.watchEvent(ended(id));
+    await phone.reopen();
+    expect(await listPendingHealthExports(phone.db)).toHaveLength(0);
+    expect((await getLocalWorkout(phone.db, id)).health.externalId).toBe(
+      ended(id).healthUuid,
+    );
+    await phone.connect();
+    await phone.settle();
+    expect((await phone.records(ALICE)).workoutSessions).toMatchObject([
+      { externalId: ended(id).healthUuid, status: "completed" },
+    ]);
+  });
   it.each(["saving", "saveFailed", "locked-success"])(
     "preserves Watch ownership through offline restart and recovery (%s)",
     async (phase) => {

@@ -244,6 +244,10 @@ final class WorkoutManager: NSObject, ObservableObject {
       if let uuid = defaults.dictionary(forKey: "watch.closedResults")?[requested] as? String {
         PhoneBridge.shared.send(["type": "ended", "sessionId": requested, "healthUuid": uuid,
                                  "healthSaved": !uuid.isEmpty || (defaults.stringArray(forKey: "watch.savedSessions") ?? []).contains(requested)])
+      } else if pendingStarts.contains(where: { $0.id == requested }) {
+        // A queued Start still owns Health export, even while another workout
+        // blocks it. Status and duplicate Retry must not confirm it idle.
+        PhoneBridge.shared.send(["type": "state", "sessionId": requested, "status": "starting", "reachable": true])
       } else if requested != sessionId {
         PhoneBridge.shared.send(["type": "state", "sessionId": requested, "status": "idle", "reachable": true])
       }
@@ -615,11 +619,7 @@ final class WorkoutManager: NSObject, ObservableObject {
     let ids = recoveryReplyIds
     recoveryReplyIds.removeAll()
     for id in ids {
-      // Drain queued starts first: never advertise idle for a recording that is
-      // about to start, which could prematurely release a phone export.
-      if pendingStarts.contains(where: { $0.id == id }) { continue }
-      // replyToStatus preserves terminal results and sends a scoped confirmed
-      // idle for identities that recovery proved are no longer active.
+      // All callers share terminal precedence and queued-start protection.
       replyToStatus(sessionId: id)
     }
   }
