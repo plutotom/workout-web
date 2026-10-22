@@ -82,11 +82,15 @@ over 0.3.1 / build 18 on an iPhone 15 Pro running iOS 27.0:
   snapshots and passed integrity checks. Settings retained the saved account
   with the expected temporary "Account unavailable" message. This check read
   existing data; it did not create or modify workouts or queue test writes.
+- Restoring connectivity automatically returned Settings to the authenticated
+  account view without a sign-in prompt or retry tap. Workout, set, note, and
+  outbox rows remained unchanged. The normal cloud refresh rebuilt template
+  cache rows; template content and parsed exercise prescriptions still matched.
 
 Paired Watch recording is still unverified. The connected Series 7 runs
 watchOS 26.6, and development deployment is blocked by Developer Mode being
-disabled. Account recovery after restoring connectivity remains pending.
-These iPhone results do not complete the paired-device checklist below.
+disabled. These iPhone results do not complete the paired-device checklist
+below.
 
 ## Required paired-device validation
 
