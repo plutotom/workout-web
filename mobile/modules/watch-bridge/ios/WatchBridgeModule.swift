@@ -62,6 +62,10 @@ public class WatchBridgeModule: Module {
       try WatchPhoneSession.shared.sendCommand(["type": "end", "sessionId": sessionId])
     }
 
+    AsyncFunction("retryWatchSession") { (sessionId: String) in
+      try WatchPhoneSession.shared.sendCommand(["type": "retry", "sessionId": sessionId])
+    }
+
     AsyncFunction("discardWatchSession") { (sessionId: String) in
       try WatchPhoneSession.shared.sendCommand(["type": "discard", "sessionId": sessionId])
     }
@@ -158,7 +162,7 @@ final class WatchPhoneSession: NSObject, WCSessionDelegate {
     do {
       try await healthStore.startWatchApp(toHandle: configuration)
     } catch {
-      if !["recording", "recovering", "saving", "saveFailed", "ended"].contains(snapshots.status(for: sessionId) ?? "") {
+      if !["recording", "recovering", "recoveryFailed", "saving", "saveFailed", "ended"].contains(snapshots.status(for: sessionId) ?? "") {
         emit(["type": "state", "sessionId": sessionId, "status": "idle", "reachable": session.isReachable])
       }
       throw Exception(

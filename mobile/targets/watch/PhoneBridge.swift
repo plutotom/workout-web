@@ -75,6 +75,8 @@ final class PhoneBridge: NSObject, WCSessionDelegate {
           startedAtMs: message["startedAt"] as? Double ?? 0,
           syncIdentifier: message["syncIdentifier"] as? String ?? ""
         )
+      case "retry":
+        WorkoutManager.shared.retryFromPhone(sessionId: message["sessionId"] as? String ?? "")
       case "end":
         WorkoutManager.shared.endFromPhone(sessionId: message["sessionId"] as? String, discard: false)
       case "discard":

@@ -67,6 +67,30 @@ describe("Watch recording account and sync preservation", () => {
       );
     },
   );
+  it("keeps recovery failure pending across restart and resumes export only after confirmed idle", async () => {
+    await phone.offline();
+    await setHealthExportEnabled(phone.db, true);
+    const id = await phone.edit((local) => local.startBlank());
+    await phone.watchEvent({
+      type: "state",
+      sessionId: id,
+      status: "recoveryFailed",
+      reachable: true,
+    });
+    await phone.edit((local) => local.finish(id));
+    await phone.reopen();
+    expect(await wasWatchRecorded(phone.db, id)).toBe(false);
+    expect(await listPendingHealthExports(phone.db)).toHaveLength(0);
+    await phone.watchEvent({
+      type: "state",
+      sessionId: id,
+      status: "idle",
+      reachable: true,
+    });
+    expect(await listPendingHealthExports(phone.db)).toMatchObject([
+      { sessionId: id },
+    ]);
+  });
   it("resumes the phone export if Watch launch fails after Finish and restart", async () => {
     await phone.offline();
     await setHealthExportEnabled(phone.db, true);

@@ -153,7 +153,14 @@ function events() {
 }
 
 describe("Watch Health acknowledgements with file-backed SQLite", () => {
-  it.each(["starting", "recording", "recovering", "saving", "saveFailed"])(
+  it.each([
+    "starting",
+    "recording",
+    "recovering",
+    "recoveryFailed",
+    "saving",
+    "saveFailed",
+  ])(
     "uses native evidence to prevent a racing phone export before SQLite adoption (%s)",
     async (status) => {
       seed();

@@ -10,6 +10,7 @@ import {
   getWatchCompanionStatus,
   getWatchSessionSnapshot,
   refreshWatchSession,
+  retryWatchRecovery,
   startWatchWorkout,
   subscribeWatchEvents,
 } from "@/health/watch-bridge";
@@ -107,7 +108,8 @@ function WatchCompanionSession({ sessionId, startedAt }: Props) {
       }));
       if (
         (event.type === "ended" ||
-          (event.type === "state" && event.status === "saveFailed")) &&
+          (event.type === "state" &&
+            ["saveFailed", "recoveryFailed"].includes(event.status))) &&
         event.sessionId === sessionId
       )
         setEnding(false);
@@ -195,11 +197,14 @@ function WatchCompanionSession({ sessionId, startedAt }: Props) {
     setEnding(true);
     setError(null);
     try {
-      await endWatchWorkout(sessionId);
-    } catch {
+      if (watchStatus === "recoveryFailed") await retryWatchRecovery(sessionId);
+      else await endWatchWorkout(sessionId);
+    } catch (caught) {
       setEnding(false);
       setError(
-        "Couldn’t end Watch recording. Try again or end it on your Watch.",
+        watchStatus === "recoveryFailed"
+          ? watchLaunchErrorMessage(caught)
+          : "Couldn’t end Watch recording. Try again or end it on your Watch.",
       );
     } finally {
       actionPending.current = false;
@@ -221,11 +226,13 @@ function WatchCompanionSession({ sessionId, startedAt }: Props) {
     "starting",
     "disconnected",
     "recovering",
+    "recoveryFailed",
     "saving",
     "saveFailed",
   ].includes(watchStatus);
   const saving = watchStatus === "saving";
   const saveFailed = watchStatus === "saveFailed";
+  const recoveryFailed = watchStatus === "recoveryFailed";
   const presentation = watchCompanionPresentation({
     autoStartEnabled,
     watchStatus,
@@ -318,7 +325,7 @@ function WatchCompanionSession({ sessionId, startedAt }: Props) {
           onPress={() => void begin()}
         />
       ) : null}
-      {recording && !saving && !saveFailed ? (
+      {recording && !saving && !saveFailed && !recoveryFailed ? (
         <Text style={{ color: colors.dim, fontSize: 12, lineHeight: 17 }}>
           Ends Watch recording. Your workout stays open on iPhone.
         </Text>
@@ -328,9 +335,11 @@ function WatchCompanionSession({ sessionId, startedAt }: Props) {
           label={
             ending
               ? "Ending on Watch…"
-              : saveFailed
-                ? "Retry Health update"
-                : "End on Watch"
+              : recoveryFailed
+                ? "Retry Watch recovery"
+                : saveFailed
+                  ? "Retry Health update"
+                  : "End on Watch"
           }
           disabled={ending || busy}
           variant="outline"
@@ -352,6 +361,8 @@ function companionCopy({
   recording: boolean;
   saved: boolean;
 }) {
+  if (watchStatus === "recoveryFailed")
+    return "Watch couldn’t restore its workout. Unlock your Watch and retry recovery. Your pending requests are kept.";
   if (watchStatus === "saveFailed")
     return "Apple Health needs attention on your Watch. Unlock it and retry. Your phone workout is kept.";
   if (watchStatus === "saving")

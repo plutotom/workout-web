@@ -24,6 +24,7 @@ type WatchBridgeNative = {
   endWatchWorkout: () => Promise<void>;
   discardWatchWorkout: () => Promise<void>;
   endWatchSession?: (sessionId: string) => Promise<void>;
+  retryWatchSession?: (sessionId: string) => Promise<void>;
   discardWatchSession?: (sessionId: string) => Promise<void>;
   addListener: (
     event: "onWatchEvent",
@@ -101,9 +102,14 @@ function remember(event: WatchEvent): WatchEvent {
     }
     if (
       event.type === "state" &&
-      ["starting", "recording", "recovering", "saving", "saveFailed"].includes(
-        event.status,
-      )
+      [
+        "starting",
+        "recording",
+        "recovering",
+        "recoveryFailed",
+        "saving",
+        "saveFailed",
+      ].includes(event.status)
     )
       activeSessionId = sessionId;
     // Cache reduced state so late start/reconnect events cannot rewind it.
@@ -193,6 +199,7 @@ export async function startWatchWorkout(input: {
       "starting",
       "recording",
       "recovering",
+      "recoveryFailed",
       "saving",
       "saveFailed",
       "ended",
@@ -214,9 +221,14 @@ export async function startWatchWorkout(input: {
   } catch (caught) {
     // A launch timeout can arrive after the Watch confirms recording.
     if (
-      ["recording", "recovering", "saving", "saveFailed", "ended"].includes(
-        getWatchSessionSnapshot(input.sessionId).status,
-      )
+      [
+        "recording",
+        "recovering",
+        "recoveryFailed",
+        "saving",
+        "saveFailed",
+        "ended",
+      ].includes(getWatchSessionSnapshot(input.sessionId).status)
     )
       return;
     publish({
@@ -233,6 +245,12 @@ export async function endWatchWorkout(sessionId?: string) {
   if (sessionId && native?.endWatchSession)
     await native.endWatchSession(sessionId);
   else await native?.endWatchWorkout();
+}
+
+export async function retryWatchRecovery(sessionId: string) {
+  if (native?.retryWatchSession) await native.retryWatchSession(sessionId);
+  else
+    throw new Error("Open Grayed Lift on your Watch and tap Retry recovery.");
 }
 
 export async function discardWatchWorkout(sessionId?: string) {

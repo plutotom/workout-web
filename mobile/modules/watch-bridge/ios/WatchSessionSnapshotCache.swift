@@ -54,13 +54,13 @@ final class WatchSessionSnapshotCache {
     }
     if type == "state" {
       guard let status = event["status"] as? String,
-            ["idle", "starting", "recording", "recovering", "saving", "saveFailed", "ended", "disconnected"].contains(status),
+            ["idle", "starting", "recording", "recovering", "recoveryFailed", "saving", "saveFailed", "ended", "disconnected"].contains(status),
             endings[id] == nil else { return }
       let current = states[id]?["status"] as? String ?? ""
       if ["recording", "saving", "saveFailed"].contains(current), ["starting", "recovering"].contains(status) { return }
       if ["saving", "saveFailed"].contains(current), status == "recording" { return }
       states[id] = ["type": type, "sessionId": id, "status": status, "reachable": event["reachable"] as? Bool ?? false]
-      if ["starting", "recording", "recovering", "saving", "saveFailed"].contains(status) { activeSessionId = id }
+      if ["starting", "recording", "recovering", "recoveryFailed", "saving", "saveFailed"].contains(status) { activeSessionId = id }
     } else if type == "ended" {
       let uuid = event["healthUuid"] as? String ?? ""
       // A delayed discard acknowledgement must not erase an already saved UUID.

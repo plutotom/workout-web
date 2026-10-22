@@ -38,7 +38,7 @@ export function WatchHealthCoordinator() {
         if (!workout) return;
         if (
           event.type === "state" &&
-          ["starting", "recovering"].includes(event.status)
+          ["starting", "recovering", "recoveryFailed"].includes(event.status)
         ) {
           if (!(await wasWatchRecorded(db, event.sessionId)))
             await setWatchStartPending(db, event.sessionId, true);

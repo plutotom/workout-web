@@ -39,6 +39,7 @@ describe.skipIf(!swiftAvailable)("Watch native closing lifecycle", () => {
     const opening = [
       "  func recoverIfNeeded(",
       "  func retryWorkoutOperation(",
+      "  func retryFromPhone(",
       "  func startFromPhone(",
       "  func replyToStatus(",
       "  private func start(",
@@ -267,6 +268,55 @@ describe.skipIf(!swiftAvailable)("Watch native closing lifecycle", () => {
       remainingHealthWorkouts: 2,
       healthDeleteCalls: 1,
       healthSaved: [false],
+    });
+  });
+  it("replays successful deletion with a lost callback without reading a deleted object", () => {
+    expect(run("delete-callback-lost")).toMatchObject({
+      phaseBeforeRestart: "deleting",
+      ackBeforeRestart: false,
+      deleteReplayCounts: [0],
+      queryCount: 0,
+      newSessionId: "next-session",
+      remainingHealthWorkouts: 0,
+      finalizationRetained: false,
+      healthSaved: [false],
+    });
+  });
+  it.each(["recovery-error-scoped", "recovery-error-no-context"])(
+    "reports retryable cold-start recovery errors to the waiting phone (%s)",
+    (scenario) => {
+      expect(run(scenario)).toMatchObject({
+        failureWasScoped: true,
+        recoveryGateRetained: true,
+        closureRetained: true,
+        recoveryCalls: 2,
+        status: "recoveryFailed",
+        healthUuids: [],
+      });
+    },
+  );
+  it.each(["recovery-end-date", "recovery-end-date-retry"])(
+    "preserves original End time with a surviving session (%s)",
+    (scenario) => {
+      expect(run(scenario)).toMatchObject({
+        recoveredEndDate: 200,
+        savedCount: 1,
+        status: "ended",
+      });
+    },
+  );
+  it("retries a failed startup recovery without replacing queued Start with End", () => {
+    expect(run("recovery-start-error-retry")).toMatchObject({
+      startedAfterRetry: true,
+      pendingCloseCount: 0,
+      healthUuids: [],
+    });
+  });
+  it("does not end or retry a different session when Retry is delayed", () => {
+    expect(run("retry-foreign-session")).toMatchObject({
+      endCalls: 0,
+      collections: 0,
+      saves: 0,
     });
   });
   it("keeps a failed Health save retryable without a false terminal acknowledgement", () => {

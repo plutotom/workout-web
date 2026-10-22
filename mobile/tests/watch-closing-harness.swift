@@ -22,6 +22,9 @@ final class HKSource {
   static func `default`() -> HKSource { HKSource() }
 }
 final class HKQuery {
+  static func predicateForObject(with uuid: UUID) -> NSPredicate {
+    NSPredicate { value, _ in (value as? HKWorkout)?.uuid == uuid }
+  }
   static func predicateForObjects(withMetadataKey key: String, allowedValues: [String]) -> NSPredicate {
     NSPredicate { value, _ in guard let value = value as? HKWorkout else { return false }; return allowedValues.contains(value.metadata[key] as? String ?? "") }
   }
@@ -63,10 +66,18 @@ final class HKHealthStore {
     let found = emptyQuery ? [] : storedWorkouts.filter { query.predicate?.evaluate(with: $0) ?? true }
     query.callback(query, failQuery ? nil : found, failQuery ? NSError(domain: "synthetic-query", code: 1) : nil)
   }
-  func delete(_ workouts: [HKWorkout], withCompletion completion: @escaping (Bool, Error?) -> Void) {
+  var deferDeleteCallback = false
+  var pendingDeleteCallback: (() -> Void)?
+  var deletedCounts: [Int] = []
+  func deleteObjects(of type: HKObjectType, predicate: NSPredicate, withCompletion completion: @escaping (Bool, Int, Error?) -> Void) {
     deleteCount += 1
-    if !failDelete { storedWorkouts.removeAll { item in workouts.contains { $0.uuid == item.uuid } } }
-    completion(!failDelete, failDelete ? NSError(domain: "synthetic-delete", code: 1) : nil)
+    let found = storedWorkouts.filter { predicate.evaluate(with: $0) }
+    let count = failDelete ? 0 : found.count
+    if !failDelete { storedWorkouts.removeAll { item in found.contains { $0.uuid == item.uuid } } }
+    deletedCounts.append(count)
+    let success = !failDelete
+    let callback = { completion(success, count, success ? nil : NSError(domain: "synthetic-delete", code: 1)) }
+    if deferDeleteCallback { pendingDeleteCallback = callback } else { callback() }
   }
 }
 let HKMetadataKeySyncIdentifier = "sync"
@@ -288,6 +299,57 @@ case "recovery-discard", "recovery-finish", "recovery-error", "recovery-crash":
   trackedBuilder = recovered.builder; trackedSession = recovered
   extra["recoveryCalls"] = manager.healthStore.recoveryCalls
   manager.deliverEnded(); trackedBuilder!.completeCollection()
+case "delete-callback-lost":
+  trackedBuilder!.deferSave = true
+  manager.healthStore.deferDeleteCallback = true
+  manager.end(); manager.deliverEnded(); trackedBuilder!.completeCollection()
+  manager.discard(); trackedBuilder!.completeSave(); drainMainQueue()
+  extra["phaseBeforeRestart"] = manager.defaults.dictionary(forKey: "watch.finalization")?["phase"] as? String ?? "missing"
+  extra["ackBeforeRestart"] = PhoneBridge.shared.events.contains { $0["type"] as? String == "ended" }
+  let restarted = TestManager(); restarted.defaults = manager.defaults
+  restarted.healthStore.storedWorkouts = manager.healthStore.storedWorkouts
+  restarted.healthStore.failQuery = true // Replay must not depend on reading a surviving object.
+  manager = restarted
+  manager.startFromPhone(sessionId: "next-session", startedAtMs: 2000, syncIdentifier: "next")
+  manager.healthStore.completeRecovery(nil)
+  extra["newSessionId"] = manager.sessionId
+  extra["deleteReplayCounts"] = manager.healthStore.deletedCounts
+  extra["queryCount"] = manager.healthStore.queryCount
+case "recovery-error-scoped", "recovery-error-no-context":
+  if scenario == "recovery-error-scoped" { manager.defaults.set("test-session", forKey: "watch.sessionId") }
+  manager.endFromPhone(sessionId: "test-session", discard: false)
+  manager.healthStore.completeRecovery(nil, error: NSError(domain: "synthetic", code: 9))
+  extra["failureWasScoped"] = PhoneBridge.shared.events.contains { $0["type"] as? String == "state" && $0["sessionId"] as? String == "test-session" && $0["status"] as? String == "recoveryFailed" }
+  extra["recoveryGateRetained"] = manager.recoveryPending
+  extra["closureRetained"] = manager.defaults.dictionary(forKey: "watch.pendingEnds")?["test-session"] as? Bool == false
+  manager.retryFromPhone(sessionId: "test-session")
+  manager.healthStore.completeRecovery(nil, error: NSError(domain: "synthetic", code: 9))
+  extra["recoveryCalls"] = manager.healthStore.recoveryCalls
+case "recovery-end-date", "recovery-end-date-retry":
+  manager.defaults.set("test-session", forKey: "watch.sessionId")
+  manager.defaults.set("test", forKey: "watch.syncIdentifier")
+  manager.defaults.set(["sessionId": "test-session", "syncIdentifier": "test", "startedAt": 100.0, "endedAt": 200.0, "phase": "ending", "discard": false], forKey: "watch.finalization")
+  manager.defaults.set(["test-session": false], forKey: "watch.pendingEnds")
+  let recovered = try HKWorkoutSession(healthStore: manager.healthStore, configuration: HKWorkoutConfiguration())
+  recovered.startActivity(with: Date(timeIntervalSince1970: 100))
+  manager.recoverIfNeeded(); manager.healthStore.completeRecovery(recovered)
+  trackedBuilder = recovered.builder; trackedSession = recovered
+  manager.deliverEnded()
+  if scenario == "recovery-end-date-retry" {
+    trackedBuilder!.completeCollection(success: false)
+    manager.retryWorkoutOperation()
+  }
+  extra["recoveredEndDate"] = trackedBuilder!.requestedEndDate?.timeIntervalSince1970 ?? -1
+  trackedBuilder!.completeCollection()
+case "recovery-start-error-retry":
+  manager.startFromPhone(sessionId: "test-session", startedAtMs: 1000, syncIdentifier: "test")
+  manager.healthStore.completeRecovery(nil, error: NSError(domain: "synthetic", code: 9))
+  manager.retryFromPhone(sessionId: "test-session")
+  manager.healthStore.completeRecovery(nil)
+  extra["startedAfterRetry"] = manager.session != nil && manager.sessionId == "test-session"
+  extra["pendingCloseCount"] = (manager.defaults.dictionary(forKey: "watch.pendingEnds") ?? [:]).count
+case "retry-foreign-session":
+  manager.retryFromPhone(sessionId: "another-session")
 case "interrupted-ending", "interrupted-collection", "interrupted-save", "interrupted-committed", "interrupted-discard":
   trackedBuilder!.deferSave = true
   manager.end()
@@ -313,7 +375,7 @@ case "discard-in-save", "discard-locked-save", "discard-delete-retry":
   trackedBuilder!.deferSave = true
   trackedBuilder!.locked = scenario == "discard-locked-save"
   manager.healthStore.emptyQuery = scenario == "discard-locked-save"
-  manager.healthStore.failDelete = scenario == "discard-delete-retry"
+  manager.healthStore.failDelete = scenario == "discard-delete-retry" || scenario == "discard-locked-save"
   manager.end(); manager.deliverEnded(); trackedBuilder!.completeCollection()
   extra["saveWasInFlight"] = manager.saveInFlight
   manager.discard()

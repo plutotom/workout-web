@@ -10,6 +10,7 @@ export type WatchSessionStatus =
   | "starting"
   | "recording"
   | "recovering"
+  | "recoveryFailed"
   | "saving"
   | "saveFailed"
   | "ended"
@@ -80,6 +81,7 @@ export function shouldShowWatchCompanion(input: {
     input.watchStatus === "starting" ||
     input.watchStatus === "recording" ||
     input.watchStatus === "recovering" ||
+    input.watchStatus === "recoveryFailed" ||
     input.watchStatus === "saving" ||
     input.watchStatus === "saveFailed" ||
     input.watchStatus === "ended" ||
@@ -215,6 +217,7 @@ function parseWatchStatus(value: unknown): WatchSessionStatus | null {
     value === "starting" ||
     value === "recording" ||
     value === "recovering" ||
+    value === "recoveryFailed" ||
     value === "saving" ||
     value === "saveFailed" ||
     value === "ended" ||

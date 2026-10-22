@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
       (id: string, startedAt: number, syncIdentifier: string) => Promise<void>
     >(),
   end: vi.fn<(id: string) => Promise<void>>(),
+  retry: vi.fn<(id: string) => Promise<void>>(),
   requestStatus: vi.fn(),
   requestWriteAccess: vi.fn<() => Promise<string>>(),
   isAvailable: vi.fn<() => Promise<boolean>>(),
@@ -39,6 +40,7 @@ vi.mock("expo-modules-core", () => ({
     startWatchWorkout: (...args: [string, number, string]) =>
       mocks.start(...args),
     endWatchSession: (id: string) => mocks.end(id),
+    retryWatchSession: (id: string) => mocks.retry(id),
     addListener: (
       _name: string,
       listener: (event: Record<string, unknown>) => void,
@@ -97,6 +99,7 @@ beforeEach(() => {
   };
   mocks.start.mockReset().mockResolvedValue(undefined);
   mocks.end.mockReset().mockResolvedValue(undefined);
+  mocks.retry.mockReset().mockResolvedValue(undefined);
   mocks.requestStatus.mockClear();
   mocks.requestWriteAccess.mockReset().mockResolvedValue("connected");
   mocks.isAvailable.mockReset().mockResolvedValue(true);
@@ -173,6 +176,36 @@ describe("Watch workout controls with the production session bridge", () => {
     expect(labels()).toContain("End on Watch");
     expect(labels()).toContain("120 bpm");
     expect(mocks.start).toHaveBeenCalledTimes(1);
+  });
+  it("releases a pending End after scoped recovery failure and retries without sending another End", async () => {
+    await mount();
+    await recording();
+    await act(async () => stop().props.onPress());
+    expect(labels()).toContain("Ending on Watch…");
+    await emit({
+      type: "state",
+      sessionId,
+      status: "recoveryFailed",
+      reachable: true,
+    });
+    expect(labels()).not.toContain("Ending on Watch…");
+    expect(labels()).toContain("Watch couldn’t restore");
+    const retry = renderer!.root.find(
+      (node) =>
+        String(node.type) === "Button" &&
+        node.children.join("") === "Retry Watch recovery",
+    );
+    expect(retry.props.disabled).toBe(false);
+    await act(async () => retry.props.onPress());
+    expect(mocks.retry).toHaveBeenLastCalledWith(sessionId);
+    expect(mocks.end).toHaveBeenCalledTimes(1);
+    await emit({
+      type: "state",
+      sessionId,
+      status: "recoveryFailed",
+      reachable: true,
+    });
+    expect(labels()).not.toContain("Ending on Watch…");
   });
   it("shows save failure and retry controls without starting another recording", async () => {
     await mount();
