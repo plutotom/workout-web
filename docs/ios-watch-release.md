@@ -87,10 +87,18 @@ over 0.3.1 / build 18 on an iPhone 15 Pro running iOS 27.0:
   outbox rows remained unchanged. The normal cloud refresh rebuilt template
   cache rows; template content and parsed exercise prescriptions still matched.
 
-Paired Watch recording is still unverified. The connected Series 7 runs
-watchOS 26.6, and development deployment is blocked by Developer Mode being
-disabled. These iPhone results do not complete the paired-device checklist
-below.
+## Recorded Watch setup
+
+The connected Series 7 runs watchOS 26.6. Developer Mode is enabled and
+confirmed. A signed Watch-only Release build of 0.3.2 / build 19 was installed
+over 0.3.1 / build 18 after refreshing the development profile to include the
+Watch. The existing app preferences were retained, and the updated app launched
+successfully. The iPhone remains on its validated 0.3.2 / build 19 binary.
+
+Device Hub requires watchOS 27 for screen sharing, so Watch-screen observations
+on this device require the tester's assistance. Paired recording and Health
+behavior remain unverified; installation and launch do not complete the
+checklist below.
 
 ## Required paired-device validation
 
