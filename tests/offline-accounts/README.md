@@ -60,11 +60,17 @@ in steps while real handler/module I/O completes between steps, with seeded retr
 jitter. Core new/existing account merges run with subscription updates before
 acknowledgments and with updates withheld until uploads have been acknowledged.
 
-This tests persistence and synchronization across the account lifecycle. It does
-**not** test the actual WorkOS browser login, production `MobileAccountProvider`
-and Convex token/subscription integration, device keychain, radio connectivity,
-native keyboard, or hosted Convex infrastructure. Device and staging smoke tests
-are still required for those boundaries.
+`auth-convex-reconnect.test.js` additionally mounts the production `AuthProvider`,
+Convex auth provider/effects, `MobileAccountProvider`, and `LocalDatabaseProvider`.
+It simulates token/server I/O and native connection reference counts, while using
+file-backed SQLite. It covers a rejected cloud handshake followed by Retry,
+failed Retry followed by recovery, delayed refresh after sign-out, and a held
+workout read during repeated sign-out/sign-in. The app retains a process-lifetime
+connection lease so Expo's provider teardown cannot close that busy handle.
+
+These tests do **not** execute the actual WorkOS browser login, device keychain,
+native SQLite implementation, radio connectivity, native keyboard, or hosted
+Convex infrastructure. Device and staging smoke tests remain required.
 
 ## Scenarios
 

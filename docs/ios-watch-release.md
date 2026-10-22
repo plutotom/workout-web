@@ -119,6 +119,25 @@ duplicate acknowledgements, and replay into the wrong account. Unit checks also
 cover SQLite write failure/replay, remount, reconnect, late launch errors,
 manual timestamps, stop failures, and the installed legacy bridge API.
 
+## Account reconnect and login recovery
+
+Explicit Retry refreshes the Convex token-fetch callback after the session
+refresh settles. This restarts a rejected cloud handshake even if React batches
+its temporary loading state. It does not sign the user out or change their
+account partition.
+
+Each scoped database retains one additional native connection lease for the app
+process. Expo's SQLite provider can release its own lease during sign-out/sign-in
+without closing a handle still used by pending reads or statement finalizers.
+The selected database still follows the current user; signing out does not expose
+another account's data. No workout rows are copied or deleted by this guard.
+
+The strict lifecycle gate uses the real auth/account/local providers and a held
+workout read during repeated sign-out/sign-in, in addition to rejected-auth Retry,
+failed Retry and late refresh after sign-out. Native login/retry validation remains
+required on the corrected binary; synthetic connection references cannot establish
+that a device crash is resolved.
+
 ## Binary rollout
 
 The full recovery and scoped-command behavior requires **both the new iPhone

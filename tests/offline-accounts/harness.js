@@ -150,6 +150,7 @@ function sqliteAdapter(sql) {
   const bindings = (args) =>
     args.length === 1 && Array.isArray(args[0]) ? args[0] : args;
   const db = {
+    databasePath: sql.prepare("PRAGMA database_list").get().file,
     testSql: sql,
     closeAsync: async () => {}, // Connections are closed by PhoneScenario lifecycle.
     execAsync: async (query) => sql.exec(query),

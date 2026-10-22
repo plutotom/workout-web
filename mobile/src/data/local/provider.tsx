@@ -14,6 +14,7 @@ import {
   type ReactNode,
 } from "react";
 import { useAuthCredentials } from "@/auth/auth-provider";
+import { retainScopedDatabaseConnection } from "./database-connections";
 import {
   accountDatabaseName,
   prepareScopedDatabase,
@@ -322,9 +323,11 @@ export function LocalDatabaseProvider({ children }: { children: ReactNode }) {
   const owner = user?.id ?? null;
   const databaseName = accountDatabaseName(owner);
   const initialize = useCallback(
-    (db: Parameters<typeof migrateLocalDatabase>[0]) =>
-      prepareScopedDatabase(db, owner),
-    [owner],
+    async (db: Parameters<typeof migrateLocalDatabase>[0]) => {
+      await retainScopedDatabaseConnection(databaseName, db);
+      await prepareScopedDatabase(db, owner);
+    },
+    [databaseName, owner],
   );
   if (loading && !user) return null;
   return (
