@@ -62,6 +62,7 @@ final class WorkoutManager: NSObject, ObservableObject {
   // Gate commands from construction, before WCSession activation can deliver them.
   private var recoveryPending = true
   private var recoveryInFlight = false
+  private var recoveryReplyIds: Set<String> = []
   private var pendingStarts: [(id: String, run: () -> Void)] = []
   private var closingAttempt: UUID?
   private var collectionEnded = false
@@ -128,6 +129,10 @@ final class WorkoutManager: NSObject, ObservableObject {
   func recoverIfNeeded() {
     guard recoveryPending, !recoveryInFlight, session == nil else { return }
     recoveryInFlight = true
+    for id in [sessionId, defaults.string(forKey: "watch.sessionId") ?? "",
+               finalizationRecord()?["sessionId"] as? String ?? ""] where !id.isEmpty {
+      recoveryReplyIds.insert(id)
+    }
     healthStore.recoverActiveWorkoutSession { [weak self] recovered, error in
       DispatchQueue.main.async {
         guard let self else { return }
@@ -142,7 +147,7 @@ final class WorkoutManager: NSObject, ObservableObject {
           // A cold launch may not know its active identity yet. Fail every
           // waiting command/start by identity without releasing the recovery gate.
           let pending = self.defaults.dictionary(forKey: "watch.pendingEnds") ?? [:]
-          let waitingIds = Set(Array(pending.keys) + self.pendingStarts.map { $0.id })
+          let waitingIds = Set(Array(pending.keys) + self.pendingStarts.map { $0.id }).union(self.recoveryReplyIds)
           for id in waitingIds where !id.isEmpty && id != self.sessionId {
             PhoneBridge.shared.send(["type": "state", "sessionId": id, "status": "recoveryFailed", "reachable": true])
           }
@@ -188,6 +193,7 @@ final class WorkoutManager: NSObject, ObservableObject {
         }
         self.mirrorState()
         self.drainPendingStarts()
+        self.replyAfterRecovery()
       }
     }
   }
@@ -208,7 +214,11 @@ final class WorkoutManager: NSObject, ObservableObject {
   }
 
   func retryFromPhone(sessionId requested: String) {
-    if recoveryPending { recoverIfNeeded(); return }
+    if recoveryPending {
+      if !requested.isEmpty { recoveryReplyIds.insert(requested) }
+      recoverIfNeeded()
+      return
+    }
     guard requested == sessionId else { replyToStatus(sessionId: requested); return }
     retryWorkoutOperation()
   }
@@ -223,6 +233,7 @@ final class WorkoutManager: NSObject, ObservableObject {
 
   func replyToStatus(sessionId requested: String?) {
     if recoveryPending {
+      if let requested, !requested.isEmpty { recoveryReplyIds.insert(requested) }
       recoverIfNeeded()
       if let requested, !requested.isEmpty {
         PhoneBridge.shared.send(["type": "state", "sessionId": requested, "status": "recovering", "reachable": true])
@@ -597,6 +608,19 @@ final class WorkoutManager: NSObject, ObservableObject {
         }
         self.completeDiscard()
       }
+    }
+  }
+
+  private func replyAfterRecovery() {
+    let ids = recoveryReplyIds
+    recoveryReplyIds.removeAll()
+    for id in ids {
+      // Drain queued starts first: never advertise idle for a recording that is
+      // about to start, which could prematurely release a phone export.
+      if pendingStarts.contains(where: { $0.id == id }) { continue }
+      // replyToStatus preserves terminal results and sends a scoped confirmed
+      // idle for identities that recovery proved are no longer active.
+      replyToStatus(sessionId: id)
     }
   }
 

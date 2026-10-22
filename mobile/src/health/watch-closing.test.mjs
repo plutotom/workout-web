@@ -2,7 +2,59 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { createElement } from "react";
+import { act, create } from "react-test-renderer";
+import { WatchCompanionCard } from "./watch-companion-card";
+
+const ui = vi.hoisted(() => ({
+  listener: undefined,
+  retry: vi.fn(),
+  end: vi.fn(),
+}));
+vi.mock("@/data/local/provider", () => ({
+  useLocalPreferences: () => ({ autoStartWatchWorkout: false }),
+}));
+vi.mock("@/health", () => ({
+  getHealthAdapter: () => ({
+    isAvailable: async () => true,
+    requestWriteAccess: async () => "connected",
+  }),
+}));
+vi.mock("expo-modules-core", () => ({
+  requireOptionalNativeModule: () => ({
+    getStatus: () => ({
+      supported: true,
+      paired: true,
+      installed: true,
+      reachable: true,
+    }),
+    getSessionEvents: () => [],
+    requestWatchStatus() {},
+    retryWatchSession: (...args) => ui.retry(...args),
+    endWatchSession: (...args) => ui.end(...args),
+    startWatchWorkout: async () => {},
+    addListener: (_name, listener) => {
+      ui.listener = listener;
+      return { remove() {} };
+    },
+  }),
+}));
+vi.mock("@/components/ui", async () => {
+  const { createElement } = await import("react");
+  return {
+    Card: "Card",
+    Button: ({ label, ...props }) => createElement("Button", props, label),
+  };
+});
+vi.mock("lucide-react-native", () => ({ Watch: "Watch" }));
+vi.mock("react-native", () => ({
+  Platform: { OS: "ios" },
+  AppState: { addEventListener: () => ({ remove() {} }) },
+  Pressable: "Pressable",
+  Text: "Text",
+  View: "View",
+}));
 
 const mobileRoot = resolve(import.meta.dirname, "../..");
 const swiftAvailable =
@@ -329,6 +381,69 @@ describe.skipIf(!swiftAvailable)("Watch native closing lifecycle", () => {
       collections: 0,
       saves: 0,
     });
+  });
+  it.each([
+    "recovery-idle-context",
+    "recovery-idle-request-only",
+    "recovery-idle-multiple",
+  ])("returns scoped idle for resolved recovery requests (%s)", (scenario) => {
+    const result = run(scenario);
+    expect(result).toMatchObject({ status: "idle", remainingReplyIds: 0 });
+    expect(result.afterRetryEvents).toContainEqual({
+      type: "state",
+      sessionId: "test-session",
+      status: "idle",
+      reachable: true,
+    });
+    if (scenario === "recovery-idle-multiple")
+      expect(result.afterRetryEvents).toContainEqual({
+        type: "state",
+        sessionId: "other-session",
+        status: "idle",
+        reachable: true,
+      });
+  });
+  it("restores the phone Start control using the actual production Swift idle payload", async () => {
+    Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+    ui.retry.mockReset().mockResolvedValue(undefined);
+    ui.end.mockClear();
+    const native = run("recovery-idle-context");
+    let renderer;
+    try {
+      await act(async () => {
+        renderer = create(
+          createElement(WatchCompanionCard, {
+            sessionId: "test-session",
+            startedAt: 1000,
+          }),
+        );
+      });
+      for (const payload of native.beforeRetryEvents)
+        await act(async () => ui.listener(payload));
+      const retry = renderer.root.find(
+        (node) =>
+          String(node.type) === "Button" &&
+          node.children.join("") === "Retry Watch recovery",
+      );
+      await act(async () => retry.props.onPress());
+      expect(JSON.stringify(renderer.toJSON())).toContain(
+        "Retrying Watch recovery…",
+      );
+      for (const payload of native.afterRetryEvents)
+        await act(async () => ui.listener(payload));
+      expect(JSON.stringify(renderer.toJSON())).not.toContain(
+        "Retrying Watch recovery…",
+      );
+      const start = renderer.root.find(
+        (node) =>
+          String(node.type) === "Pressable" &&
+          node.props.accessibilityLabel === "Start on Apple Watch",
+      );
+      expect(start.props.disabled).toBe(false);
+      expect(ui.end).not.toHaveBeenCalled();
+    } finally {
+      if (renderer) await act(async () => renderer.unmount());
+    }
   });
   it("keeps a failed Health save retryable without a false terminal acknowledgement", () => {
     expect(run("save-failure")).toMatchObject({

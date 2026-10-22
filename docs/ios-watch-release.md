@@ -69,6 +69,10 @@ phones. Existing and newly created SQLite databases default Watch auto-start on.
   Duplicate Retry commands after success only report the healthy recording;
   they cannot end it. The phone tracks recovery retry separately from End and
   restores the controls when recovery returns to recording or confirmed idle.
+  Recovery retains the identities awaiting a result until it has replayed
+  closures and queued starts, then emits scoped status replies. Even a successful
+  recovery with no active session returns confirmed idle for the requested
+  identity; unscoped reachability events never change a workout’s lifecycle.
   Surviving sessions restore the journal’s original End timestamp before replay,
   including through collection retry, so recovery delay does not extend duration.
 - HealthKit can successfully save while locked without returning a workout UUID.
@@ -99,7 +103,9 @@ successful locked-device saves, process death at each finalization boundary,
 commits with lost callbacks, Discard during save/deletion, query/deletion errors,
 scoped reconciliation, successful deletion with callback loss, scoped cold-start
 recovery errors, retained End timestamps with surviving sessions, and phone
-recovery retry. SQLite and the offline gate cover retry/saving
+recovery retry. A native-to-phone integration case feeds production Swift
+recovery payloads directly through the JS bridge and rendered phone component
+and verifies the Start control returns after confirmed idle. SQLite and the offline gate cover retry/saving
 ownership plus locked-device success without an initial recording event.
 The **Watch native lifecycle** macOS CI job runs this alongside both mandatory
 Linux review jobs. The offline account gate includes Watch delivery before and

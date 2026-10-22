@@ -173,6 +173,7 @@ final class TestManager {
   var isClosing = false
   var recoveryPending = true
   var recoveryInFlight = false
+  var recoveryReplyIds: Set<String> = []
   var pendingStarts: [(id: String, run: () -> Void)] = []
   var closingAttempt: UUID?
   var collectionEnded = false
@@ -180,7 +181,7 @@ final class TestManager {
   var saveInFlight = false
   var reconciliationAttempt: UUID?
   var defaults = TestDefaults()
-  func mirrorState() { PhoneBridge.shared.send(["type": "state", "status": status, "sessionId": sessionId]) }
+  func mirrorState() { PhoneBridge.shared.send(["type": "state", "status": status, "sessionId": sessionId, "reachable": true]) }
   func stopTicking() {}
   func end() { endFromPhone(sessionId: nil, discard: false) }
   func discard() { endFromPhone(sessionId: nil, discard: true) }
@@ -325,6 +326,19 @@ case "recovery-error-scoped", "recovery-error-no-context":
   manager.retryFromPhone(sessionId: "test-session")
   manager.healthStore.completeRecovery(nil, error: NSError(domain: "synthetic", code: 9))
   extra["recoveryCalls"] = manager.healthStore.recoveryCalls
+case "recovery-idle-context", "recovery-idle-request-only", "recovery-idle-multiple":
+  if scenario != "recovery-idle-request-only" {
+    manager.defaults.set("test-session", forKey: "watch.sessionId")
+  }
+  manager.recoverIfNeeded()
+  manager.healthStore.completeRecovery(nil, error: NSError(domain: "synthetic", code: 10))
+  extra["beforeRetryEvents"] = PhoneBridge.shared.events
+  PhoneBridge.shared.events.removeAll()
+  manager.retryFromPhone(sessionId: "test-session")
+  if scenario == "recovery-idle-multiple" { manager.replyToStatus(sessionId: "other-session") }
+  manager.healthStore.completeRecovery(nil)
+  extra["afterRetryEvents"] = PhoneBridge.shared.events
+  extra["remainingReplyIds"] = manager.recoveryReplyIds.count
 case "recovery-end-date", "recovery-end-date-retry":
   manager.defaults.set("test-session", forKey: "watch.sessionId")
   manager.defaults.set("test", forKey: "watch.syncIdentifier")
