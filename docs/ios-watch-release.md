@@ -61,6 +61,25 @@ SQLite v9 is additive, but older v8-only bundles refuse that database version;
 any rollback bundle for 0.3.2 must retain v9 compatibility. Never reset a user's
 database to make a rollback work.
 
+## Recorded iPhone checks
+
+On October 21, 2026, the signed Release candidate at `45c4c1a` was installed
+over 0.3.1 / build 18 on an iPhone 15 Pro running iOS 27.0:
+
+- The in-place upgrade to 0.3.2 / build 19 and app launch passed. Before/after
+  SQLite snapshots confirmed that existing workout, set, note, and template
+  content was preserved. Active databases migrated from v8 to v9 and passed
+  integrity checks; the legacy database remained unchanged.
+- Watch auto-start defaulted on after migration. Turning it off in Apple
+  Health settings, terminating the app, and launching it again preserved the
+  off value in both SQLite and the visible switch. Existing workout and note
+  records remained unchanged across that restart.
+
+Paired Watch recording is still unverified. The connected Series 7 runs
+watchOS 26.6, and development deployment is blocked by Developer Mode being
+disabled. Note typing and offline cold-launch checks remain pending. These
+iPhone results do not complete the paired-device checklist below.
+
 ## Required paired-device validation
 
 Automated checks cannot validate Health authorization, wrist state, radio
