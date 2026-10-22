@@ -174,6 +174,101 @@ describe.skipIf(!swiftAvailable)("Watch native closing lifecycle", () => {
       lateStartAllowed: false,
     });
   });
+  it.each(["interrupted-ending", "interrupted-collection", "interrupted-save"])(
+    "preserves unresolved finalization after process death (%s)",
+    (scenario) => {
+      expect(run(scenario)).toMatchObject({
+        journalBeforeSessionEnd: true,
+        finalizationRetained: true,
+        pendingCloseCount: 1,
+        errorVisible: true,
+        status: "saveFailed",
+        healthUuids: [],
+        lateStartAllowed: true,
+      });
+    },
+  );
+  it("reconciles a Health commit whose completion callback was lost", () => {
+    const result = run("interrupted-committed");
+    expect(result).toMatchObject({
+      journalBeforeSessionEnd: true,
+      finalizationRetained: false,
+      pendingCloseCount: 0,
+      status: "ended",
+      healthSaved: [true],
+      remainingHealthWorkouts: 1,
+    });
+    expect(result.healthUuids[0]).not.toBe("");
+  });
+  it("retains a Discard through interrupted saving and deletes the reconciled Health workout", () => {
+    expect(run("interrupted-discard")).toMatchObject({
+      finalizationRetained: false,
+      pendingCloseCount: 0,
+      status: "idle",
+      healthSaved: [false],
+      remainingHealthWorkouts: 0,
+      healthDeleteCalls: 1,
+    });
+  });
+  it.each(["discard-in-save", "discard-locked-save", "discard-delete-retry"])(
+    "keeps Discard through save completion and deferred deletion (%s)",
+    (scenario) => {
+      const result = run(scenario);
+      expect(result).toMatchObject({
+        saveWasInFlight: true,
+        saves: 1,
+        savedCount: 1,
+        remainingHealthWorkouts: 0,
+        healthSaved: [false],
+        finalizationRetained: false,
+        status: "idle",
+      });
+      if (scenario !== "discard-in-save")
+        expect(result).toMatchObject({
+          ackBeforeRetry: false,
+          discardRetainedBeforeRetry: true,
+        });
+    },
+  );
+  it.each(["phone-recovery-retry", "phone-journal-recovery-retry"])(
+    "routes the iPhone retry through recovery without leaving it stuck (%s)",
+    (scenario) => {
+      const result = run(scenario);
+      expect(result).toMatchObject({
+        recoveryCallsFromPhone: 1,
+        status: "saveFailed",
+        healthUuids: [],
+      });
+      expect(result.statesAfterRetry).toContain("saveFailed");
+    },
+  );
+  it("keeps an unknown commit phase across Health query errors and reconciles on retry", () => {
+    expect(run("reconcile-query-retry")).toMatchObject({
+      ackBeforeRetry: false,
+      phaseAfterQueryError: "saving",
+      healthSaved: [true],
+      finalizationRetained: false,
+      remainingHealthWorkouts: 1,
+      status: "ended",
+    });
+  });
+  it("checks sync metadata before committing a workout and allows explicit retry", () => {
+    expect(run("metadata-retry")).toMatchObject({
+      savesBeforeRetry: 0,
+      savedCount: 1,
+      collections: 1,
+      status: "ended",
+    });
+  });
+  it("limits reconciliation/deletion to this Watch source and exact session metadata", () => {
+    expect(run("reconcile-source-scope")).toMatchObject({
+      foreignPreserved: true,
+      differentPreserved: true,
+      remainingHealthWorkouts: 2,
+      healthDeleteCalls: 1,
+      healthSaved: [false],
+    });
+  });
   it("keeps a failed Health save retryable without a false terminal acknowledgement", () => {
     expect(run("save-failure")).toMatchObject({
       failedStatus: "saveFailed",

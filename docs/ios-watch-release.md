@@ -46,6 +46,20 @@ phones. Existing and newly created SQLite databases default Watch auto-start on.
   acknowledgements or trigger phone fallback exports. If an ended builder cannot
   be recovered after process death, its failure remains visible for recovery or
   explicit discard; the app does not claim its Health data was saved.
+- Before ending a Watch session, a single local finalization record retains its
+  identity, sync identifier, start/end timestamps, phase, and Discard intent.
+  Recovery never treats an absent active session as proof of the save outcome.
+  Interrupted commits are reconciled by exact sync metadata and this Watch app’s
+  Health source; empty/failed reads remain visible and nonterminal. No replacement
+  workout is exported while the original outcome is unknown.
+- Discard received during an in-flight save waits for its result. A committed
+  workout is deleted from Health before Discard is acknowledged. Missing locked
+  data or failed deletion retains the intent for explicit retry after unlocking;
+  it cannot silently turn Discard into a successful save. Reconciliation checks
+  sync metadata was attached successfully before beginning the save.
+- iPhone retry triggers recovery when the builder no longer exists and receives
+  a fresh state even if recovery still cannot restore it. Watch and phone labels
+  refer to the Health update so retry covers saving, recovery, and pending removal.
 - HealthKit can successfully save while locked without returning a workout UUID.
   A separate retained saved flag distinguishes that success from Discard and
   prevents a second phone export even when the recording event was missed.
@@ -70,7 +84,9 @@ command-identity policy, Health authorization requests, recovered data-source
 attachment, and HealthKit closing logic in Swift test harnesses. Closing tests
 include recovery-time commands, retained commands through restart, starts during
 finalization, obsolete callbacks, collection/save failures and retries, and
-successful locked-device saves. SQLite and the offline gate cover retry/saving
+successful locked-device saves, process death at each finalization boundary,
+commits with lost callbacks, Discard during save/deletion, query/deletion errors,
+scoped reconciliation, and phone recovery retry. SQLite and the offline gate cover retry/saving
 ownership plus locked-device success without an initial recording event.
 The **Watch native lifecycle** macOS CI job runs this alongside both mandatory
 Linux review jobs. The offline account gate includes Watch delivery before and

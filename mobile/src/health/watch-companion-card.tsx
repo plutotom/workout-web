@@ -329,7 +329,7 @@ function WatchCompanionSession({ sessionId, startedAt }: Props) {
             ending
               ? "Ending on Watch…"
               : saveFailed
-                ? "Retry Health save"
+                ? "Retry Health update"
                 : "End on Watch"
           }
           disabled={ending || busy}
@@ -353,9 +353,9 @@ function companionCopy({
   saved: boolean;
 }) {
   if (watchStatus === "saveFailed")
-    return "Watch couldn’t save to Health. Unlock your Watch and retry saving. Your phone workout is kept.";
+    return "Apple Health needs attention on your Watch. Unlock it and retry. Your phone workout is kept.";
   if (watchStatus === "saving")
-    return "Watch recording stopped. Saving to Apple Health…";
+    return "Completing the Watch update in Apple Health…";
   if (watchStatus === "recovering")
     return "Restoring the Watch workout before applying pending commands. Open Grayed Lift on your Watch if it needs attention.";
   if (recording && (!status.reachable || watchStatus === "disconnected")) {

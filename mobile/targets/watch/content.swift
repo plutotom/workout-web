@@ -19,9 +19,9 @@ struct ContentView: View {
         if let error = manager.workoutError {
           Text(error).font(.footnote).foregroundStyle(.red)
             .multilineTextAlignment(.center)
-          Button(manager.status == "saveFailed" ? "Retry saving" : "Retry recovery", action: manager.retryWorkoutOperation)
+          Button(manager.status == "saveFailed" ? "Retry Health update" : "Retry recovery", action: manager.retryWorkoutOperation)
           if manager.status == "saveFailed" {
-            Button("Discard failed recording", role: .destructive, action: manager.discard)
+            Button("Discard recording", role: .destructive, action: manager.discard)
           }
         } else if manager.status == "saving" || manager.status == "recovering" {
           ProgressView()

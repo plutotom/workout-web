@@ -26,8 +26,8 @@ final class WorkoutManager: NSObject, ObservableObject {
     case "disconnected": return "Watch disconnected"
     case "ended": return "Saved to Health"
     case "recovering": return "Restoring workout…"
-    case "saving": return "Saving to Health…"
-    case "saveFailed": return "Health save needs attention"
+    case "saving": return discardOnEnd ? "Discarding recording…" : "Saving to Health…"
+    case "saveFailed": return "Health update needs attention"
     default: return "Workout"
     }
   }
@@ -66,6 +66,7 @@ final class WorkoutManager: NSObject, ObservableObject {
   private var collectionEnded = false
   private var collectionEndDate: Date?
   private var saveInFlight = false
+  private var reconciliationAttempt: UUID?
 
   private func startTickingIfNeeded() {
     guard tickTimer == nil else { return }
@@ -129,7 +130,7 @@ final class WorkoutManager: NSObject, ObservableObject {
     healthStore.recoverActiveWorkoutSession { [weak self] recovered, error in
       DispatchQueue.main.async {
         guard let self else { return }
-        self.recoveryInFlight = false
+        defer { self.recoveryInFlight = false }
         guard error == nil else {
           self.status = "recovering"
           self.workoutError = "Couldn’t restore the Watch workout. Unlock your Watch and retry recovery."
@@ -145,6 +146,14 @@ final class WorkoutManager: NSObject, ObservableObject {
           self.collectionEnded = self.builder?.endDate != nil
           self.collectionEndDate = self.builder?.endDate
           self.status = recovered.state == .running ? "recording" : "disconnected"
+        } else if let record = self.finalizationRecord(), let id = record["sessionId"] as? String {
+          self.sessionId = id
+          self.syncIdentifier = record["syncIdentifier"] as? String ?? ""
+          self.collectionEndDate = (record["endedAt"] as? Double).map { Date(timeIntervalSince1970: $0) }
+          self.startedAt = (record["startedAt"] as? Double).map { Date(timeIntervalSince1970: $0) }
+          self.discardOnEnd = record["discard"] as? Bool ?? false
+          self.status = "saveFailed"
+          self.workoutError = "The Health update was interrupted. Unlock your Watch and retry recovery."
         } else if let failedId = self.defaults.string(forKey: "watch.failedSaveSessionId") {
           // An ended builder may no longer be recoverable after process death.
           // Keep the failure visible; never invent a successful empty-UUID ending.
@@ -156,8 +165,13 @@ final class WorkoutManager: NSObject, ObservableObject {
           self.status = "idle"
         }
         // Replay durable closures before queued starts, including after a crash.
-        for (id, discard) in self.defaults.dictionary(forKey: "watch.pendingEnds") as? [String: Bool] ?? [:] {
+        let pending = self.defaults.dictionary(forKey: "watch.pendingEnds") as? [String: Bool] ?? [:]
+        for (id, discard) in pending {
           self.endFromPhone(sessionId: id, discard: discard)
+        }
+        if let record = self.finalizationRecord(), pending[self.sessionId] == nil,
+           self.reconciliationAttempt == nil, !self.isClosing {
+          self.requestEnd(discard: record["discard"] as? Bool ?? false)
         }
         self.mirrorState()
         self.drainPendingStarts()
@@ -209,7 +223,7 @@ final class WorkoutManager: NSObject, ObservableObject {
     startedAtMs: Double,
     syncIdentifier: String
   ) {
-    if recoveryPending || isClosing || status == "saveFailed" {
+    if recoveryPending || isClosing || status == "saveFailed" || finalizationRecord() != nil {
       if !pendingStarts.contains(where: { $0.id == sessionId }) {
         pendingStarts.append((id: sessionId, run: { [weak self] in
           self?.start(configuration: configuration, sessionId: sessionId,
@@ -234,9 +248,9 @@ final class WorkoutManager: NSObject, ObservableObject {
     heartRate = nil
     activeEnergyKcal = nil
     self.sessionId = sessionId
-    self.syncIdentifier = syncIdentifier
+    self.syncIdentifier = syncIdentifier.isEmpty ? "grayed-lift-watch:\(sessionId)" : syncIdentifier
     defaults.set(sessionId, forKey: "watch.sessionId")
-    defaults.set(syncIdentifier, forKey: "watch.syncIdentifier")
+    defaults.set(self.syncIdentifier, forKey: "watch.syncIdentifier")
     status = "starting"
     startedAt = startedAtMs > 0
       ? Date(timeIntervalSince1970: startedAtMs / 1000)
@@ -253,12 +267,6 @@ final class WorkoutManager: NSObject, ObservableObject {
       self.builder = builder
       session.startActivity(with: startedAt ?? Date())
       builder.beginCollection(withStart: startedAt ?? Date()) { _, _ in }
-      if !syncIdentifier.isEmpty {
-        builder.addMetadata([
-          HKMetadataKeySyncIdentifier: syncIdentifier,
-          HKMetadataKeySyncVersion: NSNumber(value: 1),
-        ]) { _, _ in }
-      }
       status = "recording"
       mirrorState()
     } catch {
@@ -293,7 +301,8 @@ final class WorkoutManager: NSObject, ObservableObject {
       return
     }
     if WatchSessionIdentity.matchesCommand(target, currentId: sessionId) {
-      requestEnd(discard: discard)
+      let pending = defaults.dictionary(forKey: "watch.pendingEnds") as? [String: Bool] ?? [:]
+      requestEnd(discard: pending[target] ?? discard)
     } else if !target.isEmpty {
       // Finish may beat a delayed Start. Close only after recovery has proved
       // this identity is not the active HealthKit workout.
@@ -303,13 +312,46 @@ final class WorkoutManager: NSObject, ObservableObject {
 
   private func requestEnd(discard: Bool) {
     discardOnEnd = discardOnEnd || discard
+    if finalizationRecord() != nil { recordFinalization(discard: discardOnEnd) }
+    // A Discard must remain durable while the Health save callback is pending.
+    if saveInFlight || reconciliationAttempt != nil { mirrorState(); return }
+    if let phase = finalizationRecord()?["phase"] as? String,
+       ["saving", "saved", "discarded"].contains(phase) {
+      reconcileFinalization()
+      return
+    }
     guard let session else {
-      if status == "saveFailed" && !discard { return }
+      if finalizationRecord() != nil {
+        if discardOnEnd { completeDiscard() }
+        else {
+          // No active builder does not establish whether a save succeeded.
+          // Retry goes through HealthKit recovery even when initiated by iPhone.
+          if !recoveryInFlight {
+            recoveryPending = true
+            status = "recovering"
+            mirrorState()
+            recoverIfNeeded()
+            return
+          }
+          status = "saveFailed"
+          workoutError = "The recording couldn’t be restored. Retry recovery, or discard this failed recording."
+          mirrorState()
+        }
+        return
+      }
+      if status == "saveFailed" && !discard {
+        if !recoveryInFlight { retryWorkoutOperation() }
+        mirrorState()
+        return
+      }
       if !sessionId.isEmpty { notifyEnded(healthUuid: "") }
       clear()
       drainPendingStarts()
       return
     }
+    collectionEndDate = collectionEndDate ?? Date()
+    // Write the complete identity and phase BEFORE ending the active session.
+    recordFinalization(phase: finalizationRecord()?["phase"] as? String ?? "ending", discard: discardOnEnd)
     switch session.state {
     case .ended, .stopped:
       handleSessionEnded(date: collectionEndDate ?? Date())
@@ -322,6 +364,7 @@ final class WorkoutManager: NSObject, ObservableObject {
     guard !isClosing, session != nil, builder != nil else { return }
     isClosing = true
     collectionEndDate = collectionEndDate ?? date
+    recordFinalization(phase: collectionEnded ? "collected" : "collecting", discard: discardOnEnd)
     if discardOnEnd {
       discardBuilder()
       return
@@ -334,9 +377,7 @@ final class WorkoutManager: NSObject, ObservableObject {
   private func discardBuilder() {
     guard !saveInFlight else { return }
     builder?.discardWorkout()
-    notifyEnded(healthUuid: "")
-    clear()
-    drainPendingStarts()
+    completeDiscard()
   }
 
   private func finishBuilder(endDate: Date) {
@@ -347,23 +388,35 @@ final class WorkoutManager: NSObject, ObservableObject {
     let finish: () -> Void = { [weak self] in
       guard let self, self.ownsClosingAttempt(attempt, session: closingSession, builder: closingBuilder, id: closingId) else { return }
       if self.discardOnEnd { self.discardBuilder(); return }
-      self.saveInFlight = true
-      closingBuilder.finishWorkout { workout, error in
+      closingBuilder.addMetadata([
+        HKMetadataKeySyncIdentifier: self.syncIdentifier,
+        HKMetadataKeySyncVersion: NSNumber(value: 1),
+      ]) { success, error in
         DispatchQueue.main.async {
           guard self.ownsClosingAttempt(attempt, session: closingSession, builder: closingBuilder, id: closingId) else { return }
-          self.saveInFlight = false
-          if error != nil {
-            if self.discardOnEnd { self.discardBuilder(); return }
-            self.failClosing("Couldn’t save to Apple Health. Unlock your Watch, check Health access, and retry saving.")
+          if self.discardOnEnd { self.discardBuilder(); return }
+          guard success, error == nil else {
+            self.failClosing("Couldn’t prepare the Health save. Unlock your Watch and retry.")
             return
           }
-          // Apple documents (nil, nil) as a successful save while locked.
-          // Preserve that evidence even without a UUID; never export a duplicate.
-          self.notifyEnded(healthUuid: workout?.uuid.uuidString ?? "", healthSaved: true)
-          self.releaseWorkout()
-          self.status = "ended"
-          self.mirrorState()
-          self.drainPendingStarts()
+          self.saveInFlight = true
+          self.recordFinalization(phase: "saving")
+          closingBuilder.finishWorkout { workout, error in
+            DispatchQueue.main.async {
+              guard self.ownsClosingAttempt(attempt, session: closingSession, builder: closingBuilder, id: closingId) else { return }
+              self.saveInFlight = false
+              if error != nil {
+                self.recordFinalization(phase: "failed")
+                if self.discardOnEnd { self.discardBuilder(); return }
+                self.failClosing("Couldn’t save to Apple Health. Unlock your Watch, check Health access, and retry saving.")
+                return
+              }
+              // (nil, nil) means saved while locked, not an unsaved recording.
+              self.recordFinalization(phase: "saved", healthUuid: workout?.uuid.uuidString ?? "")
+              if self.discardOnEnd { self.reconcileFinalization(knownWorkout: workout) }
+              else { self.completeSave(healthUuid: workout?.uuid.uuidString ?? "") }
+            }
+          }
         }
       }
     }
@@ -377,6 +430,7 @@ final class WorkoutManager: NSObject, ObservableObject {
           return
         }
         self.collectionEnded = true
+        self.recordFinalization(phase: "collected")
         finish()
       }
     }
@@ -391,8 +445,110 @@ final class WorkoutManager: NSObject, ObservableObject {
     closingAttempt = nil
     status = "saveFailed"
     workoutError = message
+    // Keep a saving/saved phase intact: an ambiguous commit must not become a
+    // known unsaved failure just because reconciliation could not read Health.
+    if let phase = finalizationRecord()?["phase"] as? String,
+       !["saving", "saved", "discarded"].contains(phase) { recordFinalization(phase: "failed") }
     defaults.set(sessionId, forKey: "watch.failedSaveSessionId")
     mirrorState()
+  }
+
+  private func finalizationRecord() -> [String: Any]? {
+    defaults.dictionary(forKey: "watch.finalization")
+  }
+
+  private func recordFinalization(phase: String? = nil, discard: Bool? = nil, healthUuid: String? = nil) {
+    guard !sessionId.isEmpty else { return }
+    var record = finalizationRecord() ?? [
+      "sessionId": sessionId, "syncIdentifier": syncIdentifier,
+      "startedAt": (startedAt ?? session?.startDate ?? Date()).timeIntervalSince1970,
+      "endedAt": (collectionEndDate ?? Date()).timeIntervalSince1970,
+      "phase": "ending", "discard": false,
+    ]
+    guard record["sessionId"] as? String == sessionId else { return }
+    if let phase { record["phase"] = phase }
+    if let discard { record["discard"] = (record["discard"] as? Bool ?? false) || discard }
+    if let healthUuid { record["healthUuid"] = healthUuid }
+    defaults.set(record, forKey: "watch.finalization")
+  }
+
+  private func completeSave(healthUuid: String) {
+    notifyEnded(healthUuid: healthUuid, healthSaved: true)
+    releaseWorkout()
+    status = "ended"
+    mirrorState()
+    drainPendingStarts()
+  }
+
+  private func completeDiscard() {
+    recordFinalization(phase: "discarded", discard: true)
+    notifyEnded(healthUuid: "")
+    clear()
+    drainPendingStarts()
+  }
+
+  private func reconcileFinalization(knownWorkout: HKWorkout? = nil) {
+    guard let record = finalizationRecord(), let id = record["sessionId"] as? String,
+          id == sessionId, reconciliationAttempt == nil else { return }
+    if record["phase"] as? String == "discarded" { completeDiscard(); return }
+    let discard = record["discard"] as? Bool ?? false
+    if record["phase"] as? String == "saved" && !discard {
+      completeSave(healthUuid: record["healthUuid"] as? String ?? "")
+      return
+    }
+    let token = UUID()
+    reconciliationAttempt = token
+    closingAttempt = nil // No old builder callback may finalize this identity.
+    isClosing = true
+    status = "saving"
+    workoutError = nil
+    mirrorState()
+    let resolve: ([HKWorkout]?, Error?) -> Void = { [weak self] workouts, error in
+      DispatchQueue.main.async {
+        guard let self, self.reconciliationAttempt == token, self.sessionId == id,
+              self.finalizationRecord()?["sessionId"] as? String == id else { return }
+        guard error == nil, let workouts, !workouts.isEmpty else {
+          self.reconciliationAttempt = nil
+          // Empty reads are not proof of absence (locked or declined read access).
+          self.failClosing("Couldn’t confirm the Health update. Unlock your Watch, allow reading Workouts in iPhone Health, then retry. A pending Discard will be kept.")
+          return
+        }
+        if self.finalizationRecord()?["discard"] as? Bool != true {
+          self.recordFinalization(phase: "saved", healthUuid: workouts[0].uuid.uuidString)
+          self.reconciliationAttempt = nil
+          self.completeSave(healthUuid: workouts[0].uuid.uuidString)
+          return
+        }
+        // Persist the committed object before deletion. A failed or interrupted
+        // delete must retain Discard and must never retry finishWorkout.
+        self.recordFinalization(phase: "saved", discard: true, healthUuid: workouts[0].uuid.uuidString)
+        self.healthStore.delete(workouts) { success, error in
+          DispatchQueue.main.async {
+            guard self.reconciliationAttempt == token, self.sessionId == id else { return }
+            self.reconciliationAttempt = nil
+            guard success, error == nil else {
+              self.failClosing("Couldn’t remove the recording from Health. Unlock your Watch and retry. Discard is still pending.")
+              return
+            }
+            self.completeDiscard()
+          }
+        }
+      }
+    }
+    if let knownWorkout { resolve([knownWorkout], nil); return }
+    guard let sync = record["syncIdentifier"] as? String, !sync.isEmpty else {
+      resolve(nil, nil)
+      return
+    }
+    let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
+      HKQuery.predicateForObjects(withMetadataKey: HKMetadataKeySyncIdentifier, allowedValues: [sync]),
+      HKQuery.predicateForObjects(from: HKSource.default()),
+    ])
+    let query = HKSampleQuery(sampleType: HKObjectType.workoutType(), predicate: predicate,
+                              limit: HKObjectQueryNoLimit, sortDescriptors: nil) { _, samples, error in
+      resolve(samples as? [HKWorkout], error)
+    }
+    healthStore.execute(query)
   }
 
   private func notifyEnded(healthUuid: String, sessionId targetId: String? = nil, healthSaved: Bool = false) {
@@ -431,6 +587,8 @@ final class WorkoutManager: NSObject, ObservableObject {
     defaults.removeObject(forKey: "watch.sessionId")
     defaults.removeObject(forKey: "watch.syncIdentifier")
     defaults.removeObject(forKey: "watch.failedSaveSessionId")
+    defaults.removeObject(forKey: "watch.finalization")
+    reconciliationAttempt = nil
   }
 
   private func clear() {

@@ -9,18 +9,64 @@ final class HKWorkoutConfiguration {
   var activityType = Activity.traditionalStrengthTraining
   var locationType = Location.indoor
 }
+class HKSample {}
+final class HKWorkout: HKSample {
+  let uuid = UUID()
+  var metadata: [String: Any] = [:]
+  var source = "our-watch"
+}
+typealias TestWorkout = HKWorkout
+struct HKObjectType { static func workoutType() -> HKObjectType { HKObjectType() } }
+final class HKSource {
+  let name = "our-watch"
+  static func `default`() -> HKSource { HKSource() }
+}
+final class HKQuery {
+  static func predicateForObjects(withMetadataKey key: String, allowedValues: [String]) -> NSPredicate {
+    NSPredicate { value, _ in guard let value = value as? HKWorkout else { return false }; return allowedValues.contains(value.metadata[key] as? String ?? "") }
+  }
+  static func predicateForObjects(from source: HKSource) -> NSPredicate {
+    NSPredicate { value, _ in (value as? HKWorkout)?.source == source.name }
+  }
+}
+let HKObjectQueryNoLimit = 0
+final class HKSampleQuery {
+  let predicate: NSPredicate?
+  let callback: (HKSampleQuery, [HKSample]?, Error?) -> Void
+  init(sampleType: HKObjectType, predicate: NSPredicate?, limit: Int, sortDescriptors: [NSSortDescriptor]?, resultsHandler: @escaping (HKSampleQuery, [HKSample]?, Error?) -> Void) {
+    self.predicate = predicate; self.callback = resultsHandler
+  }
+}
 final class HKHealthStore {
   var recovery: ((HKWorkoutSession?, Error?) -> Void)?
   var recoveryCalls = 0
-  func recoverActiveWorkoutSession(completion: @escaping (HKWorkoutSession?, Error?) -> Void) {
-    recoveryCalls += 1
-    recovery = completion
-  }
+  var storedWorkouts: [HKWorkout] = []
+  var queryCount = 0
+  var deleteCount = 0
+  var failQuery = false
+  var emptyQuery = false
+  var failDelete = false
+  var deferQuery = false
+  var pendingQuery: HKSampleQuery?
+  func recoverActiveWorkoutSession(completion: @escaping (HKWorkoutSession?, Error?) -> Void) { recoveryCalls += 1; recovery = completion }
   func completeRecovery(_ session: HKWorkoutSession?, error: Error? = nil) {
-    let completion = recovery
-    recovery = nil
-    completion?(session, error)
-    drainMainQueue()
+    let completion = recovery; recovery = nil; completion?(session, error); drainMainQueue()
+  }
+  func execute(_ query: HKSampleQuery) {
+    queryCount += 1
+    pendingQuery = query
+    if !deferQuery { completeQuery() }
+  }
+  func completeQuery() {
+    guard let query = pendingQuery else { return }
+    pendingQuery = nil
+    let found = emptyQuery ? [] : storedWorkouts.filter { query.predicate?.evaluate(with: $0) ?? true }
+    query.callback(query, failQuery ? nil : found, failQuery ? NSError(domain: "synthetic-query", code: 1) : nil)
+  }
+  func delete(_ workouts: [HKWorkout], withCompletion completion: @escaping (Bool, Error?) -> Void) {
+    deleteCount += 1
+    if !failDelete { storedWorkouts.removeAll { item in workouts.contains { $0.uuid == item.uuid } } }
+    completion(!failDelete, failDelete ? NSError(domain: "synthetic-delete", code: 1) : nil)
   }
 }
 let HKMetadataKeySyncIdentifier = "sync"
@@ -28,20 +74,23 @@ let HKMetadataKeySyncVersion = "version"
 final class HKLiveWorkoutDataSource {
   init(healthStore: HKHealthStore, workoutConfiguration: HKWorkoutConfiguration) {}
 }
-final class TestWorkout { let uuid = UUID() }
 final class HKWorkoutSession {
   var state: SessionState = .notStarted
   var endCount = 0
   var delegate: AnyObject?
   let workoutConfiguration: HKWorkoutConfiguration
-  let builder = HKLiveWorkoutBuilder()
+  let builder: HKLiveWorkoutBuilder
   var startDate: Date?
-  init(healthStore: HKHealthStore, configuration: HKWorkoutConfiguration) throws { workoutConfiguration = configuration }
+  init(healthStore: HKHealthStore, configuration: HKWorkoutConfiguration) throws { workoutConfiguration = configuration; builder = HKLiveWorkoutBuilder(store: healthStore) }
   func associatedWorkoutBuilder() -> HKLiveWorkoutBuilder { builder }
   func startActivity(with date: Date) { startDate = date; state = .running }
   func end() { endCount += 1 }
 }
 final class HKLiveWorkoutBuilder {
+  let store: HKHealthStore
+  var metadata: [String: Any] = [:]
+  var failMetadata = false
+  init(store: HKHealthStore) { self.store = store }
   var delegate: AnyObject?
   var dataSource: HKLiveWorkoutDataSource?
   var endDate: Date?
@@ -56,7 +105,10 @@ final class HKLiveWorkoutBuilder {
   var collectionCompletion: ((Bool, Error?) -> Void)?
   var saveCompletion: ((TestWorkout?, Error?) -> Void)?
   func beginCollection(withStart: Date, completion: (Bool, Error?) -> Void) { completion(true, nil) }
-  func addMetadata(_ values: [String: Any], completion: (Bool, Error?) -> Void) { completion(true, nil) }
+  func addMetadata(_ values: [String: Any], completion: (Bool, Error?) -> Void) {
+    if !failMetadata { metadata.merge(values) { _, new in new } }
+    completion(!failMetadata, failMetadata ? NSError(domain: "synthetic-metadata", code: 1) : nil)
+  }
   func discardWorkout() { discardCount += 1 }
   func endCollection(withEnd date: Date, completion: @escaping (Bool, Error?) -> Void) {
     endCollectionCount += 1
@@ -69,9 +121,10 @@ final class HKLiveWorkoutBuilder {
     if !deferSave { completeSave() }
   }
   func completeSave() {
-    if !failSave { savedCount += 1 }
-    saveCompletion?(failSave || locked ? nil : TestWorkout(), failSave ? NSError(domain: "synthetic", code: 1) : nil)
-    drainMainQueue()
+    let workout = HKWorkout()
+    workout.metadata = metadata
+    if !failSave { savedCount += 1; store.storedWorkouts.append(workout) }
+    saveCompletion?(failSave || locked ? nil : workout, failSave ? NSError(domain: "synthetic", code: 1) : nil)
   }
   func completeCollection(success: Bool = true) {
     let completion = collectionCompletion
@@ -114,6 +167,7 @@ final class TestManager {
   var collectionEnded = false
   var collectionEndDate: Date?
   var saveInFlight = false
+  var reconciliationAttempt: UUID?
   var defaults = TestDefaults()
   func mirrorState() { PhoneBridge.shared.send(["type": "state", "status": status, "sessionId": sessionId]) }
   func stopTicking() {}
@@ -169,7 +223,7 @@ case "start-during-finalization", "stale-save-callback":
   extra["oldRetainedWhileClosing"] = manager.builder === trackedBuilder
   let oldCollection = trackedBuilder!.collectionCompletion
   trackedBuilder!.completeCollection()
-  if scenario == "stale-save-callback" { trackedBuilder!.completeSave() }
+  if scenario == "stale-save-callback" { trackedBuilder!.completeSave(); drainMainQueue() }
   let nextBuilder = manager.builder!
   oldCollection?(true, nil)
   if scenario == "stale-save-callback" { trackedBuilder!.saveCompletion?(TestWorkout(), nil) }
@@ -186,7 +240,7 @@ case "save-failure", "save-retry", "discard-save-failure":
   if scenario == "save-retry" {
     manager.startFromPhone(sessionId: "next-session", startedAtMs: 2000, syncIdentifier: "next")
     trackedBuilder!.failSave = false
-    manager.retryWorkoutOperation()
+    manager.retryWorkoutOperation(); drainMainQueue()
     extra["newSessionId"] = manager.sessionId
   } else if scenario == "discard-save-failure" { manager.discard() }
 case "stale-collection-retry":
@@ -234,6 +288,96 @@ case "recovery-discard", "recovery-finish", "recovery-error", "recovery-crash":
   trackedBuilder = recovered.builder; trackedSession = recovered
   extra["recoveryCalls"] = manager.healthStore.recoveryCalls
   manager.deliverEnded(); trackedBuilder!.completeCollection()
+case "interrupted-ending", "interrupted-collection", "interrupted-save", "interrupted-committed", "interrupted-discard":
+  trackedBuilder!.deferSave = true
+  manager.end()
+  extra["journalBeforeSessionEnd"] = manager.defaults.dictionary(forKey: "watch.finalization")?["phase"] as? String == "ending"
+  if scenario != "interrupted-ending" { manager.deliverEnded() }
+  if ["interrupted-save", "interrupted-committed", "interrupted-discard"].contains(scenario) { trackedBuilder!.completeCollection() }
+  if scenario == "interrupted-discard" { manager.discard() }
+  if scenario == "interrupted-committed" || scenario == "interrupted-discard" {
+    let committed = HKWorkout(); committed.metadata = trackedBuilder!.metadata
+    manager.healthStore.storedWorkouts.append(committed) // Health commit, callback lost.
+  }
+  let restarted = TestManager()
+  restarted.defaults = manager.defaults
+  restarted.healthStore.storedWorkouts = manager.healthStore.storedWorkouts
+  PhoneBridge.shared.events.removeAll()
+  manager = restarted
+  manager.recoverIfNeeded(); manager.healthStore.completeRecovery(nil)
+  extra["interruptedPhase"] = manager.defaults.dictionary(forKey: "watch.finalization")?["phase"] as? String ?? "cleared"
+  extra["pendingCloseCount"] = (manager.defaults.dictionary(forKey: "watch.pendingEnds") ?? [:]).count
+  extra["errorVisible"] = manager.workoutError != nil
+  extra["queryCount"] = manager.healthStore.queryCount
+case "discard-in-save", "discard-locked-save", "discard-delete-retry":
+  trackedBuilder!.deferSave = true
+  trackedBuilder!.locked = scenario == "discard-locked-save"
+  manager.healthStore.emptyQuery = scenario == "discard-locked-save"
+  manager.healthStore.failDelete = scenario == "discard-delete-retry"
+  manager.end(); manager.deliverEnded(); trackedBuilder!.completeCollection()
+  extra["saveWasInFlight"] = manager.saveInFlight
+  manager.discard()
+  trackedBuilder!.completeSave(); drainMainQueue()
+  if scenario != "discard-in-save" {
+    extra["ackBeforeRetry"] = PhoneBridge.shared.events.contains { $0["type"] as? String == "ended" }
+    extra["discardRetainedBeforeRetry"] = manager.defaults.dictionary(forKey: "watch.finalization")?["discard"] as? Bool == true
+    manager.healthStore.emptyQuery = false; manager.healthStore.failDelete = false
+    manager.endFromPhone(sessionId: "test-session", discard: false); drainMainQueue()
+  }
+case "phone-journal-recovery-retry":
+  trackedBuilder!.failSave = true
+  manager.end(); manager.deliverEnded(); trackedBuilder!.completeCollection()
+  let restarted = TestManager(); restarted.defaults = manager.defaults
+  manager = restarted
+  manager.recoverIfNeeded(); manager.healthStore.completeRecovery(nil)
+  let callsBefore = manager.healthStore.recoveryCalls
+  PhoneBridge.shared.events.removeAll()
+  manager.endFromPhone(sessionId: "test-session", discard: false)
+  manager.healthStore.completeRecovery(nil)
+  extra["recoveryCallsFromPhone"] = manager.healthStore.recoveryCalls - callsBefore
+  extra["statesAfterRetry"] = PhoneBridge.shared.events.filter { $0["type"] as? String == "state" }.map { $0["status"] as? String ?? "" }
+case "reconcile-query-retry":
+  trackedBuilder!.deferSave = true
+  manager.end(); manager.deliverEnded(); trackedBuilder!.completeCollection()
+  let committed = HKWorkout(); committed.metadata = trackedBuilder!.metadata
+  let restarted = TestManager(); restarted.defaults = manager.defaults
+  restarted.healthStore.storedWorkouts = [committed]; restarted.healthStore.failQuery = true
+  manager = restarted
+  manager.recoverIfNeeded(); manager.healthStore.completeRecovery(nil)
+  extra["ackBeforeRetry"] = PhoneBridge.shared.events.contains { $0["type"] as? String == "ended" }
+  extra["phaseAfterQueryError"] = manager.defaults.dictionary(forKey: "watch.finalization")?["phase"] as? String ?? "missing"
+  manager.healthStore.failQuery = false
+  manager.endFromPhone(sessionId: "test-session", discard: false); drainMainQueue()
+case "phone-recovery-retry":
+  // Legacy failure without a journal must remain compatible with old candidates.
+  manager.session = nil; manager.builder = nil; manager.status = "saveFailed"
+  manager.defaults.set("test-session", forKey: "watch.failedSaveSessionId")
+  let callsBefore = manager.healthStore.recoveryCalls
+  PhoneBridge.shared.events.removeAll()
+  manager.endFromPhone(sessionId: "test-session", discard: false)
+  manager.healthStore.completeRecovery(nil)
+  extra["recoveryCallsFromPhone"] = manager.healthStore.recoveryCalls - callsBefore
+  extra["statesAfterRetry"] = PhoneBridge.shared.events.filter { $0["type"] as? String == "state" }.map { $0["status"] as? String ?? "" }
+case "metadata-retry":
+  trackedBuilder!.failMetadata = true
+  manager.end(); manager.deliverEnded(); trackedBuilder!.completeCollection()
+  extra["savesBeforeRetry"] = trackedBuilder!.saveCount
+  trackedBuilder!.failMetadata = false
+  manager.retryWorkoutOperation(); drainMainQueue()
+case "reconcile-source-scope":
+  trackedBuilder!.deferSave = true
+  manager.end(); manager.deliverEnded(); trackedBuilder!.completeCollection()
+  let foreign = HKWorkout(); foreign.metadata = trackedBuilder!.metadata; foreign.source = "another-app"
+  let different = HKWorkout(); different.metadata = [HKMetadataKeySyncIdentifier: "another-workout"]
+  let ours = HKWorkout(); ours.metadata = trackedBuilder!.metadata
+  manager.healthStore.storedWorkouts = [foreign, different, ours]
+  let restarted = TestManager(); restarted.defaults = manager.defaults
+  restarted.healthStore.storedWorkouts = manager.healthStore.storedWorkouts
+  restarted.defaults.set(["test-session": true], forKey: "watch.pendingEnds")
+  manager = restarted
+  manager.recoverIfNeeded(); manager.healthStore.completeRecovery(nil)
+  extra["foreignPreserved"] = manager.healthStore.storedWorkouts.contains { $0.uuid == foreign.uuid }
+  extra["differentPreserved"] = manager.healthStore.storedWorkouts.contains { $0.uuid == different.uuid }
 case "recovery-no-active-after-error":
   manager.recoverIfNeeded()
   manager.healthStore.completeRecovery(nil, error: NSError(domain: "synthetic", code: 4))
@@ -257,9 +401,13 @@ case "recovery-lost-failed-builder":
   manager.discard()
 default: fatalError("Unknown scenario")
 }
+drainMainQueue()
 let ended = PhoneBridge.shared.events.filter { $0["type"] as? String == "ended" }
 var result: [String: Any] = [
   "saves": trackedBuilder?.saveCount ?? 0,
+  "remainingHealthWorkouts": manager.healthStore.storedWorkouts.count,
+  "healthDeleteCalls": manager.healthStore.deleteCount,
+  "finalizationRetained": manager.defaults.dictionary(forKey: "watch.finalization") != nil,
   "savedCount": trackedBuilder?.savedCount ?? 0,
   "discards": trackedBuilder?.discardCount ?? 0,
   "collections": trackedBuilder?.endCollectionCount ?? 0,

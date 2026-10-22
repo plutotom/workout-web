@@ -178,7 +178,7 @@ describe("Watch workout controls with the production session bridge", () => {
     await mount();
     await recording();
     await emit({ type: "state", sessionId, status: "saving", reachable: true });
-    expect(labels()).toContain("Saving to Apple Health");
+    expect(labels()).toContain("Completing the Watch update");
     expect(labels()).not.toContain("End on Watch");
     await emit({
       type: "state",
@@ -186,15 +186,23 @@ describe("Watch workout controls with the production session bridge", () => {
       status: "saveFailed",
       reachable: true,
     });
-    expect(labels()).toContain("couldn’t save to Health");
+    expect(labels()).toContain("Apple Health needs attention");
     const retry = renderer!.root.find(
       (node) =>
         String(node.type) === "Button" &&
-        node.children.join("") === "Retry Health save",
+        node.children.join("") === "Retry Health update",
     );
     await act(async () => retry.props.onPress());
     expect(mocks.end).toHaveBeenLastCalledWith(sessionId);
     expect(mocks.start).toHaveBeenCalledTimes(1);
+    await emit({
+      type: "state",
+      sessionId,
+      status: "saveFailed",
+      reachable: true,
+    });
+    expect(labels()).not.toContain("Ending on Watch…");
+    expect(labels()).toContain("Retry Health update");
     await emit({
       type: "ended",
       sessionId,
