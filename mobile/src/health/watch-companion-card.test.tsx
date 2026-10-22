@@ -207,6 +207,39 @@ describe("Watch workout controls with the production session bridge", () => {
     });
     expect(labels()).not.toContain("Ending on Watch…");
   });
+  it.each(["recording", "idle"] as const)(
+    "restores controls after recovery retry succeeds with %s",
+    async (result) => {
+      mocks.preferences = { autoStartWatchWorkout: false };
+      await mount();
+      await emit({
+        type: "state",
+        sessionId,
+        status: "recoveryFailed",
+        reachable: true,
+      });
+      const retry = renderer!.root.find(
+        (node) =>
+          String(node.type) === "Button" &&
+          node.children.join("") === "Retry Watch recovery",
+      );
+      await act(async () => {
+        retry.props.onPress();
+        retry.props.onPress();
+      });
+      expect(mocks.retry).toHaveBeenCalledTimes(1);
+      expect(labels()).toContain("Retrying Watch recovery…");
+      expect(labels()).not.toContain("Ending on Watch…");
+      await emit({ type: "state", sessionId, status: result, reachable: true });
+      expect(labels()).not.toContain("Retrying Watch recovery…");
+      expect(mocks.end).not.toHaveBeenCalled();
+      if (result === "recording") {
+        expect(stop().props.disabled).toBe(false);
+        await act(async () => stop().props.onPress());
+        expect(mocks.end).toHaveBeenCalledTimes(1);
+      } else expect(start().props.disabled).toBe(false);
+    },
+  );
   it("shows save failure and retry controls without starting another recording", async () => {
     await mount();
     await recording();

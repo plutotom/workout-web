@@ -48,6 +48,7 @@ function WatchCompanionSession({ sessionId, startedAt }: Props) {
   } = snapshot;
   const actionPending = useRef(false);
   const [ending, setEnding] = useState(false);
+  const [retryingRecovery, setRetryingRecovery] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [healthAvailable, setHealthAvailable] = useState<boolean | null>(null);
@@ -113,6 +114,21 @@ function WatchCompanionSession({ sessionId, startedAt }: Props) {
         event.sessionId === sessionId
       )
         setEnding(false);
+      if (
+        event.sessionId === sessionId &&
+        (event.type === "ended" ||
+          (event.type === "state" &&
+            [
+              "recording",
+              "idle",
+              "disconnected",
+              "saving",
+              "ended",
+              "saveFailed",
+              "recoveryFailed",
+            ].includes(event.status)))
+      )
+        setRetryingRecovery(false);
       if (
         event.type === "state" &&
         event.sessionId === sessionId &&
@@ -191,20 +207,32 @@ function WatchCompanionSession({ sessionId, startedAt }: Props) {
     }
   }
 
+  async function retryRecovery() {
+    if (actionPending.current || retryingRecovery) return;
+    actionPending.current = true;
+    setRetryingRecovery(true);
+    setError(null);
+    try {
+      await retryWatchRecovery(sessionId);
+    } catch (caught) {
+      setRetryingRecovery(false);
+      setError(watchLaunchErrorMessage(caught));
+    } finally {
+      actionPending.current = false;
+    }
+  }
+
   async function end() {
-    if (actionPending.current || ending) return;
+    if (actionPending.current || ending || retryingRecovery) return;
     actionPending.current = true;
     setEnding(true);
     setError(null);
     try {
-      if (watchStatus === "recoveryFailed") await retryWatchRecovery(sessionId);
-      else await endWatchWorkout(sessionId);
-    } catch (caught) {
+      await endWatchWorkout(sessionId);
+    } catch {
       setEnding(false);
       setError(
-        watchStatus === "recoveryFailed"
-          ? watchLaunchErrorMessage(caught)
-          : "Couldn’t end Watch recording. Try again or end it on your Watch.",
+        "Couldn’t end Watch recording. Try again or end it on your Watch.",
       );
     } finally {
       actionPending.current = false;
@@ -325,7 +353,11 @@ function WatchCompanionSession({ sessionId, startedAt }: Props) {
           onPress={() => void begin()}
         />
       ) : null}
-      {recording && !saving && !saveFailed && !recoveryFailed ? (
+      {recording &&
+      !saving &&
+      !saveFailed &&
+      !recoveryFailed &&
+      !retryingRecovery ? (
         <Text style={{ color: colors.dim, fontSize: 12, lineHeight: 17 }}>
           Ends Watch recording. Your workout stays open on iPhone.
         </Text>
@@ -333,17 +365,19 @@ function WatchCompanionSession({ sessionId, startedAt }: Props) {
       {recording && !saving ? (
         <Button
           label={
-            ending
-              ? "Ending on Watch…"
-              : recoveryFailed
-                ? "Retry Watch recovery"
-                : saveFailed
-                  ? "Retry Health update"
-                  : "End on Watch"
+            retryingRecovery
+              ? "Retrying Watch recovery…"
+              : ending
+                ? "Ending on Watch…"
+                : recoveryFailed
+                  ? "Retry Watch recovery"
+                  : saveFailed
+                    ? "Retry Health update"
+                    : "End on Watch"
           }
-          disabled={ending || busy}
+          disabled={ending || busy || retryingRecovery}
           variant="outline"
-          onPress={() => void end()}
+          onPress={() => void (recoveryFailed ? retryRecovery() : end())}
         />
       ) : null}
     </Card>

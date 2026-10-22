@@ -312,6 +312,17 @@ describe.skipIf(!swiftAvailable)("Watch native closing lifecycle", () => {
       healthUuids: [],
     });
   });
+  it("ignores delayed same-session retries once recovery resumed recording", () => {
+    expect(run("recovery-delayed-retry")).toMatchObject({
+      startedAfterRetry: true,
+      endCalls: 0,
+      collections: 0,
+      saves: 0,
+      pendingCloseCount: 0,
+      finalizationRetained: false,
+      status: "recording",
+    });
+  });
   it("does not end or retry a different session when Retry is delayed", () => {
     expect(run("retry-foreign-session")).toMatchObject({
       endCalls: 0,

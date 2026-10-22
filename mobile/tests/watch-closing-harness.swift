@@ -341,12 +341,18 @@ case "recovery-end-date", "recovery-end-date-retry":
   }
   extra["recoveredEndDate"] = trackedBuilder!.requestedEndDate?.timeIntervalSince1970 ?? -1
   trackedBuilder!.completeCollection()
-case "recovery-start-error-retry":
+case "recovery-start-error-retry", "recovery-delayed-retry":
   manager.startFromPhone(sessionId: "test-session", startedAtMs: 1000, syncIdentifier: "test")
   manager.healthStore.completeRecovery(nil, error: NSError(domain: "synthetic", code: 9))
   manager.retryFromPhone(sessionId: "test-session")
   manager.healthStore.completeRecovery(nil)
   extra["startedAfterRetry"] = manager.session != nil && manager.sessionId == "test-session"
+  if scenario == "recovery-delayed-retry" {
+    trackedSession = manager.session; trackedBuilder = manager.builder
+    manager.retryFromPhone(sessionId: "test-session")
+    manager.retryFromPhone(sessionId: "test-session")
+    manager.retryWorkoutOperation() // A delayed Watch button action is safe too.
+  }
   extra["pendingCloseCount"] = (manager.defaults.dictionary(forKey: "watch.pendingEnds") ?? [:]).count
 case "retry-foreign-session":
   manager.retryFromPhone(sessionId: "another-session")

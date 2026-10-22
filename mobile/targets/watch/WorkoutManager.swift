@@ -198,8 +198,12 @@ final class WorkoutManager: NSObject, ObservableObject {
     } else if session == nil && status == "saveFailed" {
       recoveryPending = true
       recoverIfNeeded()
-    } else {
+    } else if status == "saveFailed" || finalizationRecord() != nil {
       requestEnd(discard: false)
+    } else {
+      // A duplicated/delayed Retry is not an End request. Once recovery has
+      // resumed a healthy recording, only report its state.
+      mirrorState()
     }
   }
 

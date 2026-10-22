@@ -66,6 +66,9 @@ phones. Existing and newly created SQLite databases default Watch auto-start on.
   Cold-start recovery errors are scoped to waiting workout identities and clear
   the phone’s pending action without acknowledging closure. A scoped Retry
   command retries recovery without converting an outstanding Start into End.
+  Duplicate Retry commands after success only report the healthy recording;
+  they cannot end it. The phone tracks recovery retry separately from End and
+  restores the controls when recovery returns to recording or confirmed idle.
   Surviving sessions restore the journal’s original End timestamp before replay,
   including through collection retry, so recovery delay does not extend duration.
 - HealthKit can successfully save while locked without returning a workout UUID.
