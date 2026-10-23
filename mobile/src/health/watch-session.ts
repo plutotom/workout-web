@@ -17,7 +17,7 @@ export type WatchSessionStatus =
   | "disconnected"
   | "reachable";
 
-export type WatchEvent =
+export type WatchEvent = (
   | {
       type: "state";
       sessionId: string;
@@ -38,7 +38,8 @@ export type WatchEvent =
       healthUuid: string | null;
       /** HealthKit can save successfully without returning a UUID while locked. */
       healthSaved?: boolean;
-    };
+    }
+) & { accountScope?: string; startError?: string };
 
 export function watchHealthUuidKey(sessionId: string) {
   return `watch_health_uuid:${sessionId}`;
@@ -175,6 +176,14 @@ export function watchLaunchErrorMessage(raw: unknown) {
 export function parseWatchEvent(payload: unknown): WatchEvent | null {
   if (!payload || typeof payload !== "object") return null;
   const value = payload as Record<string, unknown>;
+  const scope =
+    typeof value.accountScope === "string"
+      ? { accountScope: value.accountScope }
+      : {};
+  const startError =
+    typeof value.startError === "string"
+      ? { startError: value.startError }
+      : {};
   const type = value.type;
   if (type === "state") {
     const status = parseWatchStatus(value.status);
@@ -184,6 +193,8 @@ export function parseWatchEvent(payload: unknown): WatchEvent | null {
       sessionId: stringValue(value.sessionId),
       status,
       reachable: Boolean(value.reachable),
+      ...scope,
+      ...startError,
     };
   }
   if (type === "metrics") {
@@ -195,6 +206,8 @@ export function parseWatchEvent(payload: unknown): WatchEvent | null {
       heartRate: finiteNumber(value.heartRate),
       activeEnergyKcal: finiteNumber(value.activeEnergyKcal),
       durationSeconds: finiteNumber(value.durationSeconds) ?? 0,
+      ...scope,
+      ...startError,
     };
   }
   if (type === "ended") {
@@ -203,6 +216,8 @@ export function parseWatchEvent(payload: unknown): WatchEvent | null {
       type: "ended",
       sessionId: stringValue(value.sessionId),
       healthUuid: uuid || null,
+      ...scope,
+      ...startError,
       ...(typeof value.healthSaved === "boolean"
         ? { healthSaved: value.healthSaved }
         : {}),

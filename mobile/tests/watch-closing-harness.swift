@@ -94,6 +94,8 @@ final class HKWorkoutSession {
   var startDate: Date?
   init(healthStore: HKHealthStore, configuration: HKWorkoutConfiguration) throws { workoutConfiguration = configuration; builder = HKLiveWorkoutBuilder(store: healthStore) }
   func associatedWorkoutBuilder() -> HKLiveWorkoutBuilder { builder }
+  func startMirroringToCompanionDevice(completion: (Bool, Error?) -> Void) { completion(true, nil) }
+  func sendToRemoteWorkoutSession(data: Data, completion: (Bool, Error?) -> Void) { completion(true, nil) }
   func startActivity(with date: Date) { startDate = date; state = .running }
   func end() { endCount += 1 }
 }
@@ -156,9 +158,14 @@ final class TestDefaults {
 final class PhoneBridge {
   static let shared = PhoneBridge()
   var events: [[String: Any]] = []
+  var handshakeRequests = 0
+  func requestFreshStart() { handshakeRequests += 1 }
+  // PHONE_BRIDGE_HANDLE
   func send(_ payload: [String: Any]) { events.append(payload) }
 }
+typealias WorkoutManager = TestManager
 final class TestManager {
+  static var shared = TestManager()
   let healthStore = HKHealthStore()
   var session: HKWorkoutSession?
   var builder: HKLiveWorkoutBuilder?
@@ -207,6 +214,41 @@ if !scenario.hasPrefix("recovery-") {
   trackedSession = manager.session
 }
 switch scenario {
+case "recovery-fresh-expired":
+  manager.startFromPhone(sessionId: "expired", startedAtMs: 1000, syncIdentifier: "expired", expiresAt: Date().timeIntervalSince1970 * 1000 - 1000)
+  extra["neverStarted"] = manager.session == nil
+case "recovery-fresh-queued-expiry":
+  manager.startFromPhone(sessionId: "expired", startedAtMs: 1000, syncIdentifier: "expired", expiresAt: Date().timeIntervalSince1970 * 1000 + 20)
+  RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+  manager.healthStore.completeRecovery(nil)
+  extra["neverStarted"] = manager.session == nil
+case "fresh-busy-rejection":
+  manager.startFromPhone(sessionId: "next-session", startedAtMs: 2000, syncIdentifier: "next", expiresAt: Date().timeIntervalSince1970 * 1000 + 30_000)
+  extra["currentUnchanged"] = manager.sessionId == "test-session"
+  extra["nextQueued"] = manager.pendingStarts.contains { $0.id == "next-session" }
+case "original-phone-end-date":
+  manager.endFromPhone(sessionId: "test-session", discard: false, endedAtMs: 2000)
+  manager.deliverEnded()
+  extra["requestedEndMs"] = (trackedBuilder!.requestedEndDate?.timeIntervalSince1970 ?? 0) * 1000
+case "protocol-closure-order":
+  TestManager.shared = manager
+  PhoneBridge.shared.handle(["type": "end", "sessionId": "test-session", "endedAt": 2000.0])
+  manager.startFromPhone(sessionId: "next-session", startedAtMs: 3000, syncIdentifier: "next", expiresAt: Date().timeIntervalSince1970 * 1000 + 30_000)
+  extra["queuedBeforeSave"] = manager.pendingStarts.contains { $0.id == "next-session" }
+  manager.deliverEnded(); trackedBuilder!.completeCollection()
+  extra["newSessionId"] = manager.sessionId
+case "protocol-legacy-hint":
+  manager.session = nil; manager.builder = nil; manager.sessionId = ""
+  TestManager.shared = manager
+  PhoneBridge.shared.handshakeRequests = 0
+  PhoneBridge.shared.handle(["type": "start", "sessionId": "yesterday", "startedAt": 1000.0])
+  extra["neverStarted"] = manager.session == nil
+  extra["handshakeRequests"] = PhoneBridge.shared.handshakeRequests
+case "protocol-unscoped-close":
+  TestManager.shared = manager
+  PhoneBridge.shared.handle(["type": "end"])
+  PhoneBridge.shared.handle(["type": "discard"])
+  extra["currentUnchanged"] = manager.sessionId == "test-session"
 case "foreign-end":
   manager.endFromPhone(sessionId: "old-session", discard: false)
 case "finish-before-start":

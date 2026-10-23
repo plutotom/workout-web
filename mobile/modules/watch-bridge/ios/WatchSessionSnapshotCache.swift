@@ -60,12 +60,18 @@ final class WatchSessionSnapshotCache {
       if ["recording", "saving", "saveFailed"].contains(current), ["starting", "recovering"].contains(status) { return }
       if ["saving", "saveFailed"].contains(current), status == "recording" { return }
       states[id] = ["type": type, "sessionId": id, "status": status, "reachable": event["reachable"] as? Bool ?? false]
+      for field in ["accountScope", "startError"] {
+        if let value = event[field] as? String { states[id]?[field] = value }
+      }
       if ["starting", "recording", "recovering", "recoveryFailed", "saving", "saveFailed"].contains(status) { activeSessionId = id }
     } else if type == "ended" {
       let uuid = event["healthUuid"] as? String ?? ""
       // A delayed discard acknowledgement must not erase an already saved UUID.
       let saved = (endings[id]?["healthUuid"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? uuid
       var ending: [String: Any] = ["type": type, "sessionId": id, "healthUuid": saved]
+      for field in ["accountScope", "startError"] {
+        if let value = event[field] as? String { ending[field] = value }
+      }
       if event["healthSaved"] as? Bool == true || endings[id]?["healthSaved"] as? Bool == true || !saved.isEmpty {
         ending["healthSaved"] = true
       }

@@ -129,7 +129,6 @@ import {
   type RemoteCompletedListWorkout,
   type RemoteCompletedNoteWorkout,
 } from "@/data/local/repository";
-import { discardWatchWorkout, endWatchWorkout } from "@/health/watch-bridge";
 import { shouldSkipPhoneHealthExport } from "@/health/watch-session";
 import {
   archiveLocalPlace,
@@ -371,8 +370,7 @@ function LocalDataState({
       // Persist first so an invalid note or storage failure leaves a resumable workout.
       if (noteBody !== undefined)
         await finishLocalNoteWorkout(db, sessionId, noteBody);
-      // Watch I/O must not hold Finish on screen if the companion hangs.
-      void endWatchWorkout(sessionId).catch(() => undefined);
+      // The coordinator replays the atomically stored Watch closure.
       if (noteBody === undefined) await finishLocalWorkout(db, sessionId);
       if (noteBody !== undefined) {
         // Completion is already durable. Stored UUIDs and export intent retry in
@@ -522,7 +520,6 @@ function LocalDataState({
         run(() => retryLocalSessionShareSync(db, sessionId)),
       abandon: (sessionId) =>
         run(async () => {
-          void discardWatchWorkout(sessionId).catch(() => undefined);
           await abandonLocalWorkout(db, sessionId);
           clearSessionCollapsed(sessionId);
         }),

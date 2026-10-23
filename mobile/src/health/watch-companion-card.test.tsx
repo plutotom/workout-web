@@ -30,6 +30,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/data/local/provider", () => ({
   useLocalPreferences: () => mocks.preferences,
+  useLocalData: () => ({ owner: "test-owner" }),
 }));
 // Only native I/O is replaced: the production bridge cache/replay remains real.
 vi.mock("expo-modules-core", () => ({
@@ -310,13 +311,15 @@ describe("Watch workout controls with the production session bridge", () => {
     expect(labels()).toContain("End on Watch");
     expect(mocks.start).toHaveBeenCalledTimes(1);
   });
-  it("auto-starts once and uses the phone workout start time", async () => {
+  it("auto-starts once with a fresh recording request", async () => {
+    const beforeStart = Date.now();
     await mount();
     expect(mocks.start).toHaveBeenCalledWith(
       sessionId,
-      startedAt,
+      expect.any(Number),
       expect.any(String),
     );
+    expect(mocks.start.mock.calls[0][1]).toBeGreaterThanOrEqual(beforeStart);
     await act(async () => renderer!.unmount());
     await mount();
     expect(mocks.start).toHaveBeenCalledTimes(1);

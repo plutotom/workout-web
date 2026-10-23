@@ -11,22 +11,52 @@ final class PhoneBridge: NSObject, WCSessionDelegate {
     session.activate()
   }
 
-  func latestStartContext() -> (
-    sessionId: String,
-    startedAt: Double,
-    syncIdentifier: String
-  ) {
-    let context = WCSession.default.receivedApplicationContext
-    return (
-      sessionId: context["sessionId"] as? String ?? "",
-      startedAt: context["startedAt"] as? Double ?? 0,
-      syncIdentifier: context["syncIdentifier"] as? String ?? ""
-    )
+  private var requestingStart = false
+  private var requestGeneration = UUID()
+
+  /// Wake hints carry no authority. Only a fresh phone reply may admit a Start.
+  func requestFreshStart() {
+    let session = WCSession.default
+    guard !requestingStart, session.activationState == .activated, session.isReachable else { return }
+    requestingStart = true
+    let generation = UUID()
+    requestGeneration = generation
+    DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
+      if self.requestGeneration == generation { self.requestingStart = false }
+    }
+    var request = WorkoutManager.shared.startHandshakeContext
+    request["type"] = "requestStart"
+    request["protocolVersion"] = 2
+    session.sendMessage(request, replyHandler: { reply in
+      DispatchQueue.main.async {
+        if self.requestGeneration == generation { self.requestingStart = false }
+        guard reply["protocolVersion"] as? Int == 2 else { return }
+        for command in reply["closures"] as? [[String: Any]] ?? [] { self.handle(command) }
+        if let start = reply["start"] as? [String: Any],
+           let expiresAt = start["expiresAt"] as? Double,
+           expiresAt >= Date().timeIntervalSince1970 * 1000 {
+          WorkoutManager.shared.startFromPhone(
+            sessionId: start["sessionId"] as? String ?? "",
+            startedAtMs: Date().timeIntervalSince1970 * 1000,
+            syncIdentifier: start["syncIdentifier"] as? String ?? "",
+            expiresAt: expiresAt)
+        }
+      }
+    }, errorHandler: { _ in DispatchQueue.main.async {
+      if self.requestGeneration == generation { self.requestingStart = false }
+    } })
   }
 
   func send(_ payload: [String: Any]) {
+    let mirrored = WorkoutManager.shared.sendMirrored(payload)
     let session = WCSession.default
     guard session.activationState == .activated else { return }
+    // Live samples have no value as a backlog. Durable state/results still use
+    // WatchConnectivity alongside mirroring so background delivery can recover.
+    if payload["type"] as? String == "metrics" {
+      if !mirrored, session.isReachable { session.sendMessage(payload, replyHandler: nil, errorHandler: nil) }
+      return
+    }
     if session.isReachable {
       session.sendMessage(payload, replyHandler: nil) { _ in
         session.transferUserInfo(payload)
@@ -41,12 +71,18 @@ final class PhoneBridge: NSObject, WCSessionDelegate {
     activationDidCompleteWith activationState: WCSessionActivationState,
     error: Error?
   ) {
-    DispatchQueue.main.async { WorkoutManager.shared.mirrorState() }
+    DispatchQueue.main.async {
+      WorkoutManager.shared.mirrorState()
+      self.requestFreshStart()
+    }
   }
 
   func sessionReachabilityDidChange(_ session: WCSession) {
     if session.isReachable {
-      DispatchQueue.main.async { WorkoutManager.shared.mirrorState() }
+      DispatchQueue.main.async {
+        WorkoutManager.shared.mirrorState()
+        self.requestFreshStart()
+      }
     }
   }
 
@@ -65,28 +101,27 @@ final class PhoneBridge: NSObject, WCSessionDelegate {
     handle(applicationContext)
   }
 
-  private func handle(_ message: [String: Any]) {
-    let type = message["type"] as? String
-    DispatchQueue.main.async {
-      switch type {
-      case "start":
-        WorkoutManager.shared.startFromPhone(
-          sessionId: message["sessionId"] as? String ?? "",
-          startedAtMs: message["startedAt"] as? Double ?? 0,
-          syncIdentifier: message["syncIdentifier"] as? String ?? ""
-        )
-      case "retry":
-        WorkoutManager.shared.retryFromPhone(sessionId: message["sessionId"] as? String ?? "")
-      case "end":
-        WorkoutManager.shared.endFromPhone(sessionId: message["sessionId"] as? String, discard: false)
-      case "discard":
-        WorkoutManager.shared.endFromPhone(sessionId: message["sessionId"] as? String, discard: true)
-      case "status":
-        WorkoutManager.shared.replyToStatus(sessionId: message["sessionId"] as? String)
-      default:
-        break
-      }
+  func handle(_ message: [String: Any]) {
+    if !Thread.isMainThread {
+      DispatchQueue.main.async { self.handle(message) }
+      return
+    }
+    switch message["type"] as? String {
+    case "wake", "start":
+      // Old contexts and queued Start packets are hints, never authorization.
+      requestFreshStart()
+    case "retry":
+      guard let id = message["sessionId"] as? String, !id.isEmpty else { return }
+      WorkoutManager.shared.retryFromPhone(sessionId: id)
+    case "end":
+      guard let id = message["sessionId"] as? String, !id.isEmpty else { return }
+      WorkoutManager.shared.endFromPhone(sessionId: id, discard: false, endedAtMs: message["endedAt"] as? Double)
+    case "discard":
+      guard let id = message["sessionId"] as? String, !id.isEmpty else { return }
+      WorkoutManager.shared.endFromPhone(sessionId: id, discard: true, endedAtMs: message["endedAt"] as? Double)
+    case "status":
+      WorkoutManager.shared.replyToStatus(sessionId: message["sessionId"] as? String)
+    default: break
     }
   }
-
 }

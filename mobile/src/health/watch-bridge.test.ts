@@ -32,6 +32,48 @@ const state = (sessionId: string, status: "starting" | "recording" | "idle") =>
   ({ type: "state", sessionId, status, reachable: true }) as const;
 
 describe("Watch bridge compatibility and recovery", () => {
+  it("does not release modern native ownership before its delayed launch-failure event", async () => {
+    mocks.native!.startWatchRecording = vi
+      .fn()
+      .mockRejectedValue(new Error("Launch timed out"));
+    const bridge = await import("./watch-bridge");
+    bridge.setWatchAccountScope("alice");
+    const listener = vi.fn();
+    bridge.subscribeWatchEvents(listener);
+    await expect(
+      bridge.startWatchWorkout({ sessionId: "a", startedAt: 100 }),
+    ).rejects.toThrow("Launch timed out");
+    expect(bridge.getWatchSessionSnapshot("a").status).toBe("starting");
+    expect(listener.mock.calls.some(([event]) => event.status === "idle")).toBe(
+      false,
+    );
+    mocks.listener!({
+      ...state("a", "recording"),
+      accountScope: "account:alice",
+    });
+    expect(bridge.getWatchSessionSnapshot("a").recorded).toBe(true);
+  });
+  it("isolates replay and late events when restored workout ids coincide across accounts", async () => {
+    const bridge = await import("./watch-bridge");
+    bridge.setWatchAccountScope("alice");
+    bridge.subscribeWatchEvents(() => {});
+    mocks.listener!({
+      ...state("same-id", "recording"),
+      accountScope: "account:alice",
+    });
+    bridge.setWatchAccountScope("bob");
+    mocks.listener!({
+      type: "ended",
+      sessionId: "same-id",
+      accountScope: "account:alice",
+      healthUuid: "health-alice",
+    });
+    expect(bridge.getWatchSessionSnapshot("same-id")).toMatchObject({
+      status: "idle",
+      recorded: false,
+      healthUuid: null,
+    });
+  });
   it("supports legacy binaries and binds legacy metrics to the active workout", async () => {
     const bridge = await import("./watch-bridge");
     bridge.subscribeWatchEvents(() => {});

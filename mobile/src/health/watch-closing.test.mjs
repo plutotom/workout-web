@@ -127,7 +127,27 @@ describe.skipIf(!swiftAvailable)("Watch native closing lifecycle", () => {
       "utf8",
     )
       .replace("  // WORKOUT_MANAGER_CLOSING_METHODS", source.slice(start, end))
-      .replace("  // WORKOUT_MANAGER_OPENING_METHODS", opening);
+      .replace("  // WORKOUT_MANAGER_OPENING_METHODS", opening)
+      .replace(
+        "  // PHONE_BRIDGE_HANDLE",
+        (() => {
+          const phoneBridge = readFileSync(
+            join(mobileRoot, "targets/watch/PhoneBridge.swift"),
+            "utf8",
+          );
+          const signature = "  func handle(_ message:";
+          const begin = phoneBridge.indexOf(signature);
+          let finish = phoneBridge.indexOf("{", begin),
+            depth = 1;
+          while (depth && ++finish < phoneBridge.length) {
+            if (phoneBridge[finish] === "{") depth++;
+            if (phoneBridge[finish] === "}") depth--;
+          }
+          if (begin < 0 || depth)
+            throw new Error("Missing production Watch message handler");
+          return phoneBridge.slice(begin, finish + 1);
+        })(),
+      );
     const harnessPath = join(directory, "main.swift");
     writeFileSync(harnessPath, harness);
     execFileSync(
@@ -158,6 +178,51 @@ describe.skipIf(!swiftAvailable)("Watch native closing lifecycle", () => {
       }),
     );
   }
+
+  it.each(["recovery-fresh-expired", "recovery-fresh-queued-expiry"])(
+    "rejects expired admission, including after recovery (%s)",
+    (scenario) => {
+      expect(run(scenario)).toMatchObject({
+        neverStarted: true,
+        healthSessions: ["expired"],
+      });
+    },
+  );
+  it("explicitly rejects a second recording without silently dropping it or ending the first", () => {
+    expect(run("fresh-busy-rejection")).toMatchObject({
+      currentUnchanged: true,
+      nextQueued: false,
+      endCalls: 0,
+      healthSessions: ["next-session"],
+    });
+  });
+  it("uses the persisted phone Finish time when delivery happens later", () => {
+    expect(run("original-phone-end-date")).toMatchObject({
+      requestedEndMs: 2000,
+    });
+  });
+
+  it("applies an old closure synchronously before processing a newly admitted Start", () => {
+    expect(run("protocol-closure-order")).toMatchObject({
+      queuedBeforeSave: true,
+      newSessionId: "next-session",
+      savedCount: 1,
+    });
+  });
+  it("treats queued legacy Start traffic as a fresh-handshake hint", () => {
+    expect(run("protocol-legacy-hint")).toMatchObject({
+      neverStarted: true,
+      handshakeRequests: 1,
+    });
+  });
+  it("rejects unscoped remote End/Discard traffic instead of stopping the next workout", () => {
+    expect(run("protocol-unscoped-close")).toMatchObject({
+      currentUnchanged: true,
+      endCalls: 0,
+      saves: 0,
+      discards: 0,
+    });
+  });
 
   it("does not end a different workout when an old command is delivered", () => {
     expect(run("foreign-end")).toMatchObject({

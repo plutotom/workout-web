@@ -65,6 +65,8 @@ try {
       root,
       "mobile/modules/watch-bridge/ios/WatchSessionSnapshotCache.swift",
     ),
+    join(root, "mobile/modules/watch-bridge/ios/WatchRecordingJournal.swift"),
+    join(root, "mobile/modules/watch-bridge/ios/WatchWorkoutMirror.swift"),
   ]);
 } finally {
   rmSync(directory, { recursive: true, force: true });

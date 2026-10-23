@@ -63,6 +63,10 @@ final class WorkoutManager: NSObject, ObservableObject {
   private var recoveryPending = true
   private var recoveryInFlight = false
   private var recoveryReplyIds: Set<String> = []
+  var startHandshakeContext: [String: Any] {
+    ["recoveryComplete": !recoveryPending,
+     "activeSessionId": session != nil || finalizationRecord() != nil || status == "saveFailed" ? sessionId : ""]
+  }
   private var pendingStarts: [(id: String, run: () -> Void)] = []
   private var closingAttempt: UUID?
   private var collectionEnded = false
@@ -86,16 +90,10 @@ final class WorkoutManager: NSObject, ObservableObject {
   }
 
   func handle(configuration: HKWorkoutConfiguration) {
-    let context = PhoneBridge.shared.latestStartContext()
-    start(
-      configuration: configuration,
-      sessionId: context.sessionId,
-      startedAtMs: context.startedAt,
-      syncIdentifier: context.syncIdentifier
-    )
+    PhoneBridge.shared.requestFreshStart()
   }
 
-  func startFromPhone(sessionId: String, startedAtMs: Double, syncIdentifier: String) {
+  func startFromPhone(sessionId: String, startedAtMs: Double, syncIdentifier: String, expiresAt: Double = 0) {
     let configuration = HKWorkoutConfiguration()
     configuration.activityType = .traditionalStrengthTraining
     configuration.locationType = .indoor
@@ -103,7 +101,8 @@ final class WorkoutManager: NSObject, ObservableObject {
       configuration: configuration,
       sessionId: sessionId,
       startedAtMs: startedAtMs,
-      syncIdentifier: syncIdentifier
+      syncIdentifier: syncIdentifier,
+      expiresAt: expiresAt
     )
   }
 
@@ -158,6 +157,7 @@ final class WorkoutManager: NSObject, ObservableObject {
         self.recoveryPending = false
         if let recovered {
           self.attach(session: recovered, sessionId: self.defaults.string(forKey: "watch.sessionId") ?? "")
+          self.beginMirroring(recovered)
           self.syncIdentifier = self.defaults.string(forKey: "watch.syncIdentifier") ?? ""
           self.startedAt = recovered.startDate
           self.collectionEnded = self.builder?.endDate != nil
@@ -194,6 +194,7 @@ final class WorkoutManager: NSObject, ObservableObject {
         self.mirrorState()
         self.drainPendingStarts()
         self.replyAfterRecovery()
+        PhoneBridge.shared.requestFreshStart()
       }
     }
   }
@@ -259,13 +260,20 @@ final class WorkoutManager: NSObject, ObservableObject {
     configuration: HKWorkoutConfiguration,
     sessionId: String,
     startedAtMs: Double,
-    syncIdentifier: String
+    syncIdentifier: String,
+    expiresAt: Double = 0
   ) {
+    if expiresAt > 0, Date().timeIntervalSince1970 * 1000 > expiresAt {
+      // Expiry is checked again after recovery/finalization queues. Persist a
+      // terminal rejection so retransmission can never resurrect this attempt.
+      if self.sessionId != sessionId { notifyEnded(healthUuid: "", sessionId: sessionId) }
+      return
+    }
     if recoveryPending || isClosing || status == "saveFailed" || finalizationRecord() != nil {
       if !pendingStarts.contains(where: { $0.id == sessionId }) {
         pendingStarts.append((id: sessionId, run: { [weak self] in
           self?.start(configuration: configuration, sessionId: sessionId,
-                      startedAtMs: startedAtMs, syncIdentifier: syncIdentifier)
+                      startedAtMs: startedAtMs, syncIdentifier: syncIdentifier, expiresAt: expiresAt)
         }))
       }
       if recoveryPending { recoverIfNeeded() }
@@ -273,7 +281,14 @@ final class WorkoutManager: NSObject, ObservableObject {
     }
     // Retain ownership until finalization releases BOTH objects, not just until
     // the HKWorkoutSession leaves .running.
-    guard session == nil, builder == nil else { mirrorState(); return }
+    guard session == nil, builder == nil else {
+      if self.sessionId != sessionId, expiresAt > 0 {
+        notifyEnded(healthUuid: "", sessionId: sessionId,
+                    startError: "Another workout is still recording on your Watch. Finish it on Watch, then try again.")
+      }
+      mirrorState()
+      return
+    }
     if !WatchSessionIdentity.shouldStart(sessionId, recording: session?.state == .running, closedIds: defaults.stringArray(forKey: "watch.closedSessions") ?? []) {
       mirrorState()
       return
@@ -290,9 +305,9 @@ final class WorkoutManager: NSObject, ObservableObject {
     defaults.set(sessionId, forKey: "watch.sessionId")
     defaults.set(self.syncIdentifier, forKey: "watch.syncIdentifier")
     status = "starting"
-    startedAt = startedAtMs > 0
+    startedAt = expiresAt > 0 ? Date() : (startedAtMs > 0
       ? Date(timeIntervalSince1970: startedAtMs / 1000)
-      : Date()
+      : Date())
 
     // startWatchApp times out if we wait on the Health permission sheet.
     do {
@@ -306,10 +321,11 @@ final class WorkoutManager: NSObject, ObservableObject {
       session.startActivity(with: startedAt ?? Date())
       builder.beginCollection(withStart: startedAt ?? Date()) { _, _ in }
       status = "recording"
+      beginMirroring(session)
       mirrorState()
     } catch {
-      status = "idle"
-      mirrorState()
+      if expiresAt > 0 { notifyEnded(healthUuid: "") }
+      clear()
     }
   }
 
@@ -327,12 +343,17 @@ final class WorkoutManager: NSObject, ObservableObject {
     )
   }
 
-  func endFromPhone(sessionId requestedId: String?, discard: Bool) {
+  func endFromPhone(sessionId requestedId: String?, discard: Bool, endedAtMs: Double? = nil) {
     let target = requestedId ?? (sessionId.isEmpty ? defaults.string(forKey: "watch.sessionId") ?? "" : sessionId)
     if !target.isEmpty {
       var pending = defaults.dictionary(forKey: "watch.pendingEnds") as? [String: Bool] ?? [:]
       pending[target] = (pending[target] ?? false) || discard
       defaults.set(pending, forKey: "watch.pendingEnds")
+      if let endedAtMs, endedAtMs.isFinite, endedAtMs > 0 {
+        var dates = defaults.dictionary(forKey: "watch.pendingEndDates") as? [String: Double] ?? [:]
+        dates[target] = min(dates[target] ?? endedAtMs, endedAtMs)
+        defaults.set(dates, forKey: "watch.pendingEndDates")
+      }
     }
     if recoveryPending {
       recoverIfNeeded()
@@ -340,6 +361,11 @@ final class WorkoutManager: NSObject, ObservableObject {
     }
     if WatchSessionIdentity.matchesCommand(target, currentId: sessionId) {
       let pending = defaults.dictionary(forKey: "watch.pendingEnds") as? [String: Bool] ?? [:]
+      if let ms = (defaults.dictionary(forKey: "watch.pendingEndDates") as? [String: Double])?[target] {
+        let requested = Date(timeIntervalSince1970: ms / 1000)
+        collectionEndDate = min(collectionEndDate ?? requested, requested)
+        if let startedAt { collectionEndDate = max(startedAt, collectionEndDate!) }
+      }
       requestEnd(discard: pending[target] ?? discard)
     } else if !target.isEmpty {
       // Finish may beat a delayed Start. Close only after recovery has proved
@@ -624,7 +650,7 @@ final class WorkoutManager: NSObject, ObservableObject {
     }
   }
 
-  private func notifyEnded(healthUuid: String, sessionId targetId: String? = nil, healthSaved: Bool = false) {
+  private func notifyEnded(healthUuid: String, sessionId targetId: String? = nil, healthSaved: Bool = false, startError: String? = nil) {
     let sessionId = targetId ?? self.sessionId
     var closed = defaults.stringArray(forKey: "watch.closedSessions") ?? []
     if !sessionId.isEmpty && !closed.contains(sessionId) { closed.append(sessionId) }
@@ -640,11 +666,16 @@ final class WorkoutManager: NSObject, ObservableObject {
     var pending = defaults.dictionary(forKey: "watch.pendingEnds") as? [String: Bool] ?? [:]
     pending.removeValue(forKey: sessionId)
     defaults.set(pending, forKey: "watch.pendingEnds")
-    PhoneBridge.shared.send([
+    var dates = defaults.dictionary(forKey: "watch.pendingEndDates") ?? [:]
+    dates.removeValue(forKey: sessionId)
+    defaults.set(dates, forKey: "watch.pendingEndDates")
+    var event: [String: Any] = [
       "type": "ended", "sessionId": sessionId,
       "healthUuid": results[sessionId] ?? healthUuid,
       "healthSaved": saved.contains(sessionId),
-    ])
+    ]
+    if let startError { event["startError"] = startError }
+    PhoneBridge.shared.send(event)
   }
 
   private func releaseWorkout() {
@@ -678,6 +709,21 @@ final class WorkoutManager: NSObject, ObservableObject {
     let starts = pendingStarts
     pendingStarts.removeAll()
     for start in starts { start.run() }
+  }
+
+  private func beginMirroring(_ session: HKWorkoutSession) {
+    session.startMirroringToCompanionDevice { [weak self, weak session] _, _ in
+      DispatchQueue.main.async {
+        guard let self, let session, self.session === session else { return }
+        self.mirrorState()
+      }
+    }
+  }
+
+  func sendMirrored(_ payload: [String: Any]) -> Bool {
+    guard let session, let data = try? JSONSerialization.data(withJSONObject: payload) else { return false }
+    session.sendToRemoteWorkoutSession(data: data) { _, _ in }
+    return true
   }
 
   private func requestAuthorization() async throws {
@@ -746,6 +792,24 @@ extension WorkoutManager: HKWorkoutSessionDelegate {
     DispatchQueue.main.async {
       guard self.session === workoutSession, !self.isClosing else { return }
       self.failClosing("The Watch workout stopped unexpectedly. Unlock your Watch and retry saving.")
+    }
+  }
+
+  func workoutSession(_ workoutSession: HKWorkoutSession, didReceiveDataFromRemoteWorkoutSession data: [Data]) {
+    DispatchQueue.main.async {
+      guard self.session === workoutSession else { return }
+      for item in data {
+        if let message = try? JSONSerialization.jsonObject(with: item) as? [String: Any] {
+          PhoneBridge.shared.handle(message)
+        }
+      }
+    }
+  }
+
+  func workoutSession(_ workoutSession: HKWorkoutSession, didDisconnectFromRemoteDeviceWithError error: Error?) {
+    DispatchQueue.main.async {
+      guard self.session === workoutSession else { return }
+      self.mirrorState()
     }
   }
 

@@ -42,6 +42,18 @@ describe("native Watch snapshots and command identity", () => {
         timeout: 5_000,
       }),
     );
+  it("preserves account scope and rejected-start information through native restart", () => {
+    expect(run("scoped-failure")).toMatchObject({
+      events: [
+        {
+          sessionId: "a",
+          status: "idle",
+          accountScope: "account:alice",
+          startError: "Start refused",
+        },
+      ],
+    });
+  });
   it("retains recording through process restart, stale start and reconnect events", () => {
     expect(run("restart-recording")).toMatchObject({
       status: "recording",

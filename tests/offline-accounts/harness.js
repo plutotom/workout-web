@@ -71,6 +71,8 @@ vi.mock("react-native", () => ({
   },
 }));
 vi.mock("@/health/watch-bridge", () => ({
+  setWatchAccountScope: () => {},
+  closeWatchRecording: async () => null,
   endWatchWorkout: async () => null,
   discardWatchWorkout: async () => null,
   subscribeWatchEvents: (listener) => {

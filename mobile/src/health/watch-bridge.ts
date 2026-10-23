@@ -12,6 +12,18 @@ import {
 } from "@/health/watch-session";
 
 type WatchBridgeNative = {
+  startWatchRecording?: (
+    sessionId: string,
+    syncIdentifier: string,
+    scope: string,
+  ) => Promise<void>;
+  setAccountScope?: (scope: string, guestWorkoutIds: string[]) => void;
+  closeWatchSession?: (
+    sessionId: string,
+    endedAt: number,
+    discard: boolean,
+    scope: string,
+  ) => Promise<void>;
   getStatus: () => WatchCompanionStatus;
   // Optional so a JS bundle remains compatible with the installed 0.3.1 binary.
   getSessionEvents?: () => unknown[];
@@ -57,8 +69,10 @@ const listeners = new Set<(event: WatchEvent) => void>();
 let listening = false;
 let restored = false;
 let activeSessionId = "";
+let accountScope: string | undefined;
 
 function remember(event: WatchEvent): WatchEvent {
+  if (event.accountScope && event.accountScope !== accountScope) return event;
   // Old Watch binaries send unscoped metrics immediately after a scoped state.
   const sessionId =
     event.type === "metrics"
@@ -125,6 +139,7 @@ function remember(event: WatchEvent): WatchEvent {
 }
 
 function publish(event: WatchEvent) {
+  if (event.accountScope && event.accountScope !== accountScope) return;
   const scoped = remember(event);
   for (const listener of listeners) listener(scoped);
 }
@@ -191,8 +206,21 @@ export function getWatchCompanionStatus(): WatchCompanionStatus {
 export async function startWatchWorkout(input: {
   sessionId: string;
   startedAt: number;
+  owner?: string | null;
 }) {
   if (!native) throw new Error("Watch recording is only available on iPhone.");
+  const requestedScope =
+    input.owner === undefined
+      ? (accountScope ?? "guest")
+      : input.owner
+        ? `account:${input.owner}`
+        : "guest";
+  if (accountScope !== requestedScope) {
+    sessions.clear();
+    restored = false;
+    activeSessionId = "";
+    accountScope = requestedScope;
+  }
   const current = getWatchSessionSnapshot(input.sessionId).status;
   if (
     [
@@ -213,12 +241,23 @@ export async function startWatchWorkout(input: {
     reachable: getWatchCompanionStatus().reachable,
   });
   try {
-    await native.startWatchWorkout(
-      input.sessionId,
-      input.startedAt,
-      healthSyncIdentifier(input.sessionId),
-    );
+    if (native.startWatchRecording) {
+      await native.startWatchRecording(
+        input.sessionId,
+        healthSyncIdentifier(input.sessionId),
+        requestedScope,
+      );
+    } else
+      await native.startWatchWorkout(
+        input.sessionId,
+        input.startedAt,
+        healthSyncIdentifier(input.sessionId),
+      );
   } catch (caught) {
+    // Modern native code alone can certify non-admission. Its event may arrive
+    // after this rejected promise; synthesizing idle here would reopen the race.
+    if (native.startWatchRecording)
+      throw new Error(watchLaunchErrorMessage(caught));
     // A launch timeout can arrive after the Watch confirms recording.
     if (
       [
@@ -245,6 +284,38 @@ export async function endWatchWorkout(sessionId?: string) {
   if (sessionId && native?.endWatchSession)
     await native.endWatchSession(sessionId);
   else await native?.endWatchWorkout();
+}
+
+export function setWatchAccountScope(
+  owner: string | null,
+  guestWorkoutIds: string[] = [],
+) {
+  const scope = owner ? `account:${owner}` : "guest";
+  if (accountScope !== scope) {
+    sessions.clear();
+    restored = false;
+    activeSessionId = "";
+    accountScope = scope;
+  }
+  native?.setAccountScope?.(scope, guestWorkoutIds);
+}
+
+/** Completion is acknowledged only after the native journal persists it. */
+export async function closeWatchRecording(
+  sessionId: string,
+  endedAt: number,
+  discard: boolean,
+  owner: string | null,
+) {
+  if (native?.closeWatchSession)
+    await native.closeWatchSession(
+      sessionId,
+      endedAt,
+      discard,
+      owner ? `account:${owner}` : "guest",
+    );
+  else if (discard) await discardWatchWorkout(sessionId);
+  else await endWatchWorkout(sessionId);
 }
 
 export async function retryWatchRecovery(sessionId: string) {

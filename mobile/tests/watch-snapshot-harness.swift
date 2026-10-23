@@ -9,6 +9,10 @@ func state(_ id: String, _ status: String) -> [String: Any] {
 }
 var result: [String: Any] = [:]
 switch CommandLine.arguments[1] {
+case "scoped-failure":
+  cache.record(["type": "state", "sessionId": "a", "status": "idle", "accountScope": "account:alice", "startError": "Start refused"])
+  let restarted = WatchSessionSnapshotCache(defaults: defaults)
+  result = ["events": restarted.events()]
 case "restart-recording":
   cache.record(state("a", "recording"))
   cache.record(state("", "reachable"))

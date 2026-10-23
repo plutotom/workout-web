@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { AppState, Pressable, Text, View } from "react-native";
 
 import { Button, Card } from "@/components/ui";
-import { useLocalPreferences } from "@/data/local/provider";
+import { useLocalPreferences, useLocalData } from "@/data/local/provider";
 import { getHealthAdapter } from "@/health";
 import {
   endWatchWorkout,
@@ -33,7 +33,8 @@ export function WatchCompanionCard(props: Props) {
   return <WatchCompanionSession key={props.sessionId} {...props} />;
 }
 
-function WatchCompanionSession({ sessionId, startedAt }: Props) {
+function WatchCompanionSession({ sessionId }: Props) {
+  const { owner } = useLocalData();
   const preferences = useLocalPreferences();
   const [status, setStatus] = useState(getWatchCompanionStatus);
   const [snapshot, setSnapshot] = useState(() =>
@@ -73,6 +74,8 @@ function WatchCompanionSession({ sessionId, startedAt }: Props) {
 
   useEffect(() => {
     const unsubscribe = subscribeWatchEvents((event) => {
+      if (event.sessionId === sessionId && event.startError)
+        setError(event.startError);
       if (event.type !== "metrics") {
         const next = getWatchCompanionStatus();
         setStatus(
@@ -166,7 +169,7 @@ function WatchCompanionSession({ sessionId, startedAt }: Props) {
       return;
     }
     autoStarted.current = true;
-    void begin(startedAt);
+    void begin();
     // Pairing/install is device state; starting once per mount is the existing path.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- session start is one-shot
   }, [
@@ -197,7 +200,11 @@ function WatchCompanionSession({ sessionId, startedAt }: Props) {
       if (write !== "connected" && write !== "limited") {
         throw new Error("Allow Health write access to start Watch recording.");
       }
-      await startWatchWorkout({ sessionId, startedAt: recordingStartedAt });
+      await startWatchWorkout({
+        sessionId,
+        startedAt: recordingStartedAt,
+        owner,
+      });
       setSnapshot(getWatchSessionSnapshot(sessionId));
     } catch (caught) {
       setError(watchLaunchErrorMessage(caught));
@@ -402,7 +409,7 @@ function companionCopy({
   if (watchStatus === "saving")
     return "Completing the Watch update in Apple Health…";
   if (watchStatus === "recovering")
-    return "Restoring the Watch workout before applying pending commands. Open Grayed Lift on your Watch if it needs attention.";
+    return "Checking Watch recording and pending requests. Open Grayed Lift on your Watch if it needs attention.";
   if (recording && (!status.reachable || watchStatus === "disconnected")) {
     return "Watch disconnected. Recording can continue on the Watch. An end request will be delivered when it reconnects.";
   }

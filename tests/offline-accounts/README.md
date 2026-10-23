@@ -86,6 +86,10 @@ Convex infrastructure. Device and staging smoke tests remain required.
 - Background edits wait for foreground; queues larger than one worker batch drain.
 - A populated SQLite v7 database and old queued session payload migrate and merge
   with a minimal legacy Convex user and legacy workout.
+- An existing account's SQLite v8 upgrade rolls back failures after the v9 DDL
+  and before commit, preserving schema, every local row, and queued operations.
+  Reopening completes the upgrade; reconnect, a lost upload response, and another
+  restart converge without duplicating workouts or their children.
 - Concurrent cloud notes/preferences and deletion of an unedited cloud template
   merge with queued phone edits.
 - Same-name custom lifts retain their definitions and resolve to the correct
@@ -137,7 +141,7 @@ list edits and remote workout adoption. Keep a regression for each discovered
 failure; a green type check or policy-helper unit test cannot replace these
 behavioral contracts.
 
-The strict suite currently contains **67 lifecycle cases**. Report its result
+The strict suite currently contains **109 lifecycle cases**. Report its result
 separately from the ordinary unit suite; neither replaces device/staging checks.
 
 ## Upgrade and recovery behavior
