@@ -47,6 +47,7 @@ import type {
   LocalMuscleGroup,
   LocalNotificationPreferences,
   LocalPreferences,
+  LocalWatchPreferences,
   LocalSessionKind,
   LocalTemplate,
   LocalWorkoutExercise,
@@ -652,6 +653,7 @@ async function abandonExistingIfAllowed(
     now,
     active._id,
   );
+  await queueWatchClosure(db, active._id, now, true);
   await queueSessionSnapshot(db, active._id, now);
 }
 
@@ -660,24 +662,26 @@ export async function startLocalBlankWorkout(
   abandonExisting = false,
   placeId?: string | null,
 ) {
-  const now = Date.now();
-  await abandonExistingIfAllowed(db, abandonExisting, now);
-  const place = await resolveLocalPlaceForStart(db, {
-    placeId,
-    blank: true,
-  });
   const sessionId = randomUUID();
-  await db.runAsync(
-    `INSERT INTO local_sessions (
+  await withWorkoutTransaction(db, async (txn) => {
+    const now = Date.now();
+    await abandonExistingIfAllowed(txn, abandonExisting, now);
+    const place = await resolveLocalPlaceForStart(txn, {
+      placeId,
+      blank: true,
+    });
+    await txn.runAsync(
+      `INSERT INTO local_sessions (
        id, template_name, status, started_at, updated_at, place_id, place_name
      ) VALUES (?, 'Quick start', 'in_progress', ?, ?, ?, ?)`,
-    sessionId,
-    now,
-    now,
-    place?._id ?? null,
-    place?.name ?? null,
-  );
-  await queueSessionSnapshot(db, sessionId, now);
+      sessionId,
+      now,
+      now,
+      place?._id ?? null,
+      place?.name ?? null,
+    );
+    await queueSessionSnapshot(txn, sessionId, now);
+  });
   return sessionId;
 }
 
@@ -688,7 +692,7 @@ export async function startLocalNoteWorkout(
   placeId?: string | null,
 ) {
   const sessionId = randomUUID();
-  await db.withExclusiveTransactionAsync(async (txn) => {
+  await withWorkoutTransaction(db, async (txn) => {
     const now = Date.now();
     await abandonExistingIfAllowed(txn, abandonExisting, now);
     const place = await resolveLocalPlaceForStart(txn, {
@@ -719,17 +723,16 @@ export async function startLocalTemplateWorkout(
   abandonExisting = false,
   placeId?: string | null,
 ) {
-  const template = await getLocalTemplate(db, templateId);
-  if (!template) throw new Error("Template is not available offline yet");
-  const now = Date.now();
-  await abandonExistingIfAllowed(db, abandonExisting, now);
-  const place = await resolveLocalPlaceForStart(db, {
-    placeId,
-    templateLastPlaceId: template.lastPlaceId,
-  });
   const sessionId = randomUUID();
-
-  await db.withExclusiveTransactionAsync(async (txn) => {
+  await withWorkoutTransaction(db, async (txn) => {
+    const template = await getLocalTemplate(txn, templateId);
+    if (!template) throw new Error("Template is not available offline yet");
+    const now = Date.now();
+    await abandonExistingIfAllowed(txn, abandonExisting, now);
+    const place = await resolveLocalPlaceForStart(txn, {
+      placeId,
+      templateLastPlaceId: template.lastPlaceId,
+    });
     await txn.runAsync(
       `INSERT INTO local_sessions (
          id, template_id, remote_template_id, template_name, status,
@@ -790,8 +793,8 @@ export async function startLocalTemplateWorkout(
         );
       }
     }
+    await queueSessionSnapshot(txn, sessionId, now);
   });
-  await queueSessionSnapshot(db, sessionId, now);
   return sessionId;
 }
 
@@ -1947,6 +1950,7 @@ export async function finishLocalNoteWorkout(
     );
     await recordLocalSessionPlaceMemory(txn, sessionId);
     // Durable export intent survives a force-quit before Watch/Health follow-up.
+    await queueWatchClosure(txn, sessionId, completedAt, false);
     await queueHealthExportIfEnabled(txn, sessionId);
     await queueSessionSnapshot(txn, sessionId, updatedAt);
   });
@@ -1977,6 +1981,7 @@ export async function finishLocalWorkout(
       sessionId,
     );
     await recordLocalSessionPlaceMemory(txn, sessionId);
+    await queueWatchClosure(txn, sessionId, now, false);
     await queueSessionSnapshot(txn, sessionId, updatedAt);
   });
 }
@@ -2034,6 +2039,7 @@ export async function abandonLocalWorkout(
       now,
       sessionId,
     );
+    await queueWatchClosure(txn, sessionId, now, true);
     await queueSessionSnapshot(txn, sessionId, now);
   });
 }
@@ -3564,10 +3570,12 @@ export async function getLocalPreferences(
     rest_timer_enabled: number;
     rest_timer_notifications_enabled: number;
     apple_health_import_notifications_enabled: number;
+    auto_start_watch_workout: number;
   }>(
     `SELECT unit, bar_weight_lb, bar_weight_kg, active_workout_mode,
             rest_timer_enabled, rest_timer_notifications_enabled,
-            apple_health_import_notifications_enabled
+            apple_health_import_notifications_enabled,
+            auto_start_watch_workout
        FROM local_preferences
       WHERE id = 1`,
   );
@@ -3581,6 +3589,7 @@ export async function getLocalPreferences(
       (row?.rest_timer_notifications_enabled ?? 1) === 1,
     appleHealthImportNotificationsEnabled:
       (row?.apple_health_import_notifications_enabled ?? 0) === 1,
+    autoStartWatchWorkout: (row?.auto_start_watch_workout ?? 1) === 1,
   };
 }
 
@@ -3638,6 +3647,18 @@ export async function setLocalNotificationPreferences(
       WHERE id = 1`,
     preferences.restTimerNotificationsEnabled ? 1 : 0,
     preferences.appleHealthImportNotificationsEnabled ? 1 : 0,
+  );
+}
+
+export async function setLocalWatchPreferences(
+  db: SQLiteDatabase,
+  preferences: LocalWatchPreferences,
+) {
+  await db.runAsync(
+    `UPDATE local_preferences
+        SET auto_start_watch_workout = ?
+      WHERE id = 1`,
+    preferences.autoStartWatchWorkout ? 1 : 0,
   );
 }
 
@@ -4036,7 +4057,95 @@ export async function setHealthAutoImportAnchor(
 }
 
 export async function markWatchRecorded(db: SQLiteDatabase, sessionId: string) {
-  await setHealthStateValue(db, watchRecordedKey(sessionId), "1");
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    await setHealthStateValue(txn, watchRecordedKey(sessionId), "1");
+    await setWatchStartPending(txn, sessionId, false);
+    await txn.runAsync(
+      "UPDATE local_sessions SET health_export_pending = 0 WHERE id = ?",
+      sessionId,
+    );
+  });
+}
+
+export async function setWatchStartPending(
+  db: SQLiteDatabase,
+  sessionId: string,
+  pending: boolean,
+) {
+  await setHealthStateValue(
+    db,
+    `watch_starting:${sessionId}`,
+    pending ? "1" : "0",
+  );
+}
+
+/** This intent commits with Finish/Discard, before native or radio I/O. */
+async function queueWatchClosure(
+  db: SQLiteDatabase,
+  sessionId: string,
+  endedAt: number,
+  discard: boolean,
+) {
+  await setHealthStateValue(
+    db,
+    `watch_closure:${sessionId}`,
+    JSON.stringify({ endedAt, discard }),
+  );
+}
+
+export async function listWatchClosures(db: SQLiteDatabase) {
+  const rows = await db.getAllAsync<{ key: string; value: string }>(
+    "SELECT key, value FROM local_health_state WHERE key LIKE 'watch_closure:%'",
+  );
+  return rows.map((row) => ({
+    sessionId: row.key.slice("watch_closure:".length),
+    ...(JSON.parse(row.value) as { endedAt: number; discard: boolean }),
+  }));
+}
+
+export async function acknowledgeWatchClosure(
+  db: SQLiteDatabase,
+  sessionId: string,
+  endedAt: number,
+  discard: boolean,
+) {
+  // A newer terminal decision must survive acknowledgment of an older one.
+  await db.runAsync(
+    "DELETE FROM local_health_state WHERE key = ? AND json_extract(value, '$.endedAt') = ? AND json_extract(value, '$.discard') = ?",
+    `watch_closure:${sessionId}`,
+    endedAt,
+    Number(discard),
+  );
+}
+
+/** Older binaries may have completed locally before delivering their Watch End. */
+export async function recoverFinishedWatchClosure(
+  db: SQLiteDatabase,
+  sessionId: string,
+) {
+  const row = await db.getFirstAsync<{
+    status: string;
+    completed_at: number | null;
+    updated_at: number;
+  }>(
+    "SELECT status, completed_at, updated_at FROM local_sessions WHERE id = ?",
+    sessionId,
+  );
+  if (!row || row.status === "in_progress") return null;
+  const closure = {
+    sessionId,
+    endedAt: row.completed_at ?? row.updated_at,
+    discard: row.status === "abandoned",
+  };
+  await queueWatchClosure(db, sessionId, closure.endedAt, closure.discard);
+  return closure;
+}
+
+export async function isWatchStartPending(
+  db: SQLiteDatabase,
+  sessionId: string,
+) {
+  return (await healthStateValue(db, `watch_starting:${sessionId}`)) === "1";
 }
 
 export async function wasWatchRecorded(db: SQLiteDatabase, sessionId: string) {
@@ -4104,22 +4213,24 @@ export async function queueHealthExportIfEnabled(
   db: SQLiteDatabase,
   sessionId: string,
 ) {
-  const [enabled, session, watchRecorded, watchUuid] = await Promise.all([
-    getHealthExportEnabled(db),
-    db.getFirstAsync<{
-      status: string;
-      session_kind: string | null;
-      external_id: string | null;
-    }>(
-      `SELECT status, session_kind, external_id
+  const [enabled, session, watchRecorded, watchUuid, watchStarting] =
+    await Promise.all([
+      getHealthExportEnabled(db),
+      db.getFirstAsync<{
+        status: string;
+        session_kind: string | null;
+        external_id: string | null;
+      }>(
+        `SELECT status, session_kind, external_id
          FROM local_sessions
         WHERE id = ?`,
-      sessionId,
-    ),
-    wasWatchRecorded(db, sessionId),
-    healthStateValue(db, watchHealthUuidKey(sessionId)),
-  ]);
-  if (!session || watchRecorded || watchUuid) return;
+        sessionId,
+      ),
+      wasWatchRecorded(db, sessionId),
+      healthStateValue(db, watchHealthUuidKey(sessionId)),
+      isWatchStartPending(db, sessionId),
+    ]);
+  if (!session || watchRecorded || watchUuid || watchStarting) return;
   if (
     !shouldQueueHealthExport({
       exportEnabled: enabled,
@@ -4159,6 +4270,7 @@ export async function listPendingHealthExports(
         AND NOT EXISTS (
           SELECT 1 FROM local_health_state h
            WHERE (h.key = 'watch_recorded:' || local_sessions.id AND h.value = '1')
+              OR (h.key = 'watch_starting:' || local_sessions.id AND h.value = '1')
               OR h.key = 'watch_health_uuid:' || local_sessions.id
         )
       ORDER BY COALESCE(completed_at, started_at) ASC`,

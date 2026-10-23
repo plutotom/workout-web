@@ -4,7 +4,7 @@
     "slug": "workout-ios-v1",
     "platforms": ["ios"],
     "scheme": "workout",
-    "version": "0.3.1",
+    "version": "0.3.3",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "icon": "./assets/icon.png",
@@ -25,7 +25,7 @@
         "com.apple.developer.healthkit": true,
         "com.apple.developer.private-cloud-compute": true
       },
-      "buildNumber": "18"
+      "buildNumber": "20"
     },
     "owner": "plutotom",
     "runtimeVersion": {
@@ -59,6 +59,7 @@
         }
       ],
       "@bacons/apple-targets",
+      "./plugins/watch-release-version.js",
       "./plugins/strip-signing-capabilities.js",
       "./plugins/stable-react-native-path.js"
     ],

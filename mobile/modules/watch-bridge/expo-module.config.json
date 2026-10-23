@@ -1,6 +1,7 @@
 {
   "platforms": ["apple"],
   "apple": {
-    "modules": ["WatchBridgeModule"]
+    "modules": ["WatchBridgeModule"],
+    "appDelegateSubscribers": ["WatchBridgeAppDelegateSubscriber"]
   }
 }

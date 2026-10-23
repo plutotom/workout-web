@@ -21,6 +21,7 @@ const focusPrefs: LocalPreferences = {
   restTimerEnabled: true,
   restTimerNotificationsEnabled: true,
   appleHealthImportNotificationsEnabled: false,
+  autoStartWatchWorkout: true,
 };
 
 const localGeneral = {
