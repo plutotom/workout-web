@@ -6,7 +6,9 @@ import { migrateLocalDatabase } from "./migrations";
 import {
   applyIosBootstrap,
   getPendingCustomExerciseSync,
+  getPendingSessionSync,
   queueCustomExerciseSnapshot,
+  queueSessionSnapshot,
 } from "./repository";
 
 const databases = [];
@@ -68,6 +70,25 @@ const payload = (customExercises) => ({
   exerciseNotes: [],
   customExercises,
 });
+async function staleDraftFixture() {
+  const fixtureData = await fixture();
+  const { db, sql } = fixtureData;
+  await seed(db, "cloud-a");
+  sql.exec(`
+    INSERT INTO local_templates (id, remote_id, name, updated_at)
+      VALUES ('template', 'local:template', 'Fixture', 1);
+    INSERT INTO local_template_exercises (id, template_id, slug, order_index, sets_json)
+      VALUES ('template-lift', 'template', 'custom:local-cloud-a', 0, '[{"weight":0,"reps":1}]');
+    INSERT INTO local_sessions (id, template_id, template_name, status, started_at, completed_at, updated_at)
+      VALUES ('session', 'template', 'Fixture', 'completed', 100, 200, 200);
+    INSERT INTO local_session_exercises (id, session_id, slug, order_index)
+      VALUES ('session-lift', 'session', 'custom:local-cloud-a', 0);
+    INSERT INTO local_sets (id, session_exercise_id, order_index, weight, reps, completed)
+      VALUES ('set', 'session-lift', 0, 0, 1, 1);
+  `);
+  await queueSessionSnapshot(db, "session", 200);
+  return fixtureData;
+}
 async function seed(db, remoteId) {
   await db.runAsync(
     "INSERT INTO local_custom_exercises (id, slug, remote_id, name, category, uses_bar, archived, updated_at) VALUES ('cloud-a', ?, ?, 'Fixture raise', 'shoulders', 0, 0, 1)",
@@ -162,4 +183,59 @@ it("rolls back interrupted identity repair and preserves its durable operation f
   expect(
     await db.getAllAsync("SELECT id FROM local_custom_exercises"),
   ).toHaveLength(2);
+});
+
+it("repairs already-saved stale drafts while preserving workout/set identities and completion", async () => {
+  const { db, sql } = await staleDraftFixture();
+  const before = await getPendingSessionSync(db);
+  await applyIosBootstrap(db, payload([lift("cloud-a", "cloud-a")]));
+  expect(
+    sql.prepare("SELECT id, slug FROM local_session_exercises").all(),
+  ).toEqual([{ id: "session-lift", slug: "custom:cloud-a" }]);
+  expect(
+    sql.prepare("SELECT id, slug FROM local_template_exercises").all(),
+  ).toEqual([{ id: "template-lift", slug: "custom:cloud-a" }]);
+  expect(sql.prepare("SELECT id FROM local_sets").get().id).toBe("set");
+  const session = sql
+    .prepare(
+      "SELECT completed_at, updated_at, health_export_pending FROM local_sessions",
+    )
+    .get();
+  expect(session.completed_at).toBe(200);
+  expect(session.updated_at).toBeGreaterThan(200);
+  expect(session.health_export_pending).toBe(0);
+  const after = await getPendingSessionSync(db);
+  expect(after.operationId).not.toBe(before.operationId);
+  expect(after.snapshot.exercises[0].slug).toBe("custom:cloud-a");
+});
+
+it("rolls back stale draft repair and revision if its replacement outbox cannot commit", async () => {
+  const { db, sql } = await staleDraftFixture();
+  const before = await getPendingSessionSync(db);
+  const original = db.runAsync;
+  const failure = vi
+    .spyOn(db, "runAsync")
+    .mockImplementation(async (statement, ...values) => {
+      if (
+        statement.includes("INSERT INTO local_sync_outbox") &&
+        statement.includes("'session'")
+      )
+        throw new Error("Interrupted replacement snapshot");
+      return original(statement, ...values);
+    });
+  await expect(
+    applyIosBootstrap(db, payload([lift("cloud-a", "cloud-a")])),
+  ).rejects.toThrow("Interrupted replacement snapshot");
+  failure.mockRestore();
+  expect(
+    sql.prepare("SELECT slug FROM local_session_exercises").get().slug,
+  ).toBe("custom:local-cloud-a");
+  expect(
+    sql.prepare("SELECT updated_at FROM local_sessions").get().updated_at,
+  ).toBe(200);
+  expect(await getPendingSessionSync(db)).toEqual(before);
+  await applyIosBootstrap(db, payload([lift("cloud-a", "cloud-a")]));
+  expect((await getPendingSessionSync(db)).snapshot.exercises[0].slug).toBe(
+    "custom:cloud-a",
+  );
 });

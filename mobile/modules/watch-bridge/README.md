@@ -1,6 +1,6 @@
 # Connected Watch release
 
-The 0.3.3 (20) candidate keeps phone-led workout logging. The Watch owns its
+The 0.3.3 (21) candidate keeps phone-led workout logging. The Watch owns its
 HealthKit recording; native workout-session mirroring carries live data and
 scoped control messages. Standalone set/weight entry on Watch is deferred.
 
@@ -40,6 +40,12 @@ Watch cannot instantly learn about phone Finish. Saving the phone log and
 confirming Watch completion remain separate outcomes.
 
 ## Upgrade and release checks
+
+Build 21 also retains provisional custom-exercise aliases for open editors and
+history, and resolves stale template draft slugs to the adopted exercise inside
+the save transaction. This prevents the internal `custom:local-…` identifier from
+replacing a lift's name when its initial upload finishes while an editor is open.
+The Watch recording implementation is unchanged from the tested build 20.
 
 Install matching iPhone and Watch binaries in place. An older Watch cannot admit
 the new protocol. Both target versions/builds derive from `mobile/app.json`, and

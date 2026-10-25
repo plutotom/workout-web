@@ -26,6 +26,8 @@ import {
   restoreLocalBackup,
 } from "@/data/local/backup";
 import { migrateLocalDatabase } from "@/data/local/migrations";
+import { listLocalCustomExercises } from "@/data/local/repository";
+import { buildLocalExerciseCatalog } from "@/providers/local-exercise-catalog";
 
 let phone;
 const ALICE = "user_test_alice";
@@ -720,6 +722,72 @@ describe("offline account lifecycle with SQLite and Convex", () => {
         (row) => row.operationId === deletes[0].operationId,
       ),
     ).toHaveLength(1);
+  });
+
+  it("resolves a custom lift adopted while a template draft is open, then saves and syncs that draft after offline restart", async () => {
+    await seedExistingAccount();
+    await seedExistingAccount(BOB);
+    await phone.connect();
+    await phone.signIn(ALICE);
+    await phone.settle();
+    await phone.offline();
+    const lift = await phone.edit((local) =>
+      local.saveCustomExercise({
+        name: "Draft lift",
+        category: "arms",
+        usesBar: false,
+      }),
+    );
+    // This is the value held by the unsaved editor during upload/adoption.
+    const draftSlug = lift.slug;
+    await phone.connect();
+    await phone.settle();
+    const custom = await listLocalCustomExercises(phone.db);
+    const adopted = custom.find((exercise) => exercise._id === lift._id);
+    expect(adopted.slug).not.toBe(draftSlug);
+    const catalog = buildLocalExerciseCatalog(custom);
+    expect(catalog.name(draftSlug)).toBe("Draft lift");
+    expect(catalog.get(draftSlug).slug).toBe(adopted.slug);
+    expect(catalog.search("Draft lift", "all")).toHaveLength(1);
+
+    await phone.offline();
+    const templateId = await phone.edit((local) =>
+      local.saveTemplate({
+        name: "Saved stale draft",
+        exercises: [{ slug: draftSlug, sets: [{ weight: 0, reps: 1 }] }],
+      }),
+    );
+    const sessionId = await phone.edit((local) =>
+      local.startFromTemplate(templateId, false),
+    );
+    const before = await phone.workout(sessionId);
+    expect(before.exercises[0].slug).toBe(adopted.slug);
+    await phone.reopen();
+    expect((await phone.workout(sessionId)).exercises).toEqual(
+      before.exercises,
+    );
+    expect(
+      buildLocalExerciseCatalog(await listLocalCustomExercises(phone.db)).name(
+        draftSlug,
+      ),
+    ).toBe("Draft lift");
+    await phone.connect();
+    await phone.settle();
+    expect(phone.outbox()).toHaveLength(0);
+    expect((await phone.workout(sessionId)).exercises[0]._id).toBe(
+      before.exercises[0]._id,
+    );
+    const records = await phone.records(ALICE);
+    expect(records.customExercises).toHaveLength(1);
+    const template = records.workoutTemplates.find(
+      (row) => row.name === "Saved stale draft",
+    );
+    expect(
+      records.templateExercises.filter(
+        (row) => row.templateId === template._id,
+      ),
+    ).toMatchObject([{ exerciseSlug: adopted.slug }]);
+    expect((await phone.records(BOB)).customExercises).toHaveLength(0);
   });
 
   it("preserves distinct custom lifts with the same name and remaps references to the correct lift", async () => {

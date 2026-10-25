@@ -64,6 +64,7 @@ import type {
 import {
   convexWorkoutTemplateId,
   isUnsyncedTemplateRemoteId,
+  LOCAL_CUSTOM_SLUG_PREFIX,
   localCustomSlug,
   localTemplateIdsToPrune,
   localTemplateRemoteId,
@@ -1299,7 +1300,7 @@ async function withPreferencesTransaction(
   const previous = preferenceWrites.get(db) ?? Promise.resolve();
   const write = previous
     .catch(() => {})
-    .then(() => db.withExclusiveTransactionAsync(operation));
+    .then(() => withWorkoutTransaction(db, operation));
   preferenceWrites.set(db, write);
   try {
     await write;
@@ -2206,13 +2207,23 @@ export async function saveLocalTemplate(
       templateId,
     );
     for (const exercise of exercises) {
+      // A custom lift may have synced while this template was an unsaved
+      // editor draft. Resolve through its stable, account-local row identity
+      // inside the write transaction so a stale draft cannot reintroduce the
+      // provisional slug after adoption already remapped persisted references.
+      const adopted = exercise.slug.startsWith(LOCAL_CUSTOM_SLUG_PREFIX)
+        ? await txn.getFirstAsync<{ slug: string }>(
+            "SELECT slug FROM local_custom_exercises WHERE id = ?",
+            exercise.slug.slice(LOCAL_CUSTOM_SLUG_PREFIX.length),
+          )
+        : null;
       await txn.runAsync(
         `INSERT INTO local_template_exercises (
            id, template_id, slug, order_index, sets_json
          ) VALUES (?, ?, ?, ?, ?)`,
         randomUUID(),
         templateId,
-        exercise.slug,
+        adopted?.slug ?? exercise.slug,
         exercise.orderIndex,
         JSON.stringify(exercise.sets),
       );
@@ -3139,7 +3150,7 @@ async function requeueRemapped(
   // Payloads captured before the remap still carry the provisional slug, so the
   // affected aggregates are re-snapshotted. Both pushes are upserts.
   for (const sessionId of new Set(targets.sessionIds))
-    await queueSessionSnapshot(db, sessionId, now);
+    await markSessionUpdated(db, sessionId, now);
   for (const templateId of new Set(targets.templateIds))
     await queueTemplateSnapshot(db, templateId, now);
 }
@@ -3154,7 +3165,7 @@ export async function completeCustomExerciseSync(
   const now = Date.now();
   let targets: SlugRemapTargets = { sessionIds: [], templateIds: [] };
 
-  await db.withExclusiveTransactionAsync(async (txn) => {
+  await withWorkoutTransaction(db, async (txn) => {
     const existing = await txn.getFirstAsync<{ slug: string }>(
       "SELECT slug FROM local_custom_exercises WHERE id = ?",
       exerciseId,
@@ -3169,6 +3180,15 @@ export async function completeCustomExerciseSync(
       );
       targets = await remapCustomSlug(txn, existing.slug, remoteSlug);
     }
+    if (existing) {
+      const staleDraft = await remapCustomSlug(
+        txn,
+        localCustomSlug(exerciseId),
+        remoteSlug,
+      );
+      targets.sessionIds.push(...staleDraft.sessionIds);
+      targets.templateIds.push(...staleDraft.templateIds);
+    }
     await txn.runAsync(
       "UPDATE local_custom_exercises SET remote_id = ?, slug = ? WHERE id = ?",
       remoteId,
@@ -3179,9 +3199,8 @@ export async function completeCustomExerciseSync(
       "DELETE FROM local_sync_outbox WHERE operation_id = ?",
       operationId,
     );
+    await requeueRemapped(txn, targets, now);
   });
-
-  await requeueRemapped(db, targets, now);
 }
 
 export async function completePlaceSync(
@@ -3426,6 +3445,15 @@ export async function applyIosBootstrap(
         remapTargets.sessionIds.push(...remapped.sessionIds);
         remapTargets.templateIds.push(...remapped.templateIds);
       }
+      // Older drafts could be saved after adoption already completed. Repair
+      // their provisional references even when this lift is already canonical.
+      const staleDraft = await remapCustomSlug(
+        txn,
+        localCustomSlug(existing.id),
+        remoteSlug,
+      );
+      remapTargets.sessionIds.push(...staleDraft.sessionIds);
+      remapTargets.templateIds.push(...staleDraft.templateIds);
 
       // A queued edit has not reached the server yet, so only adopt the
       // identity; the local values stay authoritative until the upload lands.
@@ -3554,9 +3582,8 @@ export async function applyIosBootstrap(
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
       String(payload.serverTime),
     );
+    await requeueRemapped(txn, remapTargets, payload.serverTime);
   });
-
-  await requeueRemapped(db, remapTargets, payload.serverTime);
 }
 
 export async function getLocalPreferences(
