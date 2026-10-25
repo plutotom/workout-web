@@ -72,9 +72,12 @@ export function TemplateEditor({
     isAuthenticated ? { slugs } : "skip",
   );
   const storedLocalNotes = useLocalExerciseNotes(slugs);
-  const notes = isAuthenticated
-    ? (remoteNotes ?? {})
-    : { ...(storedLocalNotes ?? {}), ...localNotes };
+  // A saved query may lag behind typing (or arrive between layout events).
+  // Keep this editor's raw draft authoritative, including trailing spaces.
+  const notes = {
+    ...(isAuthenticated ? remoteNotes : storedLocalNotes),
+    ...localNotes,
+  };
   const setCount = exercises.reduce(
     (sum, exercise) => sum + exercise.sets.length,
     0,
@@ -141,8 +144,8 @@ export function TemplateEditor({
   }
 
   async function persistNote(slug: string, value: string) {
+    setLocalNotes((current) => ({ ...current, [slug]: value }));
     if (!isAuthenticated) {
-      setLocalNotes((current) => ({ ...current, [slug]: value }));
       await saveLocalNote(slug, value);
       return;
     }

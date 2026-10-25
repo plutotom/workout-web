@@ -18,6 +18,9 @@ import {
   setLocalSessionPlace,
   setLocalSessionMachine,
   startLocalBlankWorkout,
+  finishLocalWorkout,
+  abandonLocalWorkout,
+  listWatchClosures,
 } from "./repository";
 import { DEFAULT_MACHINE_KEY } from "@shared/place-memory";
 
@@ -91,6 +94,45 @@ afterEach(() => {
   vi.restoreAllMocks();
   for (const sql of databases.splice(0)) sql.close();
 });
+
+it.each(["finish", "discard", "replace"])(
+  "rolls back workout changes and upload intent when durable Watch %s intent fails",
+  async (action) => {
+    const { db, sql } = await fixture();
+    const id = await startLocalBlankWorkout(db);
+    const sessions = sql.prepare("SELECT * FROM local_sessions").all();
+    const outbox = sql.prepare("SELECT * FROM local_sync_outbox").all();
+    const run = db.runAsync;
+    db.runAsync = async (statement, ...values) => {
+      if (values.flat().includes(`watch_closure:${id}`))
+        throw new Error("Synthetic Watch closure write failure");
+      return run(statement, ...values);
+    };
+    const operation = () =>
+      action === "finish"
+        ? finishLocalWorkout(db, id)
+        : action === "discard"
+          ? abandonLocalWorkout(db, id)
+          : startLocalBlankWorkout(db, true);
+    await expect(operation()).rejects.toThrow(
+      "Synthetic Watch closure write failure",
+    );
+    expect(sql.prepare("SELECT * FROM local_sessions").all()).toEqual(sessions);
+    expect(sql.prepare("SELECT * FROM local_sync_outbox").all()).toEqual(
+      outbox,
+    );
+    expect(await listWatchClosures(db)).toEqual([]);
+    db.runAsync = run;
+    await operation();
+    expect(await listWatchClosures(db)).toEqual([
+      expect.objectContaining({
+        sessionId: id,
+        endedAt: expect.any(Number),
+        discard: action !== "finish",
+      }),
+    ]);
+  },
+);
 
 it("preserves a web workout's template identity in its next upload", async () => {
   const { db } = await fixture();

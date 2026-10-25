@@ -16,6 +16,7 @@ describe("assembleAccountBackup", () => {
           restTimerEnabled: true,
           restTimerNotificationsEnabled: true,
           appleHealthImportNotificationsEnabled: false,
+          autoStartWatchWorkout: true,
         },
         customExercises: [
           {

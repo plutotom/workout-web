@@ -13,6 +13,8 @@ export default defineConfig({
       "react-native": requireMobile.resolve("react-native"),
       "expo-sqlite": requireMobile.resolve("expo-sqlite"),
       "expo-crypto": requireMobile.resolve("expo-crypto"),
+      "expo-secure-store": requireMobile.resolve("expo-secure-store"),
+      "expo-web-browser": requireMobile.resolve("expo-web-browser"),
       "@": path.resolve(import.meta.dirname, "mobile/src"),
       "@backend": path.resolve(import.meta.dirname, "backend/_generated"),
       "@shared": path.resolve(import.meta.dirname, "src/lib"),

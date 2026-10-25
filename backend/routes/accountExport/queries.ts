@@ -29,6 +29,7 @@ const preferencesValidator = v.object({
   restTimerEnabled: v.boolean(),
   restTimerNotificationsEnabled: v.boolean(),
   appleHealthImportNotificationsEnabled: v.boolean(),
+  autoStartWatchWorkout: v.optional(v.boolean()),
 });
 
 const templateSetValidator = v.object({
@@ -189,6 +190,7 @@ export const metadata = query({
         restTimerEnabled: user.restTimerEnabled ?? true,
         restTimerNotificationsEnabled: true,
         appleHealthImportNotificationsEnabled: false,
+        autoStartWatchWorkout: true,
       },
       customExercises: customExercises.map((exercise) => ({
         id: String(exercise._id),

@@ -1,11 +1,8 @@
-import {
-  buildCatalog,
-  type CustomExerciseEntry,
-  type ExerciseCatalog,
-} from "@shared/exercises";
+import { buildCatalog, type ExerciseCatalog } from "@shared/exercises";
 import { createContext, useContext, useMemo } from "react";
 
 import { useLocalCustomExercises } from "@/data/local/provider";
+import { buildLocalExerciseCatalog } from "./local-exercise-catalog";
 
 const CatalogContext = createContext<ExerciseCatalog>(buildCatalog());
 
@@ -17,17 +14,7 @@ const CatalogContext = createContext<ExerciseCatalog>(buildCatalog());
 export function CatalogProvider({ children }: { children: React.ReactNode }) {
   const custom = useLocalCustomExercises();
   const catalog = useMemo(
-    () =>
-      buildCatalog(
-        (custom ?? []).map<CustomExerciseEntry>((exercise) => ({
-          slug: exercise.slug,
-          name: exercise.name,
-          short: exercise.short ?? undefined,
-          category: exercise.category,
-          usesBar: exercise.usesBar,
-          archived: exercise.archived,
-        })),
-      ),
+    () => buildLocalExerciseCatalog(custom ?? []),
     [custom],
   );
   return (

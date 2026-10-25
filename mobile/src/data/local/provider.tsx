@@ -14,6 +14,7 @@ import {
   type ReactNode,
 } from "react";
 import { useAuthCredentials } from "@/auth/auth-provider";
+import { retainScopedDatabaseConnection } from "./database-connections";
 import {
   accountDatabaseName,
   prepareScopedDatabase,
@@ -114,6 +115,7 @@ import {
   setHealthExportEnabled as writeHealthExportEnabled,
   patchLocalPreferences,
   setLocalNotificationPreferences as writeLocalNotificationPreferences,
+  setLocalWatchPreferences as writeLocalWatchPreferences,
   setLocalSessionMachine,
   setLocalSessionPlace,
   startLocalBlankWorkout,
@@ -127,7 +129,6 @@ import {
   type RemoteCompletedListWorkout,
   type RemoteCompletedNoteWorkout,
 } from "@/data/local/repository";
-import { discardWatchWorkout, endWatchWorkout } from "@/health/watch-bridge";
 import { shouldSkipPhoneHealthExport } from "@/health/watch-session";
 import {
   archiveLocalPlace,
@@ -154,6 +155,7 @@ import type {
   LocalNotificationPreferences,
   LocalPlace,
   LocalPreferences,
+  LocalWatchPreferences,
   LocalTemplate,
   LocalWorkoutSession,
 } from "@/data/local/types";
@@ -308,6 +310,7 @@ type LocalDataContextValue = {
   setNotificationPreferences: (
     preferences: LocalNotificationPreferences,
   ) => Promise<void>;
+  setWatchPreferences: (preferences: LocalWatchPreferences) => Promise<void>;
   setGeneralPreferences: (patch: LocalGeneralPreferencePatch) => Promise<void>;
   applyBootstrap: (payload: IosBootstrapPayload) => Promise<void>;
 };
@@ -319,9 +322,11 @@ export function LocalDatabaseProvider({ children }: { children: ReactNode }) {
   const owner = user?.id ?? null;
   const databaseName = accountDatabaseName(owner);
   const initialize = useCallback(
-    (db: Parameters<typeof migrateLocalDatabase>[0]) =>
-      prepareScopedDatabase(db, owner),
-    [owner],
+    async (db: Parameters<typeof migrateLocalDatabase>[0]) => {
+      await retainScopedDatabaseConnection(databaseName, db);
+      await prepareScopedDatabase(db, owner);
+    },
+    [databaseName, owner],
   );
   if (loading && !user) return null;
   return (
@@ -365,8 +370,7 @@ function LocalDataState({
       // Persist first so an invalid note or storage failure leaves a resumable workout.
       if (noteBody !== undefined)
         await finishLocalNoteWorkout(db, sessionId, noteBody);
-      // Watch I/O must not hold Finish on screen if the companion hangs.
-      void endWatchWorkout().catch(() => undefined);
+      // The coordinator replays the atomically stored Watch closure.
       if (noteBody === undefined) await finishLocalWorkout(db, sessionId);
       if (noteBody !== undefined) {
         // Completion is already durable. Stored UUIDs and export intent retry in
@@ -516,7 +520,6 @@ function LocalDataState({
         run(() => retryLocalSessionShareSync(db, sessionId)),
       abandon: (sessionId) =>
         run(async () => {
-          void discardWatchWorkout().catch(() => undefined);
           await abandonLocalWorkout(db, sessionId);
           clearSessionCollapsed(sessionId);
         }),
@@ -538,6 +541,8 @@ function LocalDataState({
         run(() => writeHealthAutoImportPrefs(db, prefs)),
       setNotificationPreferences: (preferences) =>
         run(() => writeLocalNotificationPreferences(db, preferences)),
+      setWatchPreferences: (preferences) =>
+        run(() => writeLocalWatchPreferences(db, preferences)),
       setGeneralPreferences: (patch) =>
         run(() => patchLocalPreferences(db, patch)),
       applyBootstrap: (payload) => run(() => applyIosBootstrap(db, payload)),

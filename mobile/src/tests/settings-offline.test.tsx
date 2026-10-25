@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
     restTimerEnabled: true,
     restTimerNotificationsEnabled: true,
     appleHealthImportNotificationsEnabled: false,
+    autoStartWatchWorkout: true,
   },
   setPreferences:
     vi.fn<(patch: LocalGeneralPreferencePatch) => Promise<void>>(),
@@ -124,6 +125,9 @@ vi.mock("@/components/settings/places-settings-card", () => ({
 vi.mock("@/health/health-settings-card", () => ({
   HealthSettingsCard: "Health",
 }));
+vi.mock("@/components/settings/watch-settings-card", () => ({
+  WatchSettingsCard: "Watch",
+}));
 
 let renderer: ReactTestRenderer | undefined;
 beforeEach(() => {
@@ -198,7 +202,7 @@ describe("local settings while offline or reconnecting", () => {
   it("renders working General controls and all device settings during account connection", async () => {
     await mount();
     expect(renderer!.root.findByType(GeneralPreferencesCard)).toBeDefined();
-    for (const type of ["Places", "Health", "Notifications"]) {
+    for (const type of ["Places", "Health", "Watch", "Notifications"]) {
       expect(renderer!.root.findAll((node) => node.type === type)).toHaveLength(
         1,
       );

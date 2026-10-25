@@ -94,6 +94,22 @@ export async function databaseBelongsTo(db: SQLiteDatabase, owner: string) {
   return (await metadata(db, OWNER)) === `account:${owner}`;
 }
 
+export async function transferredGuestWorkoutIds(
+  db: SQLiteDatabase,
+  owner: string | null,
+): Promise<string[]> {
+  if (!owner || !(await databaseBelongsTo(db, owner))) return [];
+  const receipts = await db.getAllAsync<{ value: string }>(
+    "SELECT value FROM local_metadata WHERE key LIKE 'recovery:transfer:%'",
+  );
+  return receipts.flatMap(({ value }) => {
+    const transfer = JSON.parse(value) as Transfer;
+    return transfer.guest && transfer.owner === owner
+      ? transfer.snapshot.tables.local_sessions.map((row) => String(row.id))
+      : [];
+  });
+}
+
 async function snapshot(db: SQLiteDatabase): Promise<Snapshot> {
   const tables: Snapshot["tables"] = {};
   for (const table of TABLES)

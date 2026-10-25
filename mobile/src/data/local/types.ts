@@ -208,11 +208,18 @@ export type LocalPreferences = {
   restTimerEnabled: boolean;
   restTimerNotificationsEnabled: boolean;
   appleHealthImportNotificationsEnabled: boolean;
+  /** Device-local. Watch pairing is per-phone; missing/default is on. */
+  autoStartWatchWorkout: boolean;
 };
 
 export type LocalNotificationPreferences = Pick<
   LocalPreferences,
   "restTimerNotificationsEnabled" | "appleHealthImportNotificationsEnabled"
+>;
+
+export type LocalWatchPreferences = Pick<
+  LocalPreferences,
+  "autoStartWatchWorkout"
 >;
 
 /** Fields the in-progress workout reads from SQLite, not Convex. */

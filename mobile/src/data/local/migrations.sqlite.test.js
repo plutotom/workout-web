@@ -39,11 +39,23 @@ describe("local schema compatibility using SQLite", () => {
         id TEXT PRIMARY KEY, template_name TEXT, status TEXT,
         started_at INTEGER, updated_at INTEGER
       );
+      CREATE TABLE local_preferences (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        unit TEXT NOT NULL DEFAULT 'lb'
+      );
       INSERT INTO local_sessions VALUES ('active', 'Push day', 'in_progress', 100, 200);
+      INSERT INTO local_preferences (id, unit) VALUES (1, 'lb');
       PRAGMA user_version = 7;
     `);
     await migrateLocalDatabase(db);
-    expect(sql.prepare("PRAGMA user_version").get().user_version).toBe(8);
+    expect(sql.prepare("PRAGMA user_version").get().user_version).toBe(9);
+    expect(
+      sql
+        .prepare(
+          "SELECT auto_start_watch_workout FROM local_preferences WHERE id = 1",
+        )
+        .get().auto_start_watch_workout,
+    ).toBe(1);
     expect(sessionRows(sql)).toEqual([
       {
         id: "active",
@@ -58,7 +70,7 @@ describe("local schema compatibility using SQLite", () => {
     ]);
   });
 
-  it("opens an existing version 8 database without changing workouts, notes, sets or queued sync", async () => {
+  it("opens an existing version 9 database without changing workouts, notes, sets or queued sync", async () => {
     const { sql, db } = fixture();
     await migrateLocalDatabase(db);
     sql.exec(`
@@ -79,7 +91,7 @@ describe("local schema compatibility using SQLite", () => {
       outbox: sql.prepare("SELECT * FROM local_sync_outbox").all(),
     };
     await migrateLocalDatabase(db);
-    expect(sql.prepare("PRAGMA user_version").get().user_version).toBe(8);
+    expect(sql.prepare("PRAGMA user_version").get().user_version).toBe(9);
     expect({
       sessions: sessionRows(sql),
       sets: sql.prepare("SELECT * FROM local_sets").all(),
@@ -90,12 +102,12 @@ describe("local schema compatibility using SQLite", () => {
   it("still refuses an unknown future schema without rewriting it", async () => {
     const { sql, db } = fixture();
     sql.exec(
-      "CREATE TABLE keep_me (value TEXT); INSERT INTO keep_me VALUES ('saved'); PRAGMA user_version = 9;",
+      "CREATE TABLE keep_me (value TEXT); INSERT INTO keep_me VALUES ('saved'); PRAGMA user_version = 10;",
     );
     await expect(migrateLocalDatabase(db)).rejects.toThrow(
-      "Workout database version 9 is newer than this app supports",
+      "Workout database version 10 is newer than this app supports",
     );
-    expect(sql.prepare("PRAGMA user_version").get().user_version).toBe(9);
+    expect(sql.prepare("PRAGMA user_version").get().user_version).toBe(10);
     expect(sql.prepare("SELECT value FROM keep_me").get().value).toBe("saved");
   });
 });

@@ -60,11 +60,17 @@ in steps while real handler/module I/O completes between steps, with seeded retr
 jitter. Core new/existing account merges run with subscription updates before
 acknowledgments and with updates withheld until uploads have been acknowledged.
 
-This tests persistence and synchronization across the account lifecycle. It does
-**not** test the actual WorkOS browser login, production `MobileAccountProvider`
-and Convex token/subscription integration, device keychain, radio connectivity,
-native keyboard, or hosted Convex infrastructure. Device and staging smoke tests
-are still required for those boundaries.
+`auth-convex-reconnect.test.js` additionally mounts the production `AuthProvider`,
+Convex auth provider/effects, `MobileAccountProvider`, and `LocalDatabaseProvider`.
+It simulates token/server I/O and native connection reference counts, while using
+file-backed SQLite. It covers a rejected cloud handshake followed by Retry,
+failed Retry followed by recovery, delayed refresh after sign-out, and a held
+workout read during repeated sign-out/sign-in. The app retains a process-lifetime
+connection lease so Expo's provider teardown cannot close that busy handle.
+
+These tests do **not** execute the actual WorkOS browser login, device keychain,
+native SQLite implementation, radio connectivity, native keyboard, or hosted
+Convex infrastructure. Device and staging smoke tests remain required.
 
 ## Scenarios
 
@@ -80,6 +86,10 @@ are still required for those boundaries.
 - Background edits wait for foreground; queues larger than one worker batch drain.
 - A populated SQLite v7 database and old queued session payload migrate and merge
   with a minimal legacy Convex user and legacy workout.
+- An existing account's SQLite v8 upgrade rolls back failures after the v9 DDL
+  and before commit, preserving schema, every local row, and queued operations.
+  Reopening completes the upgrade; reconnect, a lost upload response, and another
+  restart converge without duplicating workouts or their children.
 - Concurrent cloud notes/preferences and deletion of an unedited cloud template
   merge with queued phone edits.
 - Same-name custom lifts retain their definitions and resolve to the correct
@@ -131,7 +141,7 @@ list edits and remote workout adoption. Keep a regression for each discovered
 failure; a green type check or policy-helper unit test cannot replace these
 behavioral contracts.
 
-The strict suite currently contains **67 lifecycle cases**. Report its result
+The strict suite currently contains **109 lifecycle cases**. Report its result
 separately from the ordinary unit suite; neither replaces device/staging checks.
 
 ## Upgrade and recovery behavior

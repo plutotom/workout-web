@@ -276,10 +276,12 @@ export function NoteWorkoutEditor({
       >
         <PageHeader title="Note workout" back subtitle={subtitle} />
         {placeControls}
-        <WatchCompanionCard
-          sessionId={session._id}
-          startedAt={session.startedAt}
-        />
+        {session.status !== "in_progress" ? null : (
+          <WatchCompanionCard
+            sessionId={session._id}
+            startedAt={session.startedAt}
+          />
+        )}
         <WorkoutNoteField
           text={text}
           onChangeText={changeText}

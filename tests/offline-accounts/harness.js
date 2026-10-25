@@ -16,6 +16,7 @@ const native = vi.hoisted(() => ({
   phone: null,
   appState: "active",
   listeners: new Set(),
+  watchListeners: new Set(),
 }));
 vi.mock("expo-crypto", () => ({ randomUUID: () => randomUUID() }));
 vi.mock("expo-sqlite", async () => {
@@ -70,8 +71,14 @@ vi.mock("react-native", () => ({
   },
 }));
 vi.mock("@/health/watch-bridge", () => ({
+  setWatchAccountScope: () => {},
+  closeWatchRecording: async () => null,
   endWatchWorkout: async () => null,
   discardWatchWorkout: async () => null,
+  subscribeWatchEvents: (listener) => {
+    native.watchListeners.add(listener);
+    return () => native.watchListeners.delete(listener);
+  },
 }));
 vi.mock("@/auth/auth-provider", async () => {
   const React = await import("react");
@@ -127,6 +134,7 @@ import {
   useLocalSessionShareOutboxAttempt,
 } from "@/data/local/provider";
 import { SyncCoordinator } from "@/data/sync/sync-coordinator";
+import { WatchHealthCoordinator } from "@/health/watch-coordinator";
 import {
   getLocalPreferences,
   getLocalWorkout,
@@ -144,6 +152,7 @@ function sqliteAdapter(sql) {
   const bindings = (args) =>
     args.length === 1 && Array.isArray(args[0]) ? args[0] : args;
   const db = {
+    databasePath: sql.prepare("PRAGMA database_list").get().file,
     testSql: sql,
     closeAsync: async () => {}, // Connections are closed by PhoneScenario lifecycle.
     execAsync: async (query) => sql.exec(query),
@@ -222,6 +231,7 @@ export class PhoneScenario {
     native.phone = this;
     native.appState = "active";
     native.listeners.clear();
+    native.watchListeners.clear();
     this.resetAuth();
   }
 
@@ -284,6 +294,7 @@ export class PhoneScenario {
           null,
           React.createElement(Probe),
           React.createElement(SyncCoordinator),
+          React.createElement(WatchHealthCoordinator),
         ),
       );
     });
@@ -323,6 +334,14 @@ export class PhoneScenario {
       result = await operation(this.local);
     });
     return result;
+  }
+
+  async watchEvent(event) {
+    await act(async () => {
+      for (const listener of native.watchListeners) listener(event);
+      await nextTurn();
+    });
+    await this.tick();
   }
 
   async offline() {
