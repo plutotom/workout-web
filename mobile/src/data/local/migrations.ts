@@ -1,9 +1,9 @@
 import type { SQLiteDatabase } from "expo-sqlite";
 
-// Version 8 was installed by the note-workouts branch. Keep the same
-// additive schema across branches: switching bundles preserves the phone
-// database, including stored notes and in-progress workouts.
-const DATABASE_VERSION = 8;
+// Version 9 adds the device-local Apple Watch auto-start preference.
+// Keep upgrades additive: switching bundles preserves the phone database,
+// including stored notes and in-progress workouts.
+const DATABASE_VERSION = 9;
 
 export async function migrateLocalDatabase(db: SQLiteDatabase) {
   await db.execAsync("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
@@ -251,6 +251,14 @@ export async function migrateLocalDatabase(db: SQLiteDatabase) {
         ALTER TABLE local_sessions ADD COLUMN note_body TEXT;
         ALTER TABLE local_sessions ADD COLUMN note_unit TEXT;
         PRAGMA user_version = 8;
+      `);
+    }
+
+    if (currentVersion < 9) {
+      await db.execAsync(`
+        ALTER TABLE local_preferences
+          ADD COLUMN auto_start_watch_workout INTEGER NOT NULL DEFAULT 1;
+        PRAGMA user_version = 9;
       `);
     }
   });

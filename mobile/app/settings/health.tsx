@@ -37,6 +37,7 @@ import {
   type HealthOverlapCandidate,
   type HealthWorkoutSummary,
 } from "@/health";
+import { WatchSettingsCard } from "@/components/settings/watch-settings-card";
 import { HealthActivityIcon } from "@/health/activity-icon";
 import {
   AUTO_IMPORT_TYPE_OPTIONS,
@@ -444,6 +445,8 @@ export default function HealthSettingsScreen() {
           />
         )}
       </Card>
+
+      <WatchSettingsCard />
 
       {auth === "unavailable" ? null : (
         <Card>

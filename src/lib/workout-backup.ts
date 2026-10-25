@@ -48,6 +48,7 @@ export type BackupPreferences = {
   restTimerEnabled: boolean;
   restTimerNotificationsEnabled: boolean;
   appleHealthImportNotificationsEnabled: boolean;
+  autoStartWatchWorkout: boolean;
 };
 
 export type BackupCustomExercise = {
@@ -677,6 +678,8 @@ function validatePreferences(value: unknown): BackupPreferences {
     restTimerNotificationsEnabled: raw.restTimerNotificationsEnabled !== false,
     appleHealthImportNotificationsEnabled:
       raw.appleHealthImportNotificationsEnabled === true,
+    // Watch pairing is per-phone. Missing means keep today's auto-start.
+    autoStartWatchWorkout: raw.autoStartWatchWorkout !== false,
   };
 }
 

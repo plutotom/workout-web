@@ -59,6 +59,7 @@ describe("older iOS backups", () => {
     expect(
       result.snapshot.preferences.appleHealthImportNotificationsEnabled,
     ).toBe(false);
+    expect(result.snapshot.preferences.autoStartWatchWorkout).toBe(true);
     expect(result.snapshot.customExercises[0]!.remoteId).toBeNull();
     expect(result.snapshot.templates[0]!.remoteId).toBeNull();
     expect(result.snapshot.sessions[0]!.remoteId).toBeNull();

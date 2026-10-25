@@ -112,6 +112,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     controller.subscribe,
     controller.getSnapshot,
   );
+  // Convex's auth effect depends on this callback's identity. Retry must
+  // restart a rejected handshake even when loading=true/false is batched.
+  const [fetchAccessToken, setFetchAccessToken] = useState(
+    () => controller.fetchAccessToken,
+  );
+  const reconnect = useCallback(async () => {
+    try {
+      await controller.reconnect();
+    } finally {
+      setFetchAccessToken(
+        () =>
+          (options: boolean | { forceRefreshToken?: boolean } = false) =>
+            controller.fetchAccessToken(options),
+      );
+    }
+  }, [controller]);
 
   useEffect(() => {
     void controller.restore();
@@ -182,10 +198,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signIn,
       signOut: controller.signOut,
       continueOffline: controller.continueOffline,
-      reconnect: controller.reconnect,
-      fetchAccessToken: controller.fetchAccessToken,
+      reconnect,
+      fetchAccessToken,
     }),
-    [controller, signIn, snapshot],
+    [controller, fetchAccessToken, reconnect, signIn, snapshot],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

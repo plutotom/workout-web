@@ -13,6 +13,7 @@ import {
   accountDatabaseName,
   prepareScopedDatabase,
   LEGACY_DATABASE,
+  transferredGuestWorkoutIds,
 } from "@/data/local/storage-scopes";
 import {
   listNoteAlternatives,
@@ -25,6 +26,8 @@ import {
   restoreLocalBackup,
 } from "@/data/local/backup";
 import { migrateLocalDatabase } from "@/data/local/migrations";
+import { listLocalCustomExercises } from "@/data/local/repository";
+import { buildLocalExerciseCatalog } from "@/providers/local-exercise-catalog";
 
 let phone;
 const ALICE = "user_test_alice";
@@ -472,10 +475,10 @@ describe("offline account lifecycle with SQLite and Convex", () => {
       .run(JSON.stringify(payload), queue.operation_id);
     // Reconstruct the prior shipped schema, preserving its actual rows and ids.
     phone.sql.exec(
-      "ALTER TABLE local_sessions DROP COLUMN input_mode; ALTER TABLE local_sessions DROP COLUMN note_body; ALTER TABLE local_sessions DROP COLUMN note_unit; PRAGMA user_version = 7;",
+      "ALTER TABLE local_sessions DROP COLUMN input_mode; ALTER TABLE local_sessions DROP COLUMN note_body; ALTER TABLE local_sessions DROP COLUMN note_unit; ALTER TABLE local_preferences DROP COLUMN auto_start_watch_workout; PRAGMA user_version = 7;",
     );
     await phone.reopen();
-    expect(phone.sql.prepare("PRAGMA user_version").get().user_version).toBe(8);
+    expect(phone.sql.prepare("PRAGMA user_version").get().user_version).toBe(9);
     await phone.assertLocalData(sessionId, {
       inputMode: "list",
       exercises: [{ slug: "bench", sets: [{ weight: 100, reps: 5 }] }],
@@ -489,6 +492,101 @@ describe("offline account lifecycle with SQLite and Convex", () => {
     expect(records.workoutSessions).toContainEqual(original.workoutSessions[0]);
     expect(records.sets).toMatchObject([{ weight: 100, reps: 5 }]);
   });
+
+  it.each(["before-version", "after-version"])(
+    "rolls back an interrupted v8 account upgrade at %s, then reopens and syncs pending edits once",
+    async (phase) => {
+      const original = await seedExistingAccount();
+      await phone.connect();
+      await phone.signIn(ALICE);
+      await phone.settle();
+      await phone.offline();
+      const local = await seedOfflineData();
+      // Reconstruct the preceding schema without changing account data or ids.
+      phone.sql.exec(
+        "ALTER TABLE local_preferences DROP COLUMN auto_start_watch_workout; PRAGMA user_version = 8;",
+      );
+      const schema = () =>
+        phone.sql
+          .prepare("SELECT name, sql FROM sqlite_master ORDER BY name")
+          .all();
+      const storedRows = () =>
+        Object.fromEntries(
+          phone.sql
+            .prepare(
+              "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'local_%' ORDER BY name",
+            )
+            .all()
+            .map(({ name }) => [
+              name,
+              // Identifiers come only from the app-created fixture schema.
+              phone.sql.prepare(`SELECT * FROM ${name} ORDER BY rowid`).all(),
+            ]),
+        );
+      const before = storedRows();
+      const beforeSchema = schema();
+      const pending = phone.outbox();
+      const cloudBefore = await phone.records(ALICE);
+      const exec = phone.db.execAsync;
+      let interrupted = false;
+      phone.db.execAsync = async (sql) => {
+        if (sql.includes("ADD COLUMN auto_start_watch_workout")) {
+          interrupted = true;
+          // Fail after DDL alone, or after both DDL and user_version changed,
+          // while the production migration's transaction is still open.
+          await exec(
+            phase === "before-version"
+              ? sql.split("PRAGMA user_version = 9")[0]
+              : sql,
+          );
+          throw new Error("Synthetic migration interruption");
+        }
+        return exec(sql);
+      };
+      try {
+        await expect(migrateLocalDatabase(phone.db)).rejects.toThrow(
+          "Synthetic migration interruption",
+        );
+      } finally {
+        phone.db.execAsync = exec;
+      }
+      expect(interrupted).toBe(true);
+      expect(phone.sql.prepare("PRAGMA user_version").get().user_version).toBe(
+        8,
+      );
+      expect(schema()).toEqual(beforeSchema);
+      expect(storedRows()).toEqual(before);
+      expect(await phone.records(ALICE)).toEqual(cloudBefore);
+
+      await phone.reopen();
+      expect(phone.local.owner).toBe(ALICE);
+      expect(phone.sql.prepare("PRAGMA user_version").get().user_version).toBe(
+        9,
+      );
+      expect((await phone.preferences()).autoStartWatchWorkout).toBe(true);
+      expect(phone.outbox()).toEqual(pending);
+      expect(
+        phone.sql.prepare("PRAGMA integrity_check").get().integrity_check,
+      ).toBe("ok");
+      expect(phone.sql.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+      await phone.assertLocalData(local.sessionId, {
+        status: "completed",
+        exercises: [
+          { slug: "bench", sets: [{ weight: 150, reps: 6 }] },
+          { slug: local.lift.slug, sets: [{ weight: 40, reps: 8 }] },
+        ],
+      });
+      phone.faults.push({ name: "pushSession", loseResponse: true });
+      await phone.connect();
+      await phone.settle();
+      const merged = await assertOfflineDataMerged(local, original);
+      await phone.reopen();
+      await phone.connect();
+      await phone.settle();
+      expect(await phone.records(ALICE)).toEqual(merged);
+      expect(phone.outbox()).toHaveLength(0);
+    },
+  );
 
   it("preserves the account and offline data after token expiration, then refreshes and syncs", async () => {
     await phone.connect();
@@ -626,6 +724,72 @@ describe("offline account lifecycle with SQLite and Convex", () => {
     ).toHaveLength(1);
   });
 
+  it("resolves a custom lift adopted while a template draft is open, then saves and syncs that draft after offline restart", async () => {
+    await seedExistingAccount();
+    await seedExistingAccount(BOB);
+    await phone.connect();
+    await phone.signIn(ALICE);
+    await phone.settle();
+    await phone.offline();
+    const lift = await phone.edit((local) =>
+      local.saveCustomExercise({
+        name: "Draft lift",
+        category: "arms",
+        usesBar: false,
+      }),
+    );
+    // This is the value held by the unsaved editor during upload/adoption.
+    const draftSlug = lift.slug;
+    await phone.connect();
+    await phone.settle();
+    const custom = await listLocalCustomExercises(phone.db);
+    const adopted = custom.find((exercise) => exercise._id === lift._id);
+    expect(adopted.slug).not.toBe(draftSlug);
+    const catalog = buildLocalExerciseCatalog(custom);
+    expect(catalog.name(draftSlug)).toBe("Draft lift");
+    expect(catalog.get(draftSlug).slug).toBe(adopted.slug);
+    expect(catalog.search("Draft lift", "all")).toHaveLength(1);
+
+    await phone.offline();
+    const templateId = await phone.edit((local) =>
+      local.saveTemplate({
+        name: "Saved stale draft",
+        exercises: [{ slug: draftSlug, sets: [{ weight: 0, reps: 1 }] }],
+      }),
+    );
+    const sessionId = await phone.edit((local) =>
+      local.startFromTemplate(templateId, false),
+    );
+    const before = await phone.workout(sessionId);
+    expect(before.exercises[0].slug).toBe(adopted.slug);
+    await phone.reopen();
+    expect((await phone.workout(sessionId)).exercises).toEqual(
+      before.exercises,
+    );
+    expect(
+      buildLocalExerciseCatalog(await listLocalCustomExercises(phone.db)).name(
+        draftSlug,
+      ),
+    ).toBe("Draft lift");
+    await phone.connect();
+    await phone.settle();
+    expect(phone.outbox()).toHaveLength(0);
+    expect((await phone.workout(sessionId)).exercises[0]._id).toBe(
+      before.exercises[0]._id,
+    );
+    const records = await phone.records(ALICE);
+    expect(records.customExercises).toHaveLength(1);
+    const template = records.workoutTemplates.find(
+      (row) => row.name === "Saved stale draft",
+    );
+    expect(
+      records.templateExercises.filter(
+        (row) => row.templateId === template._id,
+      ),
+    ).toMatchObject([{ exerciseSlug: adopted.slug }]);
+    expect((await phone.records(BOB)).customExercises).toHaveLength(0);
+  });
+
   it("preserves distinct custom lifts with the same name and remaps references to the correct lift", async () => {
     await seedExistingAccount();
     await phone.as(ALICE).mutation(api.routes.ios.sync.pushCustomExercise, {
@@ -744,6 +908,27 @@ describe("offline account lifecycle with SQLite and Convex", () => {
 });
 
 describe("data preservation requirements", () => {
+  it("authorizes guest Watch ownership transfer only from the destination's durable receipt", async () => {
+    const local = await seedOfflineData();
+    expect(await transferredGuestWorkoutIds(phone.db, null)).toEqual([]);
+    await phone.connect();
+    await phone.signIn(ALICE);
+    await phone.settle();
+    expect(await transferredGuestWorkoutIds(phone.db, ALICE)).toContain(
+      local.sessionId,
+    );
+    expect(await transferredGuestWorkoutIds(phone.db, BOB)).toEqual([]);
+    await phone.signOut();
+    await phone.signIn(BOB);
+    await phone.settle();
+    expect(await transferredGuestWorkoutIds(phone.db, BOB)).toEqual([]);
+    await phone.signOut();
+    await phone.signIn(ALICE);
+    await phone.settle();
+    expect(await transferredGuestWorkoutIds(phone.db, ALICE)).toContain(
+      local.sessionId,
+    );
+  });
   it.each([
     ["lb", "kg"],
     ["kg", "lb"],
@@ -1142,7 +1327,7 @@ describe("data preservation requirements", () => {
   it("exports an old version-7 recovery file without migrating or clearing the retained source", async () => {
     await seedOfflineData();
     phone.sql.exec(
-      "ALTER TABLE local_sessions DROP COLUMN input_mode; ALTER TABLE local_sessions DROP COLUMN note_body; ALTER TABLE local_sessions DROP COLUMN note_unit; PRAGMA user_version = 7;",
+      "ALTER TABLE local_sessions DROP COLUMN input_mode; ALTER TABLE local_sessions DROP COLUMN note_body; ALTER TABLE local_sessions DROP COLUMN note_unit; ALTER TABLE local_preferences DROP COLUMN auto_start_watch_workout; PRAGMA user_version = 7;",
     );
     await moveCurrentDatabaseToLegacy(false);
     await phone.reopen();
