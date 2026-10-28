@@ -23,6 +23,7 @@ import { Alert, Modal, Pressable, Text, View } from "react-native";
 import { useMobileAuth } from "@/auth/auth-provider";
 import { Button, Card, Field, Screen, SectionTitle } from "@/components/ui";
 import { DescribeWithAiButton } from "@/components/describe-with-ai-button";
+import { DevExercisePickerCard } from "@/components/settings/dev-exercise-picker-card";
 import { DevProOverrideCard } from "@/components/settings/dev-pro-override-card";
 import { GeneralPreferencesCard } from "@/components/settings/general-preferences-card";
 import { DataRecoveryCard } from "@/components/settings/data-recovery-card";
@@ -75,6 +76,7 @@ export default function SettingsScreen() {
       <BackupCard signedIn={isAuthenticated} />
       <DataRecoveryCard />
       <DevProOverrideCard />
+      <DevExercisePickerCard />
       {isAuthenticated && user ? <SettingsContent /> : null}
     </Screen>
   );
