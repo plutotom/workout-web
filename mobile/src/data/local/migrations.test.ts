@@ -35,7 +35,7 @@ describe("migrateLocalDatabase", () => {
 
     expect(fixture.transactionCount).toBe(0);
     expect(fixture.executedSql).toEqual([
-      "PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;",
+      "PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;",
     ]);
   });
 

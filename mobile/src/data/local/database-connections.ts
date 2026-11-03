@@ -1,4 +1,5 @@
 import { openDatabaseAsync, type SQLiteDatabase } from "expo-sqlite";
+import { LOCAL_DATABASE_PRAGMAS } from "./workout-transactions";
 
 const connections = new Map<string, Promise<SQLiteDatabase>>();
 
@@ -20,7 +21,13 @@ export async function retainScopedDatabaseConnection(
     connections.set(path, connection);
   }
   try {
-    await connection;
+    const extra = await connection;
+    try {
+      await extra.execAsync(LOCAL_DATABASE_PRAGMAS);
+    } catch {
+      // Cached leases may already be inside a statement; WAL is database-wide.
+    }
+    return extra;
   } catch (error) {
     if (connections.get(path) === connection) connections.delete(path);
     throw error;

@@ -1,10 +1,12 @@
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
+import { Alert } from "react-native";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { LocalWorkoutSet } from "@/data/local/types";
 import { WorkoutSetRow } from "./workout-set-row";
 
 vi.mock("react-native", () => ({
+  Alert: { alert: vi.fn() },
   Pressable: "Pressable",
   Text: "Text",
   View: "View",
@@ -24,6 +26,7 @@ const commit =
     (values: Partial<Pick<LocalWorkoutSet, "weight" | "reps">>) => Promise<void>
   >();
 const complete = vi.fn();
+const remove = vi.fn();
 const initial: LocalWorkoutSet = {
   _id: "set-1",
   sessionExerciseId: "exercise-1",
@@ -38,6 +41,8 @@ beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   commit.mockReset().mockResolvedValue(undefined);
   complete.mockReset();
+  remove.mockReset();
+  vi.mocked(Alert.alert).mockReset();
 });
 afterEach(async () => {
   if (renderer) await act(async () => renderer!.unmount());
@@ -54,7 +59,7 @@ async function render(set = initial, exerciseSlug = "bench-press") {
       usesBar
       onCommit={commit}
       onComplete={complete}
-      onDelete={() => {}}
+      onDelete={remove}
       canDelete
     />
   );
@@ -65,6 +70,15 @@ async function render(set = initial, exerciseSlug = "bench-press") {
 }
 function field(name: "weight" | "reps") {
   return renderer!.root.findByProps({ accessibilityLabel: `Set 1 ${name}` });
+}
+function setNumber() {
+  return renderer!.root.findByProps({ accessibilityLabel: "Set 1" });
+}
+function alertButton(text: string) {
+  const buttons = vi.mocked(Alert.alert).mock.calls.at(-1)?.[2] as
+    | Array<{ text?: string; onPress?: () => void }>
+    | undefined;
+  return buttons?.find((button) => button.text === text);
 }
 
 describe("workout set drafts when replacing an exercise", () => {
@@ -303,5 +317,73 @@ describe("workout set drafts across completed-workout refresh", () => {
       .find((node) => node.props.onPress && !node.props.hitSlop)!;
     await act(async () => toggle.props.onPress());
     expect(complete).toHaveBeenCalledWith(false, {});
+  });
+
+  it("never shows a raw SQLite lock as the inline set error", async () => {
+    await render();
+    commit.mockRejectedValueOnce(
+      new Error(
+        "FunctionCallException: Calling the 'finalizeAsync' function has failed (at ExpoModulesCore/AsyncFunctionDefinition.swift:123) -> Caused by: SQLiteErrorException: Error code 5: database is locked (at ExpoSQLite/SQLiteModule.swift:471)",
+      ),
+    );
+    await act(async () => field("reps").props.onChangeText("8"));
+    await act(async () => field("reps").props.onBlur());
+    expect(
+      renderer!.root.findByProps({ accessibilityLiveRegion: "polite" })
+        .children,
+    ).toEqual(["Couldn’t save this set. Try again."]);
+    await act(async () => field("reps").props.onBlur());
+    expect(commit).toHaveBeenCalledTimes(2);
+    expect(
+      renderer!.root.findAllByProps({ accessibilityLiveRegion: "polite" }),
+    ).toHaveLength(0);
+  });
+});
+
+describe("workout set long press", () => {
+  it("does not delete a set on long press until Delete is tapped", async () => {
+    await render();
+    await act(async () => setNumber().props.onLongPress());
+    expect(remove).not.toHaveBeenCalled();
+    expect(Alert.alert).toHaveBeenCalledWith(
+      "Delete this set?",
+      "This cannot be undone.",
+      expect.arrayContaining([
+        expect.objectContaining({ text: "Cancel", style: "cancel" }),
+        expect.objectContaining({ text: "Delete", style: "destructive" }),
+      ]),
+    );
+    alertButton("Cancel")?.onPress?.();
+    expect(remove).not.toHaveBeenCalled();
+    alertButton("Delete")?.onPress?.();
+    expect(remove).toHaveBeenCalledOnce();
+  });
+
+  it("does not attach a long-press delete to weight or reps", async () => {
+    await render();
+    expect(field("weight").props.onLongPress).toBeUndefined();
+    expect(field("reps").props.onLongPress).toBeUndefined();
+    expect(setNumber().props.onLongPress).toEqual(expect.any(Function));
+  });
+
+  it("does not offer delete on the last remaining set", async () => {
+    const row = (
+      <WorkoutSetRow
+        exerciseSlug="bench-press"
+        set={initial}
+        index={0}
+        unit="lb"
+        barWeight={45}
+        usesBar
+        onCommit={commit}
+        onComplete={complete}
+        onDelete={remove}
+        canDelete={false}
+      />
+    );
+    await act(async () => {
+      renderer = create(row);
+    });
+    expect(setNumber().props.onLongPress).toBeUndefined();
   });
 });
