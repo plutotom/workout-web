@@ -1,12 +1,22 @@
 import { useRef, useState } from "react";
 import { Check, CircleDot } from "lucide-react-native";
-import { Pressable, Text, View } from "react-native";
+import { Alert, Pressable, Text, View } from "react-native";
 
 import { Field } from "@/components/ui";
 import { PlateModal } from "@/components/workout/plate-modal";
+import { userFacingDatabaseError } from "@/data/local/workout-transactions";
 import type { LocalWorkoutSet } from "@/data/local/types";
 import { colors } from "@/theme";
 import { usePersistedDraft } from "@/hooks/use-persisted-draft";
+
+const SET_SAVE_ERROR = "Couldn’t save this set. Try again.";
+
+export function confirmDeleteSet(onConfirm: () => void) {
+  Alert.alert("Delete this set?", "This cannot be undone.", [
+    { text: "Cancel", style: "cancel" },
+    { text: "Delete", style: "destructive", onPress: onConfirm },
+  ]);
+}
 
 type SetValues = Pick<LocalWorkoutSet, "weight" | "reps">;
 type SetChanges = Partial<SetValues>;
@@ -88,11 +98,7 @@ function WorkoutSetRowFields({
       acknowledgeWeight?.reject();
       acknowledgeReps?.reject();
       if (sequence === saveSequence.current)
-        setError(
-          caught instanceof Error
-            ? caught.message
-            : "Couldn’t save this set. Try again.",
-        );
+        setError(userFacingDatabaseError(caught, SET_SAVE_ERROR));
     }
   }
   return (
@@ -106,7 +112,12 @@ function WorkoutSetRowFields({
         }}
       >
         <Pressable
-          onLongPress={canDelete ? onDelete : undefined}
+          accessibilityRole="button"
+          accessibilityLabel={`Set ${index + 1}`}
+          accessibilityHint={
+            canDelete ? "Opens options to delete this set" : undefined
+          }
+          onLongPress={canDelete ? () => confirmDeleteSet(onDelete) : undefined}
           style={{
             width: 34,
             height: 42,

@@ -1,4 +1,8 @@
 import type { SQLiteDatabase } from "expo-sqlite";
+import {
+  LOCAL_DATABASE_PRAGMAS,
+  serializeDatabaseWrites,
+} from "./workout-transactions";
 
 // Version 9 adds the device-local Apple Watch auto-start preference.
 // Keep upgrades additive: switching bundles preserves the phone database,
@@ -6,7 +10,8 @@ import type { SQLiteDatabase } from "expo-sqlite";
 const DATABASE_VERSION = 9;
 
 export async function migrateLocalDatabase(db: SQLiteDatabase) {
-  await db.execAsync("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
+  serializeDatabaseWrites(db);
+  await db.execAsync(LOCAL_DATABASE_PRAGMAS);
   const row = await db.getFirstAsync<{ user_version: number }>(
     "PRAGMA user_version",
   );

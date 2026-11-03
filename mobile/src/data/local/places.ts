@@ -1,6 +1,7 @@
 import { randomUUID } from "expo-crypto";
 import type { SQLiteDatabase } from "expo-sqlite";
 import { adoptMachineIdentity, adoptPlaceIdentity } from "./place-sync-storage";
+import { runDatabaseWrite } from "./workout-transactions";
 
 import type {
   IosBootstrapPayload,
@@ -650,11 +651,13 @@ export async function notePlaceSyncAttempt(
   db: SQLiteDatabase,
   operationId: string,
 ) {
-  await db.runAsync(
-    `UPDATE local_sync_outbox
-        SET attempt_count = attempt_count + 1
-      WHERE operation_id = ?`,
-    operationId,
+  await runDatabaseWrite(db, () =>
+    db.runAsync(
+      `UPDATE local_sync_outbox
+          SET attempt_count = attempt_count + 1
+        WHERE operation_id = ?`,
+      operationId,
+    ),
   );
 }
 

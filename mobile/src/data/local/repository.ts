@@ -21,7 +21,10 @@ import {
   remapNoteRecovery,
 } from "./note-recovery";
 import { convertLocalWeights } from "./weight-units";
-import { withWorkoutTransaction } from "./workout-transactions";
+import {
+  runDatabaseWrite,
+  withWorkoutTransaction,
+} from "./workout-transactions";
 import { adoptMachineIdentity, adoptPlaceIdentity } from "./place-sync-storage";
 import {
   GENERAL_PREFS_ECHO_PENDING_KEY,
@@ -2696,11 +2699,13 @@ export async function noteTemplateSyncAttempt(
   db: SQLiteDatabase,
   operationId: string,
 ) {
-  await db.runAsync(
-    `UPDATE local_sync_outbox
-        SET attempt_count = attempt_count + 1
-      WHERE operation_id = ?`,
-    operationId,
+  await runDatabaseWrite(db, () =>
+    db.runAsync(
+      `UPDATE local_sync_outbox
+          SET attempt_count = attempt_count + 1
+        WHERE operation_id = ?`,
+      operationId,
+    ),
   );
 }
 
@@ -3058,11 +3063,13 @@ export async function noteCustomExerciseSyncAttempt(
   db: SQLiteDatabase,
   operationId: string,
 ) {
-  await db.runAsync(
-    `UPDATE local_sync_outbox
-        SET attempt_count = attempt_count + 1
-      WHERE operation_id = ?`,
-    operationId,
+  await runDatabaseWrite(db, () =>
+    db.runAsync(
+      `UPDATE local_sync_outbox
+          SET attempt_count = attempt_count + 1
+        WHERE operation_id = ?`,
+      operationId,
+    ),
   );
 }
 
@@ -3777,11 +3784,13 @@ export async function noteSessionSyncAttempt(
   db: SQLiteDatabase,
   operationId: string,
 ) {
-  await db.runAsync(
-    `UPDATE local_sync_outbox
-        SET attempt_count = attempt_count + 1
-      WHERE operation_id = ?`,
-    operationId,
+  await runDatabaseWrite(db, () =>
+    db.runAsync(
+      `UPDATE local_sync_outbox
+          SET attempt_count = attempt_count + 1
+        WHERE operation_id = ?`,
+      operationId,
+    ),
   );
 }
 
@@ -3836,9 +3845,11 @@ export async function completeSessionDeleteSync(
   db: SQLiteDatabase,
   operationId: string,
 ) {
-  await db.runAsync(
-    "DELETE FROM local_sync_outbox WHERE operation_id = ?",
-    operationId,
+  await runDatabaseWrite(db, () =>
+    db.runAsync(
+      "DELETE FROM local_sync_outbox WHERE operation_id = ?",
+      operationId,
+    ),
   );
 }
 
@@ -3872,11 +3883,13 @@ export async function noteExerciseNoteSyncAttempt(
   db: SQLiteDatabase,
   operationId: string,
 ) {
-  await db.runAsync(
-    `UPDATE local_sync_outbox
-        SET attempt_count = attempt_count + 1
-      WHERE operation_id = ?`,
-    operationId,
+  await runDatabaseWrite(db, () =>
+    db.runAsync(
+      `UPDATE local_sync_outbox
+          SET attempt_count = attempt_count + 1
+        WHERE operation_id = ?`,
+      operationId,
+    ),
   );
 }
 
@@ -3912,9 +3925,11 @@ export async function quarantineExerciseNoteSync(
   db: SQLiteDatabase,
   operationId: string,
 ) {
-  await db.runAsync(
-    "UPDATE OR REPLACE local_sync_outbox SET entity_type = 'exercise_note_rejected' WHERE operation_id = ?",
-    operationId,
+  await runDatabaseWrite(db, () =>
+    db.runAsync(
+      "UPDATE OR REPLACE local_sync_outbox SET entity_type = 'exercise_note_rejected' WHERE operation_id = ?",
+      operationId,
+    ),
   );
 }
 
