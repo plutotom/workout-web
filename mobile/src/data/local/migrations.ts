@@ -1,6 +1,8 @@
 import type { SQLiteDatabase } from "expo-sqlite";
 
-// Version 10 adds device-local, per-set plate compositions.
+// The plate cache is an additive capability on core schema v9. Keep user_version
+// at 9 so the shipped runtime can still open workouts after an OTA rollback.
+// Accept transitional v10 databases produced by unreleased feature builds.
 // Keep upgrades additive: switching bundles preserves the phone database,
 // including stored notes and in-progress workouts.
 const DATABASE_VERSION = 10;
@@ -16,7 +18,6 @@ export async function migrateLocalDatabase(db: SQLiteDatabase) {
       `Workout database version ${currentVersion} is newer than this app supports`,
     );
   }
-  if (currentVersion === DATABASE_VERSION) return;
 
   await db.withTransactionAsync(async () => {
     if (currentVersion < 1) {
@@ -261,7 +262,7 @@ export async function migrateLocalDatabase(db: SQLiteDatabase) {
         PRAGMA user_version = 9;
       `);
     }
-    if (currentVersion < 10) {
+    {
       // No cascading FK: cloud adoption temporarily rebuilds exercise/set rows.
       // Reads join live sets and slugs; stale cache rows can never attach to a
       // different lift. This table is deliberately absent from sync payloads.
@@ -272,7 +273,7 @@ export async function migrateLocalDatabase(db: SQLiteDatabase) {
           composition_json TEXT NOT NULL,
           PRIMARY KEY (set_id, exercise_slug)
         );
-        PRAGMA user_version = 10;
+        PRAGMA user_version = 9;
       `);
     }
   });

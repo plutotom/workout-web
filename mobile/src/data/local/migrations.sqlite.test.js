@@ -48,7 +48,7 @@ describe("local schema compatibility using SQLite", () => {
       PRAGMA user_version = 7;
     `);
     await migrateLocalDatabase(db);
-    expect(sql.prepare("PRAGMA user_version").get().user_version).toBe(10);
+    expect(sql.prepare("PRAGMA user_version").get().user_version).toBe(9);
     expect(
       sql
         .prepare(
@@ -91,7 +91,7 @@ describe("local schema compatibility using SQLite", () => {
       outbox: sql.prepare("SELECT * FROM local_sync_outbox").all(),
     };
     await migrateLocalDatabase(db);
-    expect(sql.prepare("PRAGMA user_version").get().user_version).toBe(10);
+    expect(sql.prepare("PRAGMA user_version").get().user_version).toBe(9);
     expect({
       sessions: sessionRows(sql),
       sets: sql.prepare("SELECT * FROM local_sets").all(),

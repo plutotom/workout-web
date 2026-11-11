@@ -18,6 +18,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import {
   createPlateSession,
+  snapshotPlateComposition,
+  type StoredPlateComposition,
   hasLoadedPlates,
   perSideFromPlateCounts,
   reducePlateSession,
@@ -53,6 +55,7 @@ export function PlateCalcButton({
   "aria-label"?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [stored, setStored] = useState<StoredPlateComposition | null>(null);
 
   return (
     <>
@@ -75,10 +78,12 @@ export function PlateCalcButton({
             {open ? (
               <PlateCalculator
                 initialWeight={weight}
+                stored={stored}
                 defaultIncludeBar={includeBar}
                 onApply={
                   onApply
-                    ? (w) => {
+                    ? (w, composition) => {
+                        setStored(composition);
                         onApply(w);
                         setOpen(false);
                       }
@@ -96,12 +101,14 @@ export function PlateCalcButton({
 export function PlateCalculator({
   initialWeight,
   defaultIncludeBar = true,
+  stored,
   onApply,
 }: {
   initialWeight: number;
   /** Initial barbell toggle; user can change it inside the calculator. */
   defaultIncludeBar?: boolean;
-  onApply?: (weight: number) => void;
+  stored?: StoredPlateComposition | null;
+  onApply?: (weight: number, composition: StoredPlateComposition) => void;
 }) {
   const user = useQuery(api.routes.auth.users.current);
   const unit: Unit = user?.unit ?? "lb";
@@ -112,6 +119,7 @@ export function PlateCalculator({
     reducePlateSession,
     {
       target: initialWeight,
+      stored,
       unit,
       barWeight: savedBar,
       countBar: defaultIncludeBar,
@@ -159,7 +167,11 @@ export function PlateCalculator({
             onChangeCount={(plate, delta) =>
               dispatch({ type: "changeCount", plate, delta })
             }
-            onApply={onApply}
+            onApply={
+              onApply
+                ? (weight) => onApply(weight, snapshotPlateComposition(state))
+                : undefined
+            }
           />
         </TabsContent>
         <TabsContent value="toWeight">
@@ -174,7 +186,11 @@ export function PlateCalculator({
               dispatch({ type: "changeCount", plate, delta })
             }
             onClear={() => dispatch({ type: "clearPlates" })}
-            onApply={onApply}
+            onApply={
+              onApply
+                ? (weight) => onApply(weight, snapshotPlateComposition(state))
+                : undefined
+            }
           />
         </TabsContent>
       </Tabs>
@@ -402,8 +418,13 @@ function WeightToPlates({
 
           {onApply ? (
             <div className="flex flex-col gap-2">
-              <Button onClick={() => onApply(total)}>
-                Use {fmt(total)} {unit}
+              <Button
+                disabled={!Number.isInteger(total)}
+                onClick={() => onApply(total)}
+              >
+                {Number.isInteger(total)
+                  ? `Use ${fmt(total)} ${unit}`
+                  : "Use a whole-unit total to save"}
               </Button>
             </div>
           ) : null}
@@ -513,10 +534,12 @@ function PlatesToWeight({
           <Button
             variant="outline"
             className="flex-1"
-            disabled={total <= 0}
+            disabled={total <= 0 || !Number.isInteger(total)}
             onClick={() => onApply(total)}
           >
-            Use {fmt(total)} {unit}
+            {Number.isInteger(total)
+              ? `Use ${fmt(total)} ${unit}`
+              : "Use a whole-unit total to save"}
           </Button>
         ) : null}
       </div>

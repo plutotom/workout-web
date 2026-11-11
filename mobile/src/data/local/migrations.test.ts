@@ -28,15 +28,16 @@ function databaseAtVersion(version: number) {
 }
 
 describe("migrateLocalDatabase", () => {
-  it("accepts an existing version 10 database", async () => {
+  it("normalizes transitional version 10 caches to rollback-compatible version 9", async () => {
     const fixture = databaseAtVersion(10);
 
     await expect(migrateLocalDatabase(fixture.db)).resolves.toBeUndefined();
 
-    expect(fixture.transactionCount).toBe(0);
-    expect(fixture.executedSql).toEqual([
-      "PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;",
-    ]);
+    expect(fixture.transactionCount).toBe(1);
+    expect(fixture.executedSql[1]).toContain(
+      "CREATE TABLE IF NOT EXISTS local_plate_compositions",
+    );
+    expect(fixture.executedSql[1]).toContain("PRAGMA user_version = 9;");
   });
 
   it("upgrades a version 8 database with the Watch auto-start preference", async () => {

@@ -872,7 +872,7 @@ export async function updateLocalSet(
         txn,
         setId,
         values.plateComposition,
-        values.weight,
+        boundedWhole(values.weight, MAX_WEIGHT, "Weight"),
       );
     }
     await markSessionUpdated(txn, sessionId);
@@ -3099,6 +3099,12 @@ async function remapCustomSlug(
 ): Promise<SlugRemapTargets> {
   if (oldSlug === newSlug) return { sessionIds: [], templateIds: [] };
   await remapNoteRecovery(txn, oldSlug, newSlug);
+  // A provisional custom lift keeps its exact local plates after server ACK.
+  await txn.runAsync(
+    "UPDATE OR REPLACE local_plate_compositions SET exercise_slug = ? WHERE exercise_slug = ?",
+    newSlug,
+    oldSlug,
+  );
 
   const sessionRows = await txn.getAllAsync<{ session_id: string }>(
     "SELECT DISTINCT session_id FROM local_session_exercises WHERE slug = ?",

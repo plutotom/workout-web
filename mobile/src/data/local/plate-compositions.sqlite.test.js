@@ -18,6 +18,7 @@ import {
   replaceLocalExercise,
   getPendingSessionSync,
   completeSessionSync,
+  completeCustomExerciseSync,
   adoptRemoteCompletedListWorkout,
 } from "./repository";
 
@@ -238,7 +239,7 @@ it("rolls back an interrupted v9 upgrade and retries after reopening the install
   const reopened = open(path);
   await migrateLocalDatabase(reopened.db);
   expect(reopened.sql.prepare("PRAGMA user_version").get().user_version).toBe(
-    10,
+    9,
   );
   expect(reopened.sql.prepare("SELECT * FROM local_sets").all()).toEqual(
     before,
@@ -278,4 +279,62 @@ it("restores exact plates from a file backup into a fresh installation without d
       .all()
       .every((row) => !row.payload_json.includes("plateComposition")),
   ).toBe(true);
+});
+
+it("allows the shipped v9 bundle to open feature data after OTA rollback", async () => {
+  const f = await fixture();
+  await migrateLocalDatabase(f.db);
+  await updateLocalSet(f.db, "set", save);
+  // Also normalize databases written by the earlier, unreleased v10 build.
+  f.sql.exec("PRAGMA user_version = 10");
+  await migrateLocalDatabase(f.db);
+  await expect(migrateReleased(f.db)).resolves.toBeUndefined();
+  expect(f.sql.prepare("PRAGMA user_version").get().user_version).toBe(9);
+  expect(await readPlateComposition(f.db, "set", "bench-press")).toEqual(
+    composition,
+  );
+});
+it("rejects fractional plate saves rather than caching a load different from the stored whole-unit weight", async () => {
+  const f = await fixture();
+  await migrateLocalDatabase(f.db);
+  await expect(
+    updateLocalSet(f.db, "set", {
+      weight: 27.5,
+      plateComposition: {
+        exerciseSlug: "bench-press",
+        composition: {
+          unit: "kg",
+          bar: 20,
+          countBar: true,
+          counts: { 2.5: 1, 1.25: 1 },
+        },
+      },
+    }),
+  ).rejects.toThrow("does not match");
+  expect(
+    f.sql.prepare("SELECT weight FROM local_sets WHERE id = 'set'").get()
+      .weight,
+  ).toBe(185);
+  expect(await readPlateComposition(f.db, "set", "bench-press")).toBeNull();
+});
+it("keeps exact plates when a provisional custom lift receives its cloud identity", async () => {
+  const f = await fixture();
+  await migrateLocalDatabase(f.db);
+  f.sql
+    .exec(`UPDATE local_session_exercises SET slug='custom:local-lift' WHERE id='bench';
+  INSERT INTO local_custom_exercises(id,slug,name,category,uses_bar,updated_at) VALUES('lift','custom:local-lift','Synthetic Bar','chest',1,1)`);
+  await updateLocalSet(f.db, "set", {
+    weight: 185,
+    plateComposition: { exerciseSlug: "custom:local-lift", composition },
+  });
+  await completeCustomExerciseSync(
+    f.db,
+    "test-op",
+    "lift",
+    "remote-lift",
+    "custom:remote-lift",
+  );
+  expect(await readPlateComposition(f.db, "set", "custom:remote-lift")).toEqual(
+    composition,
+  );
 });

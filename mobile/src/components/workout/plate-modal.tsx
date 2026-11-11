@@ -174,6 +174,7 @@ function PlateCalculator({
   const hasPlates = hasLoadedPlates(state.counts);
   const canApply =
     builtTotal > 0 &&
+    Number.isInteger(builtTotal) &&
     (state.mode === "toWeight" || hasPlates || (hasTarget && result.feasible));
   const modeOptions = plateModeOptions(hasPlates || builtTotal > 0);
 
@@ -230,7 +231,11 @@ function PlateCalculator({
         footer={
           <KeyboardStickyFooter style={styles.footer}>
             <View>
-              <Text style={styles.footerLabel}>LOADED TOTAL</Text>
+              <Text style={styles.footerLabel}>
+                {onApply && !Number.isInteger(builtTotal)
+                  ? "Use a whole-unit total to save"
+                  : "LOADED TOTAL"}
+              </Text>
               <Text style={styles.footerTotal}>
                 {formatWeight(builtTotal)}
                 <Text style={styles.footerUnit}> {unit}</Text>

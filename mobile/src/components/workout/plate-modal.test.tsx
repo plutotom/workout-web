@@ -130,6 +130,7 @@ afterEach(async () => {
 async function renderModal(props?: {
   visible?: boolean;
   target?: number;
+  unit?: "lb" | "kg";
   compositionId?: string;
 }) {
   const modal = createElement(PlateModal, {
@@ -137,8 +138,8 @@ async function renderModal(props?: {
     target: props?.target ?? 185,
     setId: props?.compositionId ?? "bench-press:set-1",
     exerciseSlug: "bench-press",
-    unit: "lb",
-    barWeight: 45,
+    unit: props?.unit ?? "lb",
+    barWeight: props?.unit === "kg" ? 20 : 45,
     compositionId: props?.compositionId ?? "bench-press:set-1",
     onClose: close,
     onApply: apply,
@@ -243,4 +244,16 @@ describe("iOS plate calculator edit-existing bar", () => {
       0,
     );
   });
+});
+
+it("explains and blocks fractional totals rather than silently rounding saved workout weights", async () => {
+  await renderModal({ target: 27.5, unit: "kg" });
+  expect(labeled("Use 27.5 kg").props.disabled).toBe(true);
+  expect(
+    renderer!.root.findAll(
+      (node) =>
+        node.type === "Text" &&
+        node.props.children === "Use a whole-unit total to save",
+    ),
+  ).toHaveLength(1);
 });
