@@ -26,6 +26,7 @@ const TABLES = [
   "local_sessions",
   "local_session_exercises",
   "local_sets",
+  "local_plate_compositions",
   "local_exercise_place_weights",
   "local_health_ignored",
   "local_health_state",
@@ -183,6 +184,7 @@ async function importTransfer(db: SQLiteDatabase, transfer: Transfer) {
         machine_id: "local_machines",
       },
       local_sets: { session_exercise_id: "local_session_exercises" },
+      local_plate_compositions: { set_id: "local_sets" },
       local_exercise_place_weights: {
         place_id: "local_places",
         machine_key: "local_machines",
@@ -193,7 +195,7 @@ async function importTransfer(db: SQLiteDatabase, transfer: Transfer) {
       added.set(table, ids);
       const identityMap = new Map<string, string>();
       aliases.set(table, identityMap);
-      for (const original of transfer.snapshot.tables[table]) {
+      for (const original of transfer.snapshot.tables[table] ?? []) {
         const source = { ...original };
         if (typeof source.id === "string" && "remote_id" in source) {
           const existing = await txn.getFirstAsync<{
@@ -245,13 +247,17 @@ async function importTransfer(db: SQLiteDatabase, transfer: Transfer) {
               ? "local_sessions"
               : table === "local_sets"
                 ? "local_session_exercises"
-                : null;
+                : table === "local_plate_compositions"
+                  ? "local_sets"
+                  : null;
         const parentColumn =
           table === "local_template_exercises"
             ? "template_id"
             : table === "local_session_exercises"
               ? "session_id"
-              : "session_exercise_id";
+              : table === "local_plate_compositions"
+                ? "set_id"
+                : "session_exercise_id";
         if (parent && !added.get(parent)?.has(String(source[parentColumn])))
           continue;
         if (table === "local_exercise_notes") {

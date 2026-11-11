@@ -2,7 +2,13 @@ import { createElement, type ReactNode } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { clearPlateCompositionMemory } from "@shared/plates/composition";
+const stored = vi.hoisted(() => new Map());
+const db = vi.hoisted(() => ({}));
+vi.mock("expo-sqlite", () => ({ useSQLiteContext: () => db }));
+vi.mock("@/data/local/plate-compositions", () => ({
+  readPlateComposition: async (_db: unknown, id: string) =>
+    stored.get(id) ?? null,
+}));
 import { PlateModal } from "./plate-modal";
 
 vi.mock("expo-haptics", () => ({
@@ -108,14 +114,17 @@ const close = vi.fn();
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   apply.mockReset();
+  apply.mockImplementation((_weight, composition) =>
+    stored.set("bench-press:set-1", composition),
+  );
   close.mockReset();
-  clearPlateCompositionMemory();
+  stored.clear();
 });
 
 afterEach(async () => {
   if (renderer) await act(async () => renderer!.unmount());
   renderer = undefined;
-  clearPlateCompositionMemory();
+  stored.clear();
 });
 
 async function renderModal(props?: {
@@ -126,6 +135,8 @@ async function renderModal(props?: {
   const modal = createElement(PlateModal, {
     visible: props?.visible ?? true,
     target: props?.target ?? 185,
+    setId: props?.compositionId ?? "bench-press:set-1",
+    exerciseSlug: "bench-press",
     unit: "lb",
     barWeight: 45,
     compositionId: props?.compositionId ?? "bench-press:set-1",
@@ -186,7 +197,10 @@ describe("iOS plate calculator edit-existing bar", () => {
     );
 
     await act(async () => labeled("Use 155 lb").props.onPress());
-    expect(apply).toHaveBeenCalledWith(155);
+    expect(apply).toHaveBeenCalledWith(
+      155,
+      expect.objectContaining({ counts: { 45: 1, 10: 1 } }),
+    );
     expect(close).toHaveBeenCalledTimes(1);
   });
 

@@ -1,3 +1,4 @@
+import type { PlateCompositionSave } from "./plate-compositions";
 import {
   SQLiteProvider,
   useSQLiteContext,
@@ -252,7 +253,12 @@ type LocalDataContextValue = {
   }) => Promise<LocalMachine>;
   updateSet: (
     setId: string,
-    values: { weight?: number; reps?: number; completed?: boolean },
+    values: {
+      weight?: number;
+      reps?: number;
+      completed?: boolean;
+      plateComposition?: PlateCompositionSave;
+    },
   ) => Promise<void>;
   addSet: (sessionExerciseId: string) => Promise<string>;
   deleteSet: (setId: string) => Promise<void>;

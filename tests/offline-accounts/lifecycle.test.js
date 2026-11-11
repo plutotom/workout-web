@@ -478,7 +478,9 @@ describe("offline account lifecycle with SQLite and Convex", () => {
       "ALTER TABLE local_sessions DROP COLUMN input_mode; ALTER TABLE local_sessions DROP COLUMN note_body; ALTER TABLE local_sessions DROP COLUMN note_unit; ALTER TABLE local_preferences DROP COLUMN auto_start_watch_workout; PRAGMA user_version = 7;",
     );
     await phone.reopen();
-    expect(phone.sql.prepare("PRAGMA user_version").get().user_version).toBe(9);
+    expect(phone.sql.prepare("PRAGMA user_version").get().user_version).toBe(
+      10,
+    );
     await phone.assertLocalData(sessionId, {
       inputMode: "list",
       exercises: [{ slug: "bench", sets: [{ weight: 100, reps: 5 }] }],
@@ -561,7 +563,7 @@ describe("offline account lifecycle with SQLite and Convex", () => {
       await phone.reopen();
       expect(phone.local.owner).toBe(ALICE);
       expect(phone.sql.prepare("PRAGMA user_version").get().user_version).toBe(
-        9,
+        10,
       );
       expect((await phone.preferences()).autoStartWatchWorkout).toBe(true);
       expect(phone.outbox()).toEqual(pending);

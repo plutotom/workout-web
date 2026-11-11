@@ -1064,17 +1064,23 @@ function FocusWorkout({
       <PlateModal
         key={plateCompositionId(item.exercise.slug, item.set._id)}
         visible={plates}
+        setId={item.set._id}
+        exerciseSlug={item.exercise.slug}
         compositionId={plateCompositionId(item.exercise.slug, item.set._id)}
         target={values.weight}
         unit={user.unit}
         barWeight={barWeight}
         onClose={() => setPlates(false)}
-        onApply={(next) => {
+        onApply={(next, composition) => {
           setDrafts((current) => ({
             ...current,
             [item.set._id]: { ...draft, weight: String(next) },
           }));
-          void updateSet(item.set._id, { ...values, weight: next });
+          void updateSet(item.set._id, {
+            ...values,
+            weight: next,
+            plateComposition: { exerciseSlug: item.exercise.slug, composition },
+          });
         }}
       />
       {rest.rest ? (

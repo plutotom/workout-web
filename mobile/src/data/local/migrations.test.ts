@@ -28,8 +28,8 @@ function databaseAtVersion(version: number) {
 }
 
 describe("migrateLocalDatabase", () => {
-  it("accepts an existing version 9 database", async () => {
-    const fixture = databaseAtVersion(9);
+  it("accepts an existing version 10 database", async () => {
+    const fixture = databaseAtVersion(10);
 
     await expect(migrateLocalDatabase(fixture.db)).resolves.toBeUndefined();
 
@@ -43,7 +43,7 @@ describe("migrateLocalDatabase", () => {
     const fixture = databaseAtVersion(8);
     await migrateLocalDatabase(fixture.db);
     expect(fixture.transactionCount).toBe(1);
-    expect(fixture.executedSql).toHaveLength(2);
+    expect(fixture.executedSql).toHaveLength(3);
     expect(fixture.executedSql[1]).toContain(
       "auto_start_watch_workout INTEGER NOT NULL DEFAULT 1",
     );
@@ -56,7 +56,7 @@ describe("migrateLocalDatabase", () => {
     await migrateLocalDatabase(fixture.db);
 
     expect(fixture.transactionCount).toBe(1);
-    expect(fixture.executedSql).toHaveLength(5);
+    expect(fixture.executedSql).toHaveLength(6);
     expect(fixture.executedSql[1]).toContain(
       "ALTER TABLE local_sessions ADD COLUMN health_segments_json TEXT;",
     );
@@ -74,7 +74,7 @@ describe("migrateLocalDatabase", () => {
     await migrateLocalDatabase(fixture.db);
 
     expect(fixture.transactionCount).toBe(1);
-    expect(fixture.executedSql).toHaveLength(4);
+    expect(fixture.executedSql).toHaveLength(5);
     expect(fixture.executedSql[1]).toContain(
       "ALTER TABLE local_sessions ADD COLUMN place_id TEXT;",
     );
@@ -87,7 +87,7 @@ describe("migrateLocalDatabase", () => {
     const fixture = databaseAtVersion(7);
     await migrateLocalDatabase(fixture.db);
     expect(fixture.transactionCount).toBe(1);
-    expect(fixture.executedSql).toHaveLength(3);
+    expect(fixture.executedSql).toHaveLength(4);
     expect(fixture.executedSql[1]).toContain(
       "input_mode TEXT NOT NULL DEFAULT 'list'",
     );
@@ -101,10 +101,10 @@ describe("migrateLocalDatabase", () => {
   });
 
   it("still rejects databases newer than the supported schema", async () => {
-    const fixture = databaseAtVersion(10);
+    const fixture = databaseAtVersion(11);
 
     await expect(migrateLocalDatabase(fixture.db)).rejects.toThrow(
-      "Workout database version 10 is newer than this app supports",
+      "Workout database version 11 is newer than this app supports",
     );
   });
 });

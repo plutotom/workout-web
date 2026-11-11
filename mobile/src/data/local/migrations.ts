@@ -1,9 +1,9 @@
 import type { SQLiteDatabase } from "expo-sqlite";
 
-// Version 9 adds the device-local Apple Watch auto-start preference.
+// Version 10 adds device-local, per-set plate compositions.
 // Keep upgrades additive: switching bundles preserves the phone database,
 // including stored notes and in-progress workouts.
-const DATABASE_VERSION = 9;
+const DATABASE_VERSION = 10;
 
 export async function migrateLocalDatabase(db: SQLiteDatabase) {
   await db.execAsync("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
@@ -259,6 +259,20 @@ export async function migrateLocalDatabase(db: SQLiteDatabase) {
         ALTER TABLE local_preferences
           ADD COLUMN auto_start_watch_workout INTEGER NOT NULL DEFAULT 1;
         PRAGMA user_version = 9;
+      `);
+    }
+    if (currentVersion < 10) {
+      // No cascading FK: cloud adoption temporarily rebuilds exercise/set rows.
+      // Reads join live sets and slugs; stale cache rows can never attach to a
+      // different lift. This table is deliberately absent from sync payloads.
+      await db.execAsync(`
+        CREATE TABLE IF NOT EXISTS local_plate_compositions (
+          set_id TEXT NOT NULL,
+          exercise_slug TEXT NOT NULL,
+          composition_json TEXT NOT NULL,
+          PRIMARY KEY (set_id, exercise_slug)
+        );
+        PRAGMA user_version = 10;
       `);
     }
   });

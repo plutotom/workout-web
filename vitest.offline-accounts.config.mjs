@@ -21,7 +21,10 @@ export default defineConfig({
     },
   },
   test: {
-    include: ["tests/offline-accounts/**/*.test.js"],
+    include: [
+      "tests/offline-accounts/**/*.test.js",
+      "mobile/src/data/local/plate-compositions.sqlite.test.js",
+    ],
     environment: "node",
     fileParallelism: false,
     testTimeout: 15_000,

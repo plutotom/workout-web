@@ -1,6 +1,9 @@
+import { useSQLiteContext } from "expo-sqlite";
+import { readPlateComposition } from "@/data/local/plate-compositions";
+import type { StoredPlateComposition } from "@shared/plates/composition";
 import * as Haptics from "expo-haptics";
 import { CircleDot, Minus, Plus, RotateCcw, X } from "lucide-react-native";
-import { useCallback, useEffect, useMemo, useReducer } from "react";
+import { useEffect, useMemo, useReducer, useState } from "react";
 import {
   Modal,
   Pressable,
@@ -16,9 +19,7 @@ import {
   hasLoadedPlates,
   perSideFromPlateCounts,
   plateModeOptions,
-  recallPlateComposition,
   reducePlateSession,
-  rememberPlateComposition,
   sessionConfig,
   sessionTotal,
   snapshotPlateComposition,
@@ -53,27 +54,89 @@ type PlateModalProps = {
   unit: Unit;
   barWeight: number;
   compositionId?: string;
+  setId?: string;
+  exerciseSlug?: string;
+  stored?: StoredPlateComposition | null;
   onClose: () => void;
-  onApply?: (weight: number) => void;
+  onApply?: (weight: number, composition: StoredPlateComposition) => void;
 };
 
 export function PlateModal(props: PlateModalProps) {
-  const { visible, compositionId, ...calculatorProps } = props;
   return (
     <Modal
-      visible={visible}
+      visible={props.visible}
       animationType="slide"
       presentationStyle="pageSheet"
       onRequestClose={props.onClose}
     >
-      {visible ? (
+      {props.visible ? (
+        <StoredPlateCalculator
+          key={JSON.stringify([
+            props.setId,
+            props.exerciseSlug,
+            props.target,
+            props.unit,
+          ])}
+          {...props}
+        />
+      ) : null}
+    </Modal>
+  );
+}
+
+function StoredPlateCalculator(props: PlateModalProps) {
+  const db = useSQLiteContext();
+  const [loaded, setLoaded] = useState<{
+    key: string;
+    stored: StoredPlateComposition | null;
+  } | null>(null);
+  const [loadError, setLoadError] = useState(false);
+  const loadKey = JSON.stringify([
+    props.setId,
+    props.exerciseSlug,
+    props.target,
+    props.unit,
+  ]);
+  useEffect(() => {
+    let cancelled = false;
+    if (props.visible) {
+      const read =
+        props.setId && props.exerciseSlug
+          ? readPlateComposition(db, props.setId, props.exerciseSlug)
+          : Promise.resolve(null);
+      void read
+        .then((stored) => {
+          if (!cancelled) setLoaded({ key: loadKey, stored });
+        })
+        .catch(() => {
+          if (!cancelled) setLoadError(true);
+        });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [db, props.visible, props.setId, props.exerciseSlug, loadKey]);
+  const { visible, compositionId, ...calculatorProps } = props;
+  return (
+    <>
+      {visible && loaded?.key === loadKey ? (
         <PlateCalculator
           key={compositionId ?? "anonymous"}
           compositionId={compositionId}
           {...calculatorProps}
+          stored={loaded.stored}
         />
+      ) : visible ? (
+        <View style={{ padding: space.lg }}>
+          <Text>
+            {loadError
+              ? "Couldn’t load saved plates. Close and try again."
+              : "Loading plates…"}
+          </Text>
+          <Button label="Close" onPress={props.onClose} />
+        </View>
       ) : null}
-    </Modal>
+    </>
   );
 }
 
@@ -81,7 +144,7 @@ function PlateCalculator({
   target,
   unit,
   barWeight,
-  compositionId,
+  stored,
   onClose,
   onApply,
 }: Omit<PlateModalProps, "visible">) {
@@ -91,19 +154,10 @@ function PlateCalculator({
       target,
       unit,
       barWeight,
-      stored: compositionId ? recallPlateComposition(compositionId) : null,
+      stored,
     },
     createPlateSession,
   );
-  const persist = useCallback(() => {
-    if (!compositionId) return;
-    rememberPlateComposition(compositionId, snapshotPlateComposition(state));
-  }, [compositionId, state]);
-
-  useEffect(() => {
-    return persist;
-  }, [persist]);
-
   const plates = STANDARD_PLATES[unit].plates;
   const config: PlateConfig = useMemo(
     () => sessionConfig(state, plates),
@@ -134,13 +188,11 @@ function PlateCalculator({
   }
 
   function dismiss() {
-    persist();
     onClose();
   }
 
   function closeWithResult() {
-    persist();
-    if (onApply) onApply(builtTotal);
+    if (onApply) onApply(builtTotal, snapshotPlateComposition(state));
     onClose();
   }
 

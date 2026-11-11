@@ -10,7 +10,9 @@ import { colors } from "@/theme";
 import { usePersistedDraft } from "@/hooks/use-persisted-draft";
 
 type SetValues = Pick<LocalWorkoutSet, "weight" | "reps">;
-type SetChanges = Partial<SetValues>;
+type SetChanges = Partial<SetValues> & {
+  plateComposition?: import("@/data/local/plate-compositions").PlateCompositionSave;
+};
 
 type WorkoutSetRowProps = {
   exerciseSlug: string;
@@ -194,14 +196,26 @@ function WorkoutSetRowFields({
       ) : null}
       <PlateModal
         visible={plates}
+        setId={set._id}
+        exerciseSlug={exerciseSlug}
         compositionId={plateCompositionId(exerciseSlug, set._id)}
         target={values.weight}
         unit={unit}
         barWeight={barWeight}
         onClose={() => setPlates(false)}
-        onApply={(next) => {
+        onApply={(next, composition) => {
           weight.change(String(next));
-          void commit({ ...changes, weight: next }, undefined, String(next));
+          void commit(
+            {
+              ...changes,
+              weight: next,
+              ...(composition
+                ? { plateComposition: { exerciseSlug, composition } }
+                : {}),
+            },
+            undefined,
+            String(next),
+          );
         }}
       />
     </>
