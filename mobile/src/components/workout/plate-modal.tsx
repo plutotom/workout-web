@@ -1,6 +1,6 @@
 import * as Haptics from "expo-haptics";
 import { CircleDot, Minus, Plus, RotateCcw, X } from "lucide-react-native";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer } from "react";
 import {
   Modal,
   Pressable,
@@ -12,8 +12,19 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import {
+  createPlateSession,
+  hasLoadedPlates,
+  perSideFromPlateCounts,
+  plateModeOptions,
+  recallPlateComposition,
+  reducePlateSession,
+  rememberPlateComposition,
+  sessionConfig,
+  sessionTotal,
+  snapshotPlateComposition,
+} from "@shared/plates/composition";
+import {
   BAR_PRESETS,
-  platesToWeight,
   solveWeightToPlates,
   STANDARD_PLATES,
   type PlateConfig,
@@ -24,13 +35,6 @@ import { KeyboardAwareFooterLayout } from "@/components/keyboard-aware-scroll";
 import { KeyboardStickyFooter } from "@/components/keyboard-sticky-footer";
 import { Button, Field, Segmented } from "@/components/ui";
 import { colors, radius, space } from "@/theme";
-
-type CalculatorMode = "toPlates" | "toWeight";
-
-const modeOptions = [
-  { value: "toPlates", label: "Load a weight", hint: "Weight → plates" },
-  { value: "toWeight", label: "Build a bar", hint: "Plates → weight" },
-] as const;
 
 const barOptions = [
   { value: "on", label: "Include bar" },
@@ -43,23 +47,18 @@ function formatWeight(value: number) {
     : value.toFixed(2).replace(/0$/, "");
 }
 
-function sanitizeDecimal(value: string) {
-  const cleaned = value.replace(/[^0-9.]/g, "");
-  const [whole, ...decimals] = cleaned.split(".");
-  return decimals.length ? `${whole}.${decimals.join("")}` : whole;
-}
-
 type PlateModalProps = {
   visible: boolean;
   target: number;
   unit: Unit;
   barWeight: number;
+  compositionId?: string;
   onClose: () => void;
   onApply?: (weight: number) => void;
 };
 
 export function PlateModal(props: PlateModalProps) {
-  const { visible, ...calculatorProps } = props;
+  const { visible, compositionId, ...calculatorProps } = props;
   return (
     <Modal
       visible={visible}
@@ -67,7 +66,13 @@ export function PlateModal(props: PlateModalProps) {
       presentationStyle="pageSheet"
       onRequestClose={props.onClose}
     >
-      {visible ? <PlateCalculator {...calculatorProps} /> : null}
+      {visible ? (
+        <PlateCalculator
+          key={compositionId ?? "anonymous"}
+          compositionId={compositionId}
+          {...calculatorProps}
+        />
+      ) : null}
     </Modal>
   );
 }
@@ -76,57 +81,66 @@ function PlateCalculator({
   target,
   unit,
   barWeight,
+  compositionId,
   onClose,
   onApply,
 }: Omit<PlateModalProps, "visible">) {
-  const [mode, setMode] = useState<CalculatorMode>("toPlates");
-  const [draft, setDraft] = useState(String(target || ""));
-  const [countBar, setCountBar] = useState(true);
-  const [bar, setBar] = useState(barWeight);
-  const [barDraft, setBarDraft] = useState(String(barWeight));
-  const [counts, setCounts] = useState<Record<number, number>>({});
-
-  const config: PlateConfig = useMemo(
-    () => ({
-      bar: countBar ? bar : 0,
-      plates: STANDARD_PLATES[unit].plates,
-    }),
-    [bar, countBar, unit],
+  const [state, dispatch] = useReducer(
+    reducePlateSession,
+    {
+      target,
+      unit,
+      barWeight,
+      stored: compositionId ? recallPlateComposition(compositionId) : null,
+    },
+    createPlateSession,
   );
-  const numericTarget = Number(draft) || 0;
-  const hasTarget = draft.trim() !== "";
+  const persist = useCallback(() => {
+    if (!compositionId) return;
+    rememberPlateComposition(compositionId, snapshotPlateComposition(state));
+  }, [compositionId, state]);
+
+  useEffect(() => {
+    return persist;
+  }, [persist]);
+
+  const plates = STANDARD_PLATES[unit].plates;
+  const config: PlateConfig = useMemo(
+    () => sessionConfig(state, plates),
+    [plates, state],
+  );
+  const numericTarget = Number(state.draft) || 0;
+  const hasTarget = state.draft.trim() !== "";
   const result = useMemo(
     () => solveWeightToPlates(numericTarget, config),
     [config, numericTarget],
   );
-  const selectedPlates = useMemo(
-    () =>
-      config.plates
-        .filter((plate) => (counts[plate] ?? 0) > 0)
-        .map((plate) => ({ plate, count: counts[plate] })),
-    [config.plates, counts],
-  );
-  const builtTotal = platesToWeight(selectedPlates, config);
-  const activeTotal = mode === "toPlates" ? result.loadedTotal : builtTotal;
+  const selectedPlates = perSideFromPlateCounts(state.counts, config.plates);
+  const builtTotal = sessionTotal(state, config.plates);
+  const hasPlates = hasLoadedPlates(state.counts);
   const canApply =
-    activeTotal > 0 && (mode === "toWeight" || (hasTarget && result.feasible));
+    builtTotal > 0 &&
+    (state.mode === "toWeight" || hasPlates || (hasTarget && result.feasible));
+  const modeOptions = plateModeOptions(hasPlates || builtTotal > 0);
 
   function changeCount(plate: number, delta: number) {
     void Haptics.selectionAsync();
-    setCounts((current) => ({
-      ...current,
-      [plate]: Math.max(0, (current[plate] ?? 0) + delta),
-    }));
+    dispatch({ type: "changeCount", plate, delta });
   }
 
   function selectBar(next: number) {
     void Haptics.selectionAsync();
-    setBar(next);
-    setBarDraft(String(next));
+    dispatch({ type: "selectBar", bar: next });
+  }
+
+  function dismiss() {
+    persist();
+    onClose();
   }
 
   function closeWithResult() {
-    if (onApply) onApply(activeTotal);
+    persist();
+    if (onApply) onApply(builtTotal);
     onClose();
   }
 
@@ -146,14 +160,18 @@ function PlateCalculator({
           accessibilityRole="button"
           accessibilityLabel="Close plate calculator"
           hitSlop={10}
-          onPress={onClose}
+          onPress={dismiss}
           style={({ pressed }) => [styles.close, pressed && styles.pressed]}
         >
           <X color={colors.text} size={21} />
         </Pressable>
       </View>
 
-      <Segmented value={mode} options={modeOptions} onChange={setMode} />
+      <Segmented
+        value={state.mode}
+        options={modeOptions}
+        onChange={(mode) => dispatch({ type: "setMode", mode })}
+      />
 
       <KeyboardAwareFooterLayout
         contentContainerStyle={styles.content}
@@ -162,7 +180,7 @@ function PlateCalculator({
             <View>
               <Text style={styles.footerLabel}>LOADED TOTAL</Text>
               <Text style={styles.footerTotal}>
-                {formatWeight(activeTotal)}
+                {formatWeight(builtTotal)}
                 <Text style={styles.footerUnit}> {unit}</Text>
               </Text>
             </View>
@@ -170,32 +188,37 @@ function PlateCalculator({
               style={{ minWidth: 148 }}
               size="lg"
               label={
-                onApply ? `Use ${formatWeight(activeTotal)} ${unit}` : "Done"
+                onApply ? `Use ${formatWeight(builtTotal)} ${unit}` : "Done"
               }
               disabled={onApply ? !canApply : false}
-              onPress={onApply ? closeWithResult : onClose}
+              onPress={onApply ? closeWithResult : dismiss}
             />
           </KeyboardStickyFooter>
         }
       >
-        {mode === "toPlates" ? (
+        {state.mode === "toPlates" ? (
           <WeightToPlates
-            draft={draft}
-            setDraft={setDraft}
+            draft={state.draft}
+            setDraft={(value) => dispatch({ type: "setTargetDraft", value })}
             unit={unit}
             config={config}
             hasTarget={hasTarget}
+            hasPlates={hasPlates}
             result={result}
+            selectedPlates={selectedPlates}
+            counts={state.counts}
+            total={builtTotal}
+            onChangeCount={changeCount}
           />
         ) : (
           <PlatesToWeight
             unit={unit}
             config={config}
-            counts={counts}
+            counts={state.counts}
             selectedPlates={selectedPlates}
             total={builtTotal}
             onChangeCount={changeCount}
-            onClear={() => setCounts({})}
+            onClear={() => dispatch({ type: "clearPlates" })}
           />
         )}
 
@@ -207,15 +230,17 @@ function PlateCalculator({
             </Text>
           </View>
           <Segmented
-            value={countBar ? "on" : "off"}
+            value={state.countBar ? "on" : "off"}
             options={barOptions}
-            onChange={(next) => setCountBar(next === "on")}
+            onChange={(next) =>
+              dispatch({ type: "setCountBar", countBar: next === "on" })
+            }
           />
-          {countBar ? (
+          {state.countBar ? (
             <>
               <View style={styles.presetRow}>
                 {BAR_PRESETS[unit].map((preset) => {
-                  const active = bar === preset;
+                  const active = state.bar === preset;
                   return (
                     <Pressable
                       key={preset}
@@ -243,13 +268,11 @@ function PlateCalculator({
               </View>
               <Field
                 label={`Custom bar (${unit})`}
-                value={barDraft}
+                value={state.barDraft}
                 keyboardType="decimal-pad"
-                onChangeText={(value) => {
-                  const next = sanitizeDecimal(value);
-                  setBarDraft(next);
-                  if (next !== "") setBar(Number(next));
-                }}
+                onChangeText={(value) =>
+                  dispatch({ type: "setBarDraft", value })
+                }
                 selectTextOnFocus
               />
             </>
@@ -266,35 +289,47 @@ function WeightToPlates({
   unit,
   config,
   hasTarget,
+  hasPlates,
   result,
+  selectedPlates,
+  counts,
+  total,
+  onChangeCount,
 }: {
   draft: string;
   setDraft: (value: string) => void;
   unit: Unit;
   config: PlateConfig;
   hasTarget: boolean;
+  hasPlates: boolean;
   result: ReturnType<typeof solveWeightToPlates>;
+  selectedPlates: PlateCount[];
+  counts: Record<number, number>;
+  total: number;
+  onChangeCount: (plate: number, delta: number) => void;
 }) {
+  const exact = !hasTarget || Math.abs(total - (Number(draft) || 0)) < 1e-6;
   return (
     <View style={{ gap: space.md }}>
       <Field
         label={`Target weight (${unit})`}
         value={draft}
-        onChangeText={(value) => setDraft(sanitizeDecimal(value))}
+        onChangeText={setDraft}
         keyboardType="decimal-pad"
         placeholder={unit === "lb" ? "225" : "100"}
         selectTextOnFocus
       />
 
-      {!hasTarget ? (
+      {!hasTarget && !hasPlates ? (
         <View style={styles.emptyResult}>
           <CircleDot color={colors.faint} size={28} />
           <Text style={styles.emptyTitle}>Enter the weight on the bar</Text>
           <Text style={styles.emptyCopy}>
-            We’ll show exactly what to load on each side.
+            We’ll show exactly what to load on each side. Tap a plate to edit
+            it.
           </Text>
         </View>
-      ) : !result.feasible ? (
+      ) : hasTarget && !result.feasible && !hasPlates ? (
         <View style={[styles.resultCard, styles.errorCard]}>
           <Text style={styles.sectionLabel}>BELOW BAR WEIGHT</Text>
           <Text style={styles.errorTitle}>
@@ -307,22 +342,53 @@ function WeightToPlates({
       ) : (
         <View style={styles.resultCard}>
           <ResultHeader
-            label={result.exact ? "EXACT LOAD" : "CLOSEST LOAD"}
-            total={result.loadedTotal}
+            label={exact ? "EXACT LOAD" : "CLOSEST LOAD"}
+            total={total}
             unit={unit}
             detail={
-              result.exact
-                ? `${formatWeight((result.loadedTotal - config.bar) / 2)} ${unit} per side`
+              exact
+                ? `${formatWeight((total - config.bar) / 2)} ${unit} per side`
                 : `${formatWeight(result.remainder)} ${unit} below target`
             }
           />
-          <PlateStack plates={result.perSide} unit={unit} />
-          <PlateChips plates={result.perSide} unit={unit} />
-          {result.perSide.length === 0 ? (
+          <PlateStack
+            plates={selectedPlates}
+            unit={unit}
+            onRemovePlate={onChangeCount}
+          />
+          <PlateChips
+            plates={selectedPlates}
+            unit={unit}
+            onRemove={onChangeCount}
+          />
+          {selectedPlates.length === 0 ? (
             <Text style={styles.barOnly}>Empty bar—no plates needed.</Text>
-          ) : null}
+          ) : (
+            <Text style={styles.controlHint}>
+              Tap a plate to take it off, then add a replacement below.
+            </Text>
+          )}
         </View>
       )}
+
+      <View>
+        <Text style={styles.sectionLabel}>PLATES PER SIDE</Text>
+        <Text style={styles.controlHint}>
+          Add or replace plates; we mirror the other side.
+        </Text>
+      </View>
+      <View style={styles.plateGrid}>
+        {config.plates.map((plate) => (
+          <PlateStepper
+            key={plate}
+            plate={plate}
+            unit={unit}
+            count={counts[plate] ?? 0}
+            onMinus={() => onChangeCount(plate, -1)}
+            onPlus={() => onChangeCount(plate, 1)}
+          />
+        ))}
+      </View>
     </View>
   );
 }
@@ -354,13 +420,24 @@ function PlatesToWeight({
           unit={unit}
           detail={`${formatWeight(config.bar)} ${unit} bar · ${formatWeight(perSide)} ${unit} per side`}
         />
-        <PlateStack plates={selectedPlates} unit={unit} />
+        <PlateStack
+          plates={selectedPlates}
+          unit={unit}
+          onRemovePlate={onChangeCount}
+        />
+        <PlateChips
+          plates={selectedPlates}
+          unit={unit}
+          onRemove={onChangeCount}
+        />
       </View>
 
       <View style={styles.builderHeader}>
         <View>
           <Text style={styles.sectionLabel}>PLATES PER SIDE</Text>
-          <Text style={styles.controlHint}>Build one side; we mirror it.</Text>
+          <Text style={styles.controlHint}>
+            Tap a plate to remove it, or use + / − to replace.
+          </Text>
         </View>
         <Pressable
           accessibilityRole="button"
@@ -419,7 +496,15 @@ function ResultHeader({
   );
 }
 
-function PlateStack({ plates, unit }: { plates: PlateCount[]; unit: Unit }) {
+function PlateStack({
+  plates,
+  unit,
+  onRemovePlate,
+}: {
+  plates: PlateCount[];
+  unit: Unit;
+  onRemovePlate?: (plate: number, delta: number) => void;
+}) {
   const maxPlate = STANDARD_PLATES[unit].plates[0];
   const visualPlates = plates.flatMap(({ plate, count }) =>
     Array.from({ length: Math.min(count, 6) }, (_, index) => ({
@@ -439,10 +524,8 @@ function PlateStack({ plates, unit }: { plates: PlateCount[]; unit: Unit }) {
       >
         {visualPlates.map(({ plate, key }, index) => {
           const ratio = plate / maxPlate;
-          return (
+          const plateView = (
             <View
-              key={key}
-              accessibilityLabel={`${formatWeight(plate)} ${unit} plate`}
               style={[
                 styles.visualPlate,
                 {
@@ -451,6 +534,27 @@ function PlateStack({ plates, unit }: { plates: PlateCount[]; unit: Unit }) {
                 },
               ]}
             />
+          );
+          if (!onRemovePlate) {
+            return (
+              <View
+                key={key}
+                accessibilityLabel={`${formatWeight(plate)} ${unit} plate`}
+              >
+                {plateView}
+              </View>
+            );
+          }
+          return (
+            <Pressable
+              key={key}
+              accessibilityRole="button"
+              accessibilityLabel={`Remove ${formatWeight(plate)} ${unit} plate from sleeve`}
+              onPress={() => onRemovePlate(plate, -1)}
+              style={({ pressed }) => pressed && styles.pressed}
+            >
+              {plateView}
+            </Pressable>
           );
         })}
         {visualPlates.length === 0 ? (
@@ -461,18 +565,46 @@ function PlateStack({ plates, unit }: { plates: PlateCount[]; unit: Unit }) {
   );
 }
 
-function PlateChips({ plates, unit }: { plates: PlateCount[]; unit: Unit }) {
+function PlateChips({
+  plates,
+  unit,
+  onRemove,
+}: {
+  plates: PlateCount[];
+  unit: Unit;
+  onRemove?: (plate: number, delta: number) => void;
+}) {
   if (!plates.length) return null;
   return (
     <View style={styles.chips}>
-      {plates.map(({ plate, count }) => (
-        <View key={plate} style={styles.chip}>
-          <Text style={styles.chipValue}>
-            {formatWeight(plate)} {unit}
-          </Text>
-          <Text style={styles.chipCount}>×{count}</Text>
-        </View>
-      ))}
+      {plates.map(({ plate, count }) => {
+        const body = (
+          <>
+            <Text style={styles.chipValue}>
+              {formatWeight(plate)} {unit}
+            </Text>
+            <Text style={styles.chipCount}>×{count}</Text>
+          </>
+        );
+        if (!onRemove) {
+          return (
+            <View key={plate} style={styles.chip}>
+              {body}
+            </View>
+          );
+        }
+        return (
+          <Pressable
+            key={plate}
+            accessibilityRole="button"
+            accessibilityLabel={`Tap to remove one ${formatWeight(plate)} ${unit} plate per side`}
+            onPress={() => onRemove(plate, -1)}
+            style={({ pressed }) => [styles.chip, pressed && styles.pressed]}
+          >
+            {body}
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
