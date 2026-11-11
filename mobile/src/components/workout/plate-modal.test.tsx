@@ -252,7 +252,7 @@ it("explains and blocks fractional totals rather than silently rounding saved wo
   expect(
     renderer!.root.findAll(
       (node) =>
-        node.type === "Text" &&
+        node.type === ("Text" as never) &&
         node.props.children === "Use a whole-unit total to save",
     ),
   ).toHaveLength(1);
