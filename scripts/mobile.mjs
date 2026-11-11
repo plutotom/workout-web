@@ -1,3 +1,4 @@
+import { missingPrebuiltReactDependencies } from "./ios-pod-consistency.mjs";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
@@ -126,17 +127,34 @@ function iosPodsAreStale() {
 function ensureIosPodsMatchNodeModules(command) {
   if (command !== "run:ios") return;
   if (!existsSync(path.join(root, "mobile/ios/Podfile"))) return;
-  if (!iosPodsAreStale()) return;
+  const manifestPath = path.join(root, "mobile/ios/Pods/Manifest.lock");
+  const inconsistent =
+    existsSync(manifestPath) &&
+    missingPrebuiltReactDependencies(readFileSync(manifestPath, "utf8"));
+  if (!iosPodsAreStale() && !inconsistent) return;
   console.log(
-    "[mobile] CocoaPods still point at an old pnpm path; running pod install",
+    "[mobile] Refreshing stale or inconsistent React Native CocoaPods",
   );
-  const result = spawnSync("pod", ["install"], {
-    cwd: path.join(root, "mobile/ios"),
-    stdio: "inherit",
-    env: withHostSdk({ ...process.env, ...mobileEnvironment }),
-  });
+  const result = spawnSync(
+    "pod",
+    inconsistent
+      ? ["update", "React-Core-prebuilt", "React-Core", "--no-repo-update"]
+      : ["install"],
+    {
+      cwd: path.join(root, "mobile/ios"),
+      stdio: "inherit",
+      env: withHostSdk({ ...process.env, ...mobileEnvironment }),
+    },
+  );
   if (result.status !== 0) {
-    throw new Error("pod install failed; iOS native paths are stale");
+    throw new Error(
+      "CocoaPods refresh failed; iOS native dependencies are stale",
+    );
+  }
+  if (missingPrebuiltReactDependencies(readFileSync(manifestPath, "utf8"))) {
+    throw new Error(
+      "Prebuilt React is missing ReactNativeDependencies. Check Maven connectivity and refresh React-Core/React-Core-prebuilt Pods before building.",
+    );
   }
 }
 
