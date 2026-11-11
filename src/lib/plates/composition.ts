@@ -301,3 +301,35 @@ export function plateModeOptions(hasExistingLoad: boolean) {
     },
   ];
 }
+
+/** Validate persisted/cache or backup input before using it in a calculator. */
+export function parseStoredPlateComposition(
+  value: unknown,
+): StoredPlateComposition | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  if (
+    (row.unit !== "lb" && row.unit !== "kg") ||
+    typeof row.countBar !== "boolean" ||
+    typeof row.bar !== "number" ||
+    !Number.isFinite(row.bar) ||
+    row.bar < 0 ||
+    !row.counts ||
+    typeof row.counts !== "object" ||
+    Array.isArray(row.counts)
+  )
+    return null;
+  const plates = STANDARD_PLATES[row.unit].plates;
+  const counts: PlateCounts = {};
+  for (const [plate, count] of Object.entries(row.counts)) {
+    if (
+      !plates.includes(Number(plate)) ||
+      typeof count !== "number" ||
+      !Number.isSafeInteger(count) ||
+      count < 0
+    )
+      return null;
+    counts[Number(plate)] = count;
+  }
+  return { unit: row.unit, countBar: row.countBar, bar: row.bar, counts };
+}

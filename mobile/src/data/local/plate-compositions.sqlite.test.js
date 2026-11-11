@@ -1,3 +1,5 @@
+import { createLocalBackup, restoreLocalBackup } from "./backup";
+import { parseBackup, serializeBackup } from "@shared/workout-backup";
 import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -245,4 +247,35 @@ it("rolls back an interrupted v9 upgrade and retries after reopening the install
   expect(await readPlateComposition(reopened.db, "set", "bench-press")).toEqual(
     composition,
   );
+});
+
+it("restores exact plates from a file backup into a fresh installation without duplicates or sync payload changes", async () => {
+  const source = await fixture();
+  await migrateLocalDatabase(source.db);
+  await updateLocalSet(source.db, "set", save);
+  const exported = await createLocalBackup(source.db);
+  const parsed = parseBackup(serializeBackup(exported));
+  expect(parsed.ok).toBe(true);
+  const restored = open(join(dirs[0], "reinstalled.db"));
+  await migrateLocalDatabase(restored.db);
+  await restoreLocalBackup(restored.db, parsed.snapshot);
+  const set = restored.sql
+    .prepare(
+      `SELECT s.id, s.weight FROM local_sets s JOIN local_session_exercises e ON s.session_exercise_id = e.id WHERE e.slug = 'bench-press'`,
+    )
+    .get();
+  expect(set.weight).toBe(185);
+  expect(
+    await readPlateComposition(restored.db, set.id, "bench-press"),
+  ).toEqual(composition);
+  await restoreLocalBackup(restored.db, parsed.snapshot);
+  expect(
+    restored.sql.prepare("SELECT count(*) n FROM local_sets").get().n,
+  ).toBe(2);
+  expect(
+    restored.sql
+      .prepare("SELECT payload_json FROM local_sync_outbox")
+      .all()
+      .every((row) => !row.payload_json.includes("plateComposition")),
+  ).toBe(true);
 });

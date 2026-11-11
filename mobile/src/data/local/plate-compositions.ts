@@ -1,6 +1,7 @@
 import type { SQLiteDatabase } from "expo-sqlite";
 import {
   storedCompositionMatchesTarget,
+  parseStoredPlateComposition,
   type StoredPlateComposition,
 } from "@shared/plates/composition";
 import { STANDARD_PLATES } from "@shared/plates/solver";
@@ -14,29 +15,7 @@ export function parsePlateComposition(
   json: string,
 ): StoredPlateComposition | null {
   try {
-    const value = JSON.parse(json);
-    if (
-      !value ||
-      (value.unit !== "lb" && value.unit !== "kg") ||
-      typeof value.countBar !== "boolean" ||
-      !Number.isFinite(value.bar) ||
-      value.bar < 0 ||
-      !value.counts ||
-      typeof value.counts !== "object" ||
-      Array.isArray(value.counts)
-    )
-      return null;
-    const plates = STANDARD_PLATES[value.unit as "lb" | "kg"].plates;
-    if (
-      !Object.entries(value.counts).every(
-        ([plate, count]) =>
-          plates.includes(Number(plate)) &&
-          Number.isSafeInteger(count) &&
-          Number(count) >= 0,
-      )
-    )
-      return null;
-    return value;
+    return parseStoredPlateComposition(JSON.parse(json));
   } catch {
     return null;
   }
