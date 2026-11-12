@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { Check, CircleDot } from "lucide-react-native";
 import { Pressable, Text, View } from "react-native";
 
+import { plateCompositionId } from "@shared/plates/composition";
 import { Field } from "@/components/ui";
 import { PlateModal } from "@/components/workout/plate-modal";
 import type { LocalWorkoutSet } from "@/data/local/types";
@@ -9,7 +10,9 @@ import { colors } from "@/theme";
 import { usePersistedDraft } from "@/hooks/use-persisted-draft";
 
 type SetValues = Pick<LocalWorkoutSet, "weight" | "reps">;
-type SetChanges = Partial<SetValues>;
+type SetChanges = Partial<SetValues> & {
+  plateComposition?: import("@/data/local/plate-compositions").PlateCompositionSave;
+};
 
 type WorkoutSetRowProps = {
   exerciseSlug: string;
@@ -27,11 +30,16 @@ type WorkoutSetRowProps = {
 export function WorkoutSetRow({ exerciseSlug, ...props }: WorkoutSetRowProps) {
   // Replacement preserves database ids, but drafts belong to the old lift.
   return (
-    <WorkoutSetRowFields key={`${exerciseSlug}:${props.set._id}`} {...props} />
+    <WorkoutSetRowFields
+      key={`${exerciseSlug}:${props.set._id}`}
+      exerciseSlug={exerciseSlug}
+      {...props}
+    />
   );
 }
 
 function WorkoutSetRowFields({
+  exerciseSlug,
   set,
   index,
   unit,
@@ -41,7 +49,7 @@ function WorkoutSetRowFields({
   onComplete,
   onDelete,
   canDelete,
-}: Omit<WorkoutSetRowProps, "exerciseSlug">) {
+}: WorkoutSetRowProps) {
   const weight = usePersistedDraft(String(set.weight || ""));
   const reps = usePersistedDraft(String(set.reps || ""));
   const [error, setError] = useState<string | null>(null);
@@ -188,13 +196,26 @@ function WorkoutSetRowFields({
       ) : null}
       <PlateModal
         visible={plates}
+        setId={set._id}
+        exerciseSlug={exerciseSlug}
+        compositionId={plateCompositionId(exerciseSlug, set._id)}
         target={values.weight}
         unit={unit}
         barWeight={barWeight}
         onClose={() => setPlates(false)}
-        onApply={(next) => {
+        onApply={(next, composition) => {
           weight.change(String(next));
-          void commit({ ...changes, weight: next }, undefined, String(next));
+          void commit(
+            {
+              ...changes,
+              weight: next,
+              ...(composition
+                ? { plateComposition: { exerciseSlug, composition } }
+                : {}),
+            },
+            undefined,
+            String(next),
+          );
         }}
       />
     </>

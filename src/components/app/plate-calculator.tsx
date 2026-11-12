@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useReducer, useState } from "react";
 import { useQuery } from "convex-helpers/react/cache/hooks";
 import { Weight, X } from "lucide-react";
 
@@ -17,8 +17,17 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import {
+  createPlateSession,
+  snapshotPlateComposition,
+  type StoredPlateComposition,
+  hasLoadedPlates,
+  perSideFromPlateCounts,
+  reducePlateSession,
+  sessionConfig,
+  sessionTotal,
+} from "@/lib/plates/composition";
+import {
   BAR_PRESETS,
-  platesToWeight,
   solveWeightToPlates,
   STANDARD_PLATES,
   type PlateConfig,
@@ -46,6 +55,7 @@ export function PlateCalcButton({
   "aria-label"?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [stored, setStored] = useState<StoredPlateComposition | null>(null);
 
   return (
     <>
@@ -65,18 +75,22 @@ export function PlateCalcButton({
             <SheetTitle>Plate calculator</SheetTitle>
           </SheetHeader>
           <div className="px-4 pb-6">
-            <PlateCalculator
-              initialWeight={weight}
-              defaultIncludeBar={includeBar}
-              onApply={
-                onApply
-                  ? (w) => {
-                      onApply(w);
-                      setOpen(false);
-                    }
-                  : undefined
-              }
-            />
+            {open ? (
+              <PlateCalculator
+                initialWeight={weight}
+                stored={stored}
+                defaultIncludeBar={includeBar}
+                onApply={
+                  onApply
+                    ? (w, composition) => {
+                        setStored(composition);
+                        onApply(w);
+                        setOpen(false);
+                      }
+                    : undefined
+                }
+              />
+            ) : null}
           </div>
         </SheetContent>
       </Sheet>
@@ -87,63 +101,108 @@ export function PlateCalcButton({
 export function PlateCalculator({
   initialWeight,
   defaultIncludeBar = true,
+  stored,
   onApply,
 }: {
   initialWeight: number;
   /** Initial barbell toggle; user can change it inside the calculator. */
   defaultIncludeBar?: boolean;
-  onApply?: (weight: number) => void;
+  stored?: StoredPlateComposition | null;
+  onApply?: (weight: number, composition: StoredPlateComposition) => void;
 }) {
   const user = useQuery(api.routes.auth.users.current);
   const unit: Unit = user?.unit ?? "lb";
-  const [countBar, setCountBar] = useState(defaultIncludeBar);
   const savedBar =
     (unit === "lb" ? user?.barWeightLb : user?.barWeightKg) ??
     STANDARD_PLATES[unit].bar;
-
-  // Per-calculation bar override (transient — the saved default lives in
-  // Settings). null means "use the default".
-  const [barOverride, setBarOverride] = useState<number | null>(null);
-  const defaultBar = countBar ? savedBar : 0;
-  const bar = barOverride ?? defaultBar;
-  const config: PlateConfig = { bar, plates: STANDARD_PLATES[unit].plates };
+  const [state, dispatch] = useReducer(
+    reducePlateSession,
+    {
+      target: initialWeight,
+      stored,
+      unit,
+      barWeight: savedBar,
+      countBar: defaultIncludeBar,
+    },
+    createPlateSession,
+  );
+  const config: PlateConfig = sessionConfig(
+    state,
+    STANDARD_PLATES[unit].plates,
+  );
+  const selectedPlates = perSideFromPlateCounts(state.counts, config.plates);
+  const total = sessionTotal(state, config.plates);
 
   return (
     <div className="flex flex-col gap-4">
-      <Tabs defaultValue="toPlates" className="gap-4">
+      <Tabs
+        value={state.mode}
+        onValueChange={(mode) =>
+          dispatch({
+            type: "setMode",
+            mode: mode === "toWeight" ? "toWeight" : "toPlates",
+          })
+        }
+        className="gap-4"
+      >
         <TabsList className="w-full">
           <TabsTrigger value="toPlates">Weight → Plates</TabsTrigger>
-          <TabsTrigger value="toWeight">Plates → Weight</TabsTrigger>
+          <TabsTrigger value="toWeight">
+            {hasLoadedPlates(state.counts) ? "Edit bar" : "Plates → Weight"}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="toPlates">
           <WeightToPlates
-            initialWeight={initialWeight}
+            draft={state.draft}
+            onDraftChange={(value) =>
+              dispatch({ type: "setTargetDraft", value })
+            }
             config={config}
             unit={unit}
-            countBar={countBar}
-            onApply={onApply}
+            countBar={state.countBar}
+            selectedPlates={selectedPlates}
+            counts={state.counts}
+            total={total}
+            onChangeCount={(plate, delta) =>
+              dispatch({ type: "changeCount", plate, delta })
+            }
+            onApply={
+              onApply
+                ? (weight) => onApply(weight, snapshotPlateComposition(state))
+                : undefined
+            }
           />
         </TabsContent>
         <TabsContent value="toWeight">
           <PlatesToWeight
             config={config}
             unit={unit}
-            countBar={countBar}
-            onApply={onApply}
+            countBar={state.countBar}
+            selectedPlates={selectedPlates}
+            counts={state.counts}
+            total={total}
+            onChangeCount={(plate, delta) =>
+              dispatch({ type: "changeCount", plate, delta })
+            }
+            onClear={() => dispatch({ type: "clearPlates" })}
+            onApply={
+              onApply
+                ? (weight) => onApply(weight, snapshotPlateComposition(state))
+                : undefined
+            }
           />
         </TabsContent>
       </Tabs>
 
       <BarControl
-        bar={bar}
+        bar={state.bar}
         unit={unit}
-        countBar={countBar}
-        onCountBarChange={(next) => {
-          setCountBar(next);
-          setBarOverride(null);
-        }}
-        onChange={setBarOverride}
+        countBar={state.countBar}
+        onCountBarChange={(next) =>
+          dispatch({ type: "setCountBar", countBar: next })
+        }
+        onChange={(next) => dispatch({ type: "selectBar", bar: next })}
       />
     </div>
   );
@@ -230,36 +289,36 @@ function BarControl({
   );
 }
 
-function PlateChip({ plate, count }: PlateCount) {
-  return (
-    <span className="bg-secondary text-secondary-foreground inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm tabular-nums">
-      {fmt(plate)}
-      <span className="text-muted-foreground">×{count}</span>
-    </span>
-  );
-}
-
 function WeightToPlates({
-  initialWeight,
+  draft,
+  onDraftChange,
   config,
   unit,
   countBar,
+  selectedPlates,
+  counts,
+  total,
+  onChangeCount,
   onApply,
 }: {
-  initialWeight: number;
+  draft: string;
+  onDraftChange: (value: string) => void;
   config: PlateConfig;
   unit: Unit;
   countBar: boolean;
+  selectedPlates: PlateCount[];
+  counts: Record<number, number>;
+  total: number;
+  onChangeCount: (plate: number, delta: number) => void;
   onApply?: (weight: number) => void;
 }) {
-  const [value, setValue] = useState(
-    initialWeight > 0 ? String(initialWeight) : "",
-  );
-  const target = value.trim() === "" ? 0 : Number(value);
+  const target = draft.trim() === "" ? 0 : Number(draft);
   const result = useMemo(
     () => solveWeightToPlates(target, config),
     [target, config],
   );
+  const hasPlates = selectedPlates.length > 0;
+  const exact = !draft.trim() || Math.abs(total - target) < 1e-6;
 
   return (
     <div className="flex flex-col gap-4">
@@ -268,10 +327,10 @@ function WeightToPlates({
         <Input
           id="plate-target"
           inputMode="numeric"
-          value={value}
+          value={draft}
           placeholder="135"
           className="text-center"
-          onChange={(e) => setValue(e.target.value.replace(/[^0-9]/g, ""))}
+          onChange={(e) => onDraftChange(e.target.value.replace(/[^0-9]/g, ""))}
         />
       </div>
 
@@ -281,11 +340,11 @@ function WeightToPlates({
         </p>
       ) : null}
 
-      {target === 0 ? (
+      {target === 0 && !hasPlates ? (
         <p className="text-muted-foreground text-sm">
           Enter a weight to see the load per side.
         </p>
-      ) : !result.feasible ? (
+      ) : !result.feasible && !hasPlates ? (
         <p className="text-muted-foreground text-sm">
           {countBar
             ? `Below the bar (${fmt(config.bar)} ${unit}).`
@@ -295,47 +354,78 @@ function WeightToPlates({
         <div className="flex flex-col gap-3">
           <div>
             <p className="text-muted-foreground mb-1.5 text-xs font-medium tracking-wide uppercase">
-              Each side
+              Each side · tap to remove
             </p>
-            {result.perSide.length === 0 ? (
+            {selectedPlates.length === 0 ? (
               <p className="text-sm">
                 {countBar ? "Just the bar." : "No plates needed."}
               </p>
             ) : (
               <div className="flex flex-wrap gap-1.5">
-                {result.perSide.map((p) => (
-                  <PlateChip key={p.plate} plate={p.plate} count={p.count} />
+                {selectedPlates.map((p) => (
+                  <button
+                    key={p.plate}
+                    type="button"
+                    aria-label={`Remove one ${fmt(p.plate)}`}
+                    onClick={() => onChangeCount(p.plate, -1)}
+                    className="bg-secondary text-secondary-foreground inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm tabular-nums"
+                  >
+                    {fmt(p.plate)}
+                    <span className="text-muted-foreground">×{p.count}</span>
+                    <X className="text-muted-foreground size-3.5" />
+                  </button>
                 ))}
               </div>
             )}
           </div>
 
           <p className="text-sm">
-            {result.exact ? (
+            {exact ? (
               <span className="text-success font-medium">
-                Loads exactly to {fmt(result.loadedTotal)} {unit}.
+                Loads exactly to {fmt(total)} {unit}.
               </span>
             ) : (
               <span className="text-muted-foreground">
-                Closest is {fmt(result.loadedTotal)} {unit} (
-                {fmt(result.remainder)} {unit} short).
+                Closest is {fmt(total)} {unit} ({fmt(result.remainder)} {unit}{" "}
+                short).
               </span>
             )}
           </p>
 
+          <div>
+            <p className="text-muted-foreground mb-1.5 text-xs font-medium tracking-wide uppercase">
+              Tap to add per side
+            </p>
+            <div className="grid grid-cols-3 gap-2">
+              {config.plates.map((plate) => (
+                <Button
+                  key={plate}
+                  type="button"
+                  variant="secondary"
+                  className="relative tabular-nums"
+                  onClick={() => onChangeCount(plate, 1)}
+                >
+                  {fmt(plate)}
+                  {(counts[plate] ?? 0) > 0 ? (
+                    <span className="bg-primary text-primary-foreground absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full text-xs">
+                      {counts[plate]}
+                    </span>
+                  ) : null}
+                </Button>
+              ))}
+            </div>
+          </div>
+
           {onApply ? (
             <div className="flex flex-col gap-2">
-              <Button onClick={() => onApply(target)}>
-                Use this weight ({fmt(target)} {unit})
+              <Button
+                disabled={!Number.isInteger(total)}
+                onClick={() => onApply(total)}
+              >
+                {Number.isInteger(total)
+                  ? `Use ${fmt(total)} ${unit}`
+                  : "Use a whole-unit total to save"}
               </Button>
-              {!result.exact ? (
-                <Button
-                  variant="outline"
-                  onClick={() => onApply(result.loadedTotal)}
-                >
-                  Use closest loadable ({fmt(result.loadedTotal)} {unit})
-                </Button>
-              ) : null}
             </div>
           ) : null}
         </div>
@@ -348,31 +438,24 @@ function PlatesToWeight({
   config,
   unit,
   countBar,
+  selectedPlates,
+  counts,
+  total,
+  onChangeCount,
+  onClear,
   onApply,
 }: {
   config: PlateConfig;
   unit: Unit;
   countBar: boolean;
+  selectedPlates: PlateCount[];
+  counts: Record<number, number>;
+  total: number;
+  onChangeCount: (plate: number, delta: number) => void;
+  onClear: () => void;
   onApply?: (weight: number) => void;
 }) {
-  const [counts, setCounts] = useState<Record<number, number>>({});
-
-  const perSide: PlateCount[] = useMemo(
-    () =>
-      config.plates
-        .filter((plate) => (counts[plate] ?? 0) > 0)
-        .map((plate) => ({ plate, count: counts[plate] })),
-    [counts, config.plates],
-  );
-  const total = platesToWeight(perSide, config);
   const perSideSum = (total - config.bar) / 2;
-
-  function add(plate: number, delta: number) {
-    setCounts((prev) => {
-      const next = Math.max(0, (prev[plate] ?? 0) + delta);
-      return { ...prev, [plate]: next };
-    });
-  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -385,14 +468,14 @@ function PlatesToWeight({
       {/* Selected plates sit ABOVE the buttons: when they wrap onto more rows,
           only the content above them shifts up — the buttons below stay put
           (the sheet is anchored to the bottom). */}
-      {perSide.length > 0 ? (
+      {selectedPlates.length > 0 ? (
         <div className="flex flex-wrap gap-1.5">
-          {perSide.map((p) => (
+          {selectedPlates.map((p) => (
             <button
               key={p.plate}
               type="button"
               aria-label={`Remove one ${fmt(p.plate)}`}
-              onClick={() => add(p.plate, -1)}
+              onClick={() => onChangeCount(p.plate, -1)}
               className="bg-secondary text-secondary-foreground inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm tabular-nums"
             >
               {fmt(p.plate)}
@@ -411,9 +494,10 @@ function PlatesToWeight({
           {config.plates.map((plate) => (
             <Button
               key={plate}
+              type="button"
               variant="secondary"
               className="relative tabular-nums"
-              onClick={() => add(plate, 1)}
+              onClick={() => onChangeCount(plate, 1)}
             >
               {fmt(plate)}
               {(counts[plate] ?? 0) > 0 ? (
@@ -441,8 +525,8 @@ function PlatesToWeight({
       <div className="flex gap-2">
         <Button
           variant="ghost"
-          disabled={perSide.length === 0}
-          onClick={() => setCounts({})}
+          disabled={selectedPlates.length === 0}
+          onClick={onClear}
         >
           Clear
         </Button>
@@ -450,10 +534,12 @@ function PlatesToWeight({
           <Button
             variant="outline"
             className="flex-1"
-            disabled={perSide.length === 0}
+            disabled={total <= 0 || !Number.isInteger(total)}
             onClick={() => onApply(total)}
           >
-            Use {fmt(total)} {unit}
+            {Number.isInteger(total)
+              ? `Use ${fmt(total)} ${unit}`
+              : "Use a whole-unit total to save"}
           </Button>
         ) : null}
       </div>

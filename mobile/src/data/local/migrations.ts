@@ -1,9 +1,11 @@
 import type { SQLiteDatabase } from "expo-sqlite";
 
-// Version 9 adds the device-local Apple Watch auto-start preference.
+// The plate cache is an additive capability on core schema v9. Keep user_version
+// at 9 so the shipped runtime can still open workouts after an OTA rollback.
+// Accept transitional v10 databases produced by unreleased feature builds.
 // Keep upgrades additive: switching bundles preserves the phone database,
 // including stored notes and in-progress workouts.
-const DATABASE_VERSION = 9;
+const DATABASE_VERSION = 10;
 
 export async function migrateLocalDatabase(db: SQLiteDatabase) {
   await db.execAsync("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
@@ -16,7 +18,6 @@ export async function migrateLocalDatabase(db: SQLiteDatabase) {
       `Workout database version ${currentVersion} is newer than this app supports`,
     );
   }
-  if (currentVersion === DATABASE_VERSION) return;
 
   await db.withTransactionAsync(async () => {
     if (currentVersion < 1) {
@@ -258,6 +259,20 @@ export async function migrateLocalDatabase(db: SQLiteDatabase) {
       await db.execAsync(`
         ALTER TABLE local_preferences
           ADD COLUMN auto_start_watch_workout INTEGER NOT NULL DEFAULT 1;
+        PRAGMA user_version = 9;
+      `);
+    }
+    {
+      // No cascading FK: cloud adoption temporarily rebuilds exercise/set rows.
+      // Reads join live sets and slugs; stale cache rows can never attach to a
+      // different lift. This table is deliberately absent from sync payloads.
+      await db.execAsync(`
+        CREATE TABLE IF NOT EXISTS local_plate_compositions (
+          set_id TEXT NOT NULL,
+          exercise_slug TEXT NOT NULL,
+          composition_json TEXT NOT NULL,
+          PRIMARY KEY (set_id, exercise_slug)
+        );
         PRAGMA user_version = 9;
       `);
     }

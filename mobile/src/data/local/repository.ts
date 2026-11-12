@@ -1,3 +1,7 @@
+import {
+  writePlateComposition,
+  type PlateCompositionSave,
+} from "./plate-compositions";
 import { randomUUID } from "expo-crypto";
 import type { SQLiteDatabase } from "expo-sqlite";
 
@@ -828,7 +832,12 @@ export async function setLocalSessionMachine(
 export async function updateLocalSet(
   db: SQLiteDatabase,
   setId: string,
-  values: { weight?: number; reps?: number; completed?: boolean },
+  values: {
+    weight?: number;
+    reps?: number;
+    completed?: boolean;
+    plateComposition?: PlateCompositionSave;
+  },
 ) {
   return withWorkoutTransaction(db, async (txn) => {
     const sessionId = await sessionIdForSet(txn, setId);
@@ -856,6 +865,16 @@ export async function updateLocalSet(
       `UPDATE local_sets SET ${fields.join(", ")} WHERE id = ?`,
       params,
     );
+    if (values.plateComposition) {
+      if (values.weight === undefined)
+        throw new Error("Plate edits require a weight");
+      await writePlateComposition(
+        txn,
+        setId,
+        values.plateComposition,
+        boundedWhole(values.weight, MAX_WEIGHT, "Weight"),
+      );
+    }
     await markSessionUpdated(txn, sessionId);
   });
 }
@@ -3080,6 +3099,12 @@ async function remapCustomSlug(
 ): Promise<SlugRemapTargets> {
   if (oldSlug === newSlug) return { sessionIds: [], templateIds: [] };
   await remapNoteRecovery(txn, oldSlug, newSlug);
+  // A provisional custom lift keeps its exact local plates after server ACK.
+  await txn.runAsync(
+    "UPDATE OR REPLACE local_plate_compositions SET exercise_slug = ? WHERE exercise_slug = ?",
+    newSlug,
+    oldSlug,
+  );
 
   const sessionRows = await txn.getAllAsync<{ session_id: string }>(
     "SELECT DISTINCT session_id FROM local_session_exercises WHERE slug = ?",

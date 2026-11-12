@@ -752,7 +752,7 @@ describe("note storage using SQLite", () => {
       await storage.migrateLocalDatabase(db);
       await seedNote(db);
       sql.exec(
-        "ALTER TABLE local_sessions DROP COLUMN input_mode; ALTER TABLE local_sessions DROP COLUMN note_body; ALTER TABLE local_sessions DROP COLUMN note_unit; ALTER TABLE local_preferences DROP COLUMN auto_start_watch_workout; PRAGMA user_version = 7;",
+        "DROP TABLE local_plate_compositions; ALTER TABLE local_sessions DROP COLUMN input_mode; ALTER TABLE local_sessions DROP COLUMN note_body; ALTER TABLE local_sessions DROP COLUMN note_unit; ALTER TABLE local_preferences DROP COLUMN auto_start_watch_workout; PRAGMA user_version = 7;",
       );
       await storage.migrateLocalDatabase(db);
       expect(sql.prepare("PRAGMA user_version").get()?.user_version).toBe(9);

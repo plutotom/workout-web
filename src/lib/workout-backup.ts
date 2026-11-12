@@ -1,4 +1,8 @@
 import {
+  parseStoredPlateComposition,
+  type StoredPlateComposition,
+} from "./plates/composition";
+import {
   MAX_WORKOUT_NOTE_LENGTH,
   normalizeSessionInputMode,
   type NoteUnit,
@@ -88,6 +92,7 @@ export type BackupExerciseNote = {
 };
 
 export type BackupSet = {
+  plateComposition?: StoredPlateComposition;
   id: string;
   orderIndex: number;
   targetWeight: number;
@@ -468,6 +473,13 @@ export function validateBackup(value: unknown): BackupParseResult {
       for (const rawSet of rawSets.slice(0, MAX_SETS_PER_EXERCISE)) {
         if (!isRecord(rawSet) || typeof rawSet.id !== "string") continue;
         sets.push({
+          ...(parseStoredPlateComposition(rawSet.plateComposition)
+            ? {
+                plateComposition: parseStoredPlateComposition(
+                  rawSet.plateComposition,
+                )!,
+              }
+            : {}),
           id: rawSet.id,
           orderIndex: isFiniteNumber(rawSet.orderIndex)
             ? rawSet.orderIndex

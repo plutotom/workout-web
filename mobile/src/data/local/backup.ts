@@ -1,3 +1,9 @@
+import {
+  parsePlateComposition,
+  writePlateComposition,
+} from "./plate-compositions";
+import { storedCompositionMatchesTarget } from "@shared/plates/composition";
+import { STANDARD_PLATES } from "@shared/plates/solver";
 import type { SQLiteDatabase } from "expo-sqlite";
 import { convertPrescriptionJson } from "./weight-units";
 import { listNoteAlternatives, keepNoteAlternative } from "./note-recovery";
@@ -276,6 +282,21 @@ export async function createLocalBackup(
     String(row.session_exercise_id),
   );
   const alternatives = await listNoteAlternatives(db);
+  const plateRows = await db.getAllAsync<{
+    set_id: string;
+    exercise_slug: string;
+    composition_json: string;
+  }>(
+    "SELECT set_id, exercise_slug, composition_json FROM local_plate_compositions",
+  );
+  const compositions = new Map(
+    plateRows.flatMap((row) => {
+      const parsed = parsePlateComposition(row.composition_json);
+      return parsed
+        ? [[JSON.stringify([row.set_id, row.exercise_slug]), parsed] as const]
+        : [];
+    }),
+  );
 
   return {
     format: BACKUP_FORMAT,
@@ -351,6 +372,13 @@ export async function createLocalBackup(
         machineId: exercise.machine_id,
         machineName: exercise.machine_name,
         sets: (setsByExercise.get(exercise.id) ?? []).map((set) => ({
+          ...(compositions.has(JSON.stringify([set.id, exercise.slug]))
+            ? {
+                plateComposition: compositions.get(
+                  JSON.stringify([set.id, exercise.slug]),
+                ),
+              }
+            : {}),
           id: set.id,
           orderIndex: set.order_index,
           targetWeight: set.target_weight,
@@ -866,7 +894,7 @@ export async function restoreLocalBackup(
           exercise.machineName ?? null,
         );
         for (const set of exercise.sets) {
-          await txn.runAsync(
+          const setResult = await txn.runAsync(
             `INSERT OR IGNORE INTO local_sets (
                id, session_exercise_id, order_index, target_weight,
                target_reps, weight, reps, completed, completed_at
@@ -881,6 +909,24 @@ export async function restoreLocalBackup(
             set.completed ? 1 : 0,
             set.completedAt,
           );
+          const composition = set.plateComposition;
+          if (
+            setResult.changes > 0 &&
+            composition &&
+            composition.unit === snapshot.preferences.unit &&
+            storedCompositionMatchesTarget(
+              composition,
+              set.weight,
+              STANDARD_PLATES[composition.unit].plates,
+            )
+          ) {
+            await writePlateComposition(
+              txn,
+              set.id,
+              { exerciseSlug: exercise.slug, composition },
+              set.weight,
+            );
+          }
         }
       }
     }

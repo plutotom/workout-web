@@ -52,6 +52,7 @@ import { RestBar } from "@/components/workout/rest-bar";
 import { NoteWorkoutBody } from "@/components/workout/note-workout-body";
 import { NoteWorkoutEditor } from "@/components/workout/note-workout-editor";
 import { useCompletedWorkoutRefresh } from "@/components/workout/use-completed-workout-refresh";
+import { plateCompositionId } from "@shared/plates/composition";
 import { sessionAllowsCompletedReviewEdit } from "@shared/session-edits";
 import { replacementHasLoggedSets } from "@shared/replace-exercise";
 import {
@@ -1061,17 +1062,25 @@ function FocusWorkout({
         </View>
       </Screen>
       <PlateModal
+        key={plateCompositionId(item.exercise.slug, item.set._id)}
         visible={plates}
+        setId={item.set._id}
+        exerciseSlug={item.exercise.slug}
+        compositionId={plateCompositionId(item.exercise.slug, item.set._id)}
         target={values.weight}
         unit={user.unit}
         barWeight={barWeight}
         onClose={() => setPlates(false)}
-        onApply={(next) => {
+        onApply={(next, composition) => {
           setDrafts((current) => ({
             ...current,
             [item.set._id]: { ...draft, weight: String(next) },
           }));
-          void updateSet(item.set._id, { ...values, weight: next });
+          void updateSet(item.set._id, {
+            ...values,
+            weight: next,
+            plateComposition: { exerciseSlug: item.exercise.slug, composition },
+          });
         }}
       />
       {rest.rest ? (

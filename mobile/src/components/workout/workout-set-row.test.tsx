@@ -86,6 +86,9 @@ describe("workout set drafts when replacing an exercise", () => {
         renderer!.root.findByType("PlateModal" as never).props.visible,
       ).toBe(true);
       expect(
+        renderer!.root.findByType("PlateModal" as never).props.compositionId,
+      ).toBe("bench-press:set-1");
+      expect(
         renderer!.root.findAllByProps({ accessibilityLiveRegion: "polite" }),
       ).toHaveLength(1);
 
@@ -96,6 +99,9 @@ describe("workout set drafts when replacing an exercise", () => {
       expect(
         renderer!.root.findByType("PlateModal" as never).props.visible,
       ).toBe(false);
+      expect(
+        renderer!.root.findByType("PlateModal" as never).props.compositionId,
+      ).toBe("dip:set-1");
       expect(
         renderer!.root.findAllByProps({ accessibilityLiveRegion: "polite" }),
       ).toHaveLength(0);
@@ -114,6 +120,9 @@ describe("workout set drafts when replacing an exercise", () => {
       await render(initial, "bench-press");
       expect(field("weight").props.value).toBe("135");
       expect(field("reps").props.value).toBe("5");
+      expect(
+        renderer!.root.findByType("PlateModal" as never).props.compositionId,
+      ).toBe("bench-press:set-1");
     },
   );
 

@@ -171,3 +171,13 @@ includes workout sets/targets, template presets, gym memories, and pending paylo
 
 Deploy the additive backend validators and note revisions **before** distributing
 the updated mobile client. See [implementation and rollout notes](fix-plan.md).
+
+The required gate also runs `mobile/src/data/local/plate-compositions.sqlite.test.js`.
+It upgrades a synthetic on-disk v9 installation through the frozen pre-feature
+migration, saves exact per-side plates atomically with the set and outbox, and
+reopens the database. It covers interrupted upgrade/save retries, account/lift
+isolation, invalid composition rejection, and cloud readoption after sync ACK.
+Plate compositions are device-local and never enter Convex payloads. Both iOS
+calculator tabs share the same editor state; Apply persists it, while closing
+without applying discards the draft. Missing, mismatched-unit, or mismatched-total
+cache entries use the current set weight to seed a fresh arrangement.
