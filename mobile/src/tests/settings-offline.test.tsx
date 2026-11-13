@@ -116,6 +116,9 @@ vi.mock("@/components/describe-with-ai-button", () => ({
 vi.mock("@/components/settings/dev-pro-override-card", () => ({
   DevProOverrideCard: "DevPro",
 }));
+vi.mock("@/components/settings/dev-exercise-picker-card", () => ({
+  DevExercisePickerCard: "DevPicker",
+}));
 vi.mock("@/components/settings/notification-settings-card", () => ({
   NotificationSettingsCard: "Notifications",
 }));
