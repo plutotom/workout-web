@@ -1,76 +1,40 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
-# Unanchored so it matches every workspace, not just the root. pnpm fills
-# mobile/node_modules with links whose .bin shims embed absolute paths, so
-# committing them breaks the toolchain on any other checkout.
 node_modules/
-/.pnp
-.pnp.*
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/versions
+.pnpm-store/
 
 # testing
 /coverage
 
-# next.js
-/.next/
-/out/
-
-# production
-/build
-
 # misc
 .DS_Store
 *.pem
+.tokensave
+./claude/headroom_wrap_marker.json
 
 # debug
 npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
 .pnpm-debug.log*
-.pnpm-store/
+
+# tooling
 .worktrees/
 .convex/
+.vercel
+*.tsbuildinfo
 
 # env files (can opt-in for committing if needed)
 .env*
 !.env.example
-!.env.mobile.preview.example
-!.env.mobile.production.example
 
-# vercel
-.vercel
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
-
-# Serwist
-public/sw*
-public/swe-worker*
-.tokensave
-
-# Expo / React Native (mobile app)
-# (mobile/node_modules is covered by the repo-wide node_modules/ rule above)
-mobile/.expo/
-mobile/.expo-shared/
-mobile/dist/
-mobile/web-build/
-mobile/ios/
-mobile/android/
-mobile/.metro-health-check*
-mobile/expo-env.d.ts
-mobile/*.jks
-mobile/*.p8
-mobile/*.p12
-mobile/*.key
-mobile/*.mobileprovision
-
-./claude/headroom_wrap_marker.json
-# EAS local iOS builds
-mobile/build-*.ipa
+# Xcode / Swift (ios/)
+ios/**/.build/
+ios/**/DerivedData/
+ios/**/xcuserdata/
+ios/**/*.xcuserstate
+ios/**/.swiftpm/
 *.ipa
+*.dSYM.zip
+*.p8
+*.p12
+*.mobileprovision
