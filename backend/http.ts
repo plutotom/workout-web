@@ -5,8 +5,21 @@ import {
   webhookApiVersionFrom,
 } from "./lib/polar_api_version";
 import { polar, syncUserPlanFromPolarEvent } from "./routes/billing/polar";
+import { pull as syncPull, push as syncPush } from "./routes/sync/http";
 
 const http = httpRouter();
+
+http.route({
+  path: "/sync/push",
+  method: "POST",
+  handler: syncPush,
+});
+
+http.route({
+  path: "/sync/pull",
+  method: "GET",
+  handler: syncPull,
+});
 
 polar.registerRoutes(http, {
   path: "/polar/events",
