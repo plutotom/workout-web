@@ -1,6 +1,6 @@
-import { makeFunctionReference } from "convex/server";
+import { makeFunctionReference, type UserIdentity } from "convex/server";
 
-import { httpAction } from "../../_generated/server";
+import { httpAction, type ActionCtx } from "../../_generated/server";
 import {
   parsePullCursorParam,
   parsePushRequestBody,
@@ -9,11 +9,19 @@ import {
   type SyncPushResponse,
 } from "./core";
 
-const resolveOwnerIdRef = makeFunctionReference<
-  "query",
-  { email?: string; fallbackId: string },
+const ensureOwnerRef = makeFunctionReference<
+  "mutation",
+  { tokenIdentifier: string; email?: string; emailVerified: boolean },
   string
->("routes/sync/store:resolveOwnerId");
+>("routes/sync/store:ensureOwner");
+
+function ensureOwner(ctx: ActionCtx, identity: UserIdentity): Promise<string> {
+  return ctx.runMutation(ensureOwnerRef, {
+    tokenIdentifier: identity.tokenIdentifier,
+    ...(identity.email ? { email: identity.email } : {}),
+    emailVerified: identity.emailVerified === true,
+  });
+}
 
 const applyPushRef = makeFunctionReference<
   "mutation",
@@ -54,10 +62,7 @@ export const push = httpAction(async (ctx, request) => {
     return jsonResponse({ error: parsed.error }, 400);
   }
 
-  const ownerId = await ctx.runQuery(resolveOwnerIdRef, {
-    ...(identity.email ? { email: identity.email } : {}),
-    fallbackId: identity.tokenIdentifier,
-  });
+  const ownerId = await ensureOwner(ctx, identity);
 
   const result = await ctx.runMutation(applyPushRef, {
     ownerId,
@@ -89,10 +94,7 @@ export const pull = httpAction(async (ctx, request) => {
     limit = parsedLimit;
   }
 
-  const ownerId = await ctx.runQuery(resolveOwnerIdRef, {
-    ...(identity.email ? { email: identity.email } : {}),
-    fallbackId: identity.tokenIdentifier,
-  });
+  const ownerId = await ensureOwner(ctx, identity);
 
   const result = await ctx.runQuery(readPullRef, {
     ownerId,

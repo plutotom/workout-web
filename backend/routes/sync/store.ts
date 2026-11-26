@@ -13,6 +13,7 @@ import {
   type SyncPushStore,
   type SyncStoredDoc,
 } from "./core";
+import { decideOwner } from "./identity";
 
 type NativeTableName =
   | "nativeWorkouts"
@@ -164,23 +165,47 @@ function makePullStore(ctx: QueryCtx): SyncPullStore {
   };
 }
 
-export const resolveOwnerId = internalQuery({
+export const ensureOwner = internalMutation({
   args: {
+    tokenIdentifier: v.string(),
     email: v.optional(v.string()),
-    fallbackId: v.string(),
+    emailVerified: v.boolean(),
   },
   handler: async (ctx, args) => {
+    const persisted = await ctx.db
+      .query("nativeIdentities")
+      .withIndex("by_tokenIdentifier", (q) =>
+        q.eq("tokenIdentifier", args.tokenIdentifier),
+      )
+      .unique();
+
     const normalizedEmail = args.email?.trim().toLowerCase();
-    if (normalizedEmail) {
-      const user = await ctx.db
-        .query("users")
-        .withIndex("by_email", (q) => q.eq("email", normalizedEmail))
-        .first();
-      if (user) {
-        return user._id;
-      }
+    // Adopt a legacy row only when the email matches exactly one user.
+    const legacyMatches =
+      persisted === null && args.emailVerified && normalizedEmail
+        ? await ctx.db
+            .query("users")
+            .withIndex("by_email", (q) => q.eq("email", normalizedEmail))
+            .take(2)
+        : [];
+    const legacyUser = legacyMatches.length === 1 ? legacyMatches[0]! : null;
+
+    const decision = decideOwner({
+      tokenIdentifier: args.tokenIdentifier,
+      persistedOwnerId: persisted?.ownerId ?? null,
+      emailVerified: args.emailVerified,
+      legacyUserIdForEmail: legacyUser?._id ?? null,
+    });
+
+    if (decision.kind === "create") {
+      await ctx.db.insert("nativeIdentities", {
+        tokenIdentifier: args.tokenIdentifier,
+        ownerId: decision.ownerId,
+        ...(legacyUser ? { legacyUserId: legacyUser._id } : {}),
+        createdAt: Date.now(),
+      });
     }
-    return args.fallbackId;
+    return decision.ownerId;
   },
 });
 

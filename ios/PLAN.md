@@ -13,7 +13,10 @@ backend in `backend/` stays. Four users, ~6 months of data, all on social.
   schema version keeps a snapshot DB that tests upgrade to current.
 - **Auth:** Clerk (native Sign in with Apple, Google, email/password).
   Sign-in required on first launch. Convex trusts both WorkOS and Clerk during
-  cutover; users are linked by email.
+  cutover. Each identity's sync owner is fixed at first sign-in
+  (`nativeIdentities`); a legacy user row is adopted only through a
+  provider-verified email that matches exactly one user. The Clerk `convex` JWT
+  template must include `email` and `email_verified` claims.
 - **Offline forever:** a token never gates local data. Expired session pauses
   sync and shows a "Sign in to sync" banner; the outbox waits.
 - **Sync:** own outbox in GRDB + plain HTTPS push/pull to Convex HTTP actions.

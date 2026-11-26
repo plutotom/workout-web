@@ -42,6 +42,14 @@ export const nativeSyncTables = {
     appliedAt: v.number(),
   }).index("by_owner_opId", ["ownerId", "opId"]),
 
+  // One row per signed-in identity; `ownerId` is fixed at first sign-in.
+  nativeIdentities: defineTable({
+    tokenIdentifier: v.string(),
+    ownerId: v.string(),
+    legacyUserId: v.optional(v.id("users")),
+    createdAt: v.number(),
+  }).index("by_tokenIdentifier", ["tokenIdentifier"]),
+
   userSeq: defineTable({
     ownerId: v.string(),
     seq: v.number(),
