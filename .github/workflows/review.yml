@@ -33,3 +33,16 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test
+
+  swift-core-tests:
+    name: GrayedCore Swift tests (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container:
+      image: swift:6.0-noble
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - run: swift test
+        working-directory: ios/Packages/GrayedCore

@@ -1,0 +1,501 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		00DE13B6D63E45BF1397FB90 /* GrayedStore in Frameworks */ = {isa = PBXBuildFile; productRef = B12ADB83F218CD57A839B019 /* GrayedStore */; };
+		05243EF2BCDFF7CAA74A4B95 /* GrayedCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8C8821AD69F27622A1F1F368 /* GrayedCore */; };
+		4EE97F57DC89DF23722A9939 /* GrayedLiftApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14BC34CA5AF2E15B377060DF /* GrayedLiftApp.swift */; };
+		979B63C69DC45D1E6B0C44E6 /* WorkoutsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D5C7E29958BFF825AC2A229 /* WorkoutsView.swift */; };
+		9F55A72CB667B9DAA612766B /* GrayedLiftWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 165A2645D92823E892095AC8 /* GrayedLiftWatchApp.swift */; };
+		BE120D176BA98BD678847D4B /* AppContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C72179999C2D866A0F1B7503 /* AppContainer.swift */; };
+		C1E1C44557EA459D58307F4B /* AppConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 081DDEEC08D392685B885160 /* AppConfig.swift */; };
+		D53D6B33F0C4D9E9F3C83427 /* ClerkAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC2FF78704A73AE4E045F960 /* ClerkAuthService.swift */; };
+		EEFDF8FA7BD262C77561495C /* ClerkKit in Frameworks */ = {isa = PBXBuildFile; productRef = 1CA586D88190A44F0EAEA4AD /* ClerkKit */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		081DDEEC08D392685B885160 /* AppConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfig.swift; sourceTree = "<group>"; };
+		14BC34CA5AF2E15B377060DF /* GrayedLiftApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GrayedLiftApp.swift; sourceTree = "<group>"; };
+		165A2645D92823E892095AC8 /* GrayedLiftWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GrayedLiftWatchApp.swift; sourceTree = "<group>"; };
+		89B2A3598079C4D1A410B9B5 /* Base.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Base.xcconfig; sourceTree = "<group>"; };
+		9D5C7E29958BFF825AC2A229 /* WorkoutsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutsView.swift; sourceTree = "<group>"; };
+		A56BE6F87D628DFB2FE163E4 /* GrayedLift.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = GrayedLift.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		BD48412320C5055B88CF47FE /* GrayedCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = GrayedCore; path = Packages/GrayedCore; sourceTree = SOURCE_ROOT; };
+		C72179999C2D866A0F1B7503 /* AppContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppContainer.swift; sourceTree = "<group>"; };
+		E38AD358BF30B14B940542BB /* GrayedStore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = GrayedStore; path = Packages/GrayedStore; sourceTree = SOURCE_ROOT; };
+		EC2FF78704A73AE4E045F960 /* ClerkAuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClerkAuthService.swift; sourceTree = "<group>"; };
+		FA9B6B11CCB9762DBC3F8219 /* GrayedLiftWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GrayedLiftWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		8CE25EA2CA435DB210BE095C /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				05243EF2BCDFF7CAA74A4B95 /* GrayedCore in Frameworks */,
+				00DE13B6D63E45BF1397FB90 /* GrayedStore in Frameworks */,
+				EEFDF8FA7BD262C77561495C /* ClerkKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		18B26B27489014741C7CE4D8 /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				BD48412320C5055B88CF47FE /* GrayedCore */,
+				E38AD358BF30B14B940542BB /* GrayedStore */,
+			);
+			path = Packages;
+			sourceTree = "<group>";
+		};
+		547653DF7D12BF7E3A9F4ABC /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				89B2A3598079C4D1A410B9B5 /* Base.xcconfig */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
+		6086F1D2B5697CF5CC16D5BF /* App */ = {
+			isa = PBXGroup;
+			children = (
+				081DDEEC08D392685B885160 /* AppConfig.swift */,
+				C72179999C2D866A0F1B7503 /* AppContainer.swift */,
+				EC2FF78704A73AE4E045F960 /* ClerkAuthService.swift */,
+				14BC34CA5AF2E15B377060DF /* GrayedLiftApp.swift */,
+				9D5C7E29958BFF825AC2A229 /* WorkoutsView.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		6AF860EBAA9B8843ADEDC0DB /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A56BE6F87D628DFB2FE163E4 /* GrayedLift.app */,
+				FA9B6B11CCB9762DBC3F8219 /* GrayedLiftWatch.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		7BA28EB771A1217BFDB8D4FC /* GrayedLift */ = {
+			isa = PBXGroup;
+			children = (
+				6086F1D2B5697CF5CC16D5BF /* App */,
+			);
+			path = GrayedLift;
+			sourceTree = "<group>";
+		};
+		D95D3FA7A63038C30CB401EA /* GrayedLiftWatch */ = {
+			isa = PBXGroup;
+			children = (
+				165A2645D92823E892095AC8 /* GrayedLiftWatchApp.swift */,
+			);
+			path = GrayedLiftWatch;
+			sourceTree = "<group>";
+		};
+		F7236D4BE7DEEFA38F9A7D33 = {
+			isa = PBXGroup;
+			children = (
+				547653DF7D12BF7E3A9F4ABC /* Config */,
+				7BA28EB771A1217BFDB8D4FC /* GrayedLift */,
+				D95D3FA7A63038C30CB401EA /* GrayedLiftWatch */,
+				18B26B27489014741C7CE4D8 /* Packages */,
+				6AF860EBAA9B8843ADEDC0DB /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		0A4B393E44C0B98525BF88A1 /* GrayedLiftWatch */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5B200E87F4DB7B63B9A9B93A /* Build configuration list for PBXNativeTarget "GrayedLiftWatch" */;
+			buildPhases = (
+				CB6C5634350AC17488F1BD93 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = GrayedLiftWatch;
+			packageProductDependencies = (
+			);
+			productName = GrayedLiftWatch;
+			productReference = FA9B6B11CCB9762DBC3F8219 /* GrayedLiftWatch.app */;
+			productType = "com.apple.product-type.application";
+		};
+		D15385FFC980C2BB6CD62EAB /* GrayedLift */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E57FD74B4070255876CF42FA /* Build configuration list for PBXNativeTarget "GrayedLift" */;
+			buildPhases = (
+				CA391DFB8F3F7E3FFB5A5D7B /* Sources */,
+				8CE25EA2CA435DB210BE095C /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = GrayedLift;
+			packageProductDependencies = (
+				8C8821AD69F27622A1F1F368 /* GrayedCore */,
+				B12ADB83F218CD57A839B019 /* GrayedStore */,
+				1CA586D88190A44F0EAEA4AD /* ClerkKit */,
+			);
+			productName = GrayedLift;
+			productReference = A56BE6F87D628DFB2FE163E4 /* GrayedLift.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		C9403D4EAEAFE56836A3708F /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					0A4B393E44C0B98525BF88A1 = {
+						DevelopmentTeam = 3CVY7K9AJ6;
+						ProvisioningStyle = Automatic;
+					};
+					D15385FFC980C2BB6CD62EAB = {
+						DevelopmentTeam = 3CVY7K9AJ6;
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 164E6C3C1B42412AB63F4447 /* Build configuration list for PBXProject "GrayedLift" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = F7236D4BE7DEEFA38F9A7D33;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				BCB63EE6CAC198EBACB52F08 /* XCRemoteSwiftPackageReference "clerk-ios" */,
+				449204E6D117CC48ED4AA7B3 /* XCLocalSwiftPackageReference "Packages/GrayedCore" */,
+				4020A1E9D297EA48694F7274 /* XCLocalSwiftPackageReference "Packages/GrayedStore" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 6AF860EBAA9B8843ADEDC0DB /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				D15385FFC980C2BB6CD62EAB /* GrayedLift */,
+				0A4B393E44C0B98525BF88A1 /* GrayedLiftWatch */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		CA391DFB8F3F7E3FFB5A5D7B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C1E1C44557EA459D58307F4B /* AppConfig.swift in Sources */,
+				BE120D176BA98BD678847D4B /* AppContainer.swift in Sources */,
+				D53D6B33F0C4D9E9F3C83427 /* ClerkAuthService.swift in Sources */,
+				4EE97F57DC89DF23722A9939 /* GrayedLiftApp.swift in Sources */,
+				979B63C69DC45D1E6B0C44E6 /* WorkoutsView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CB6C5634350AC17488F1BD93 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9F55A72CB667B9DAA612766B /* GrayedLiftWatchApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		3D66645B509710B1C8E935C0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 3CVY7K9AJ6;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.0.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				WATCHOS_DEPLOYMENT_TARGET = 26.0;
+			};
+			name = Debug;
+		};
+		6D487E8E21C1A9CF2467660D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 89B2A3598079C4D1A410B9B5 /* Base.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = GrayedLift/Resources/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.isaiahproctor.workout.local;
+				PRODUCT_MODULE_NAME = GrayedLift;
+				PRODUCT_NAME = "Grayed Lift";
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		749A32E78A63421ED9F70C71 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 89B2A3598079C4D1A410B9B5 /* Base.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = GrayedLift/Resources/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.isaiahproctor.workout.local;
+				PRODUCT_MODULE_NAME = GrayedLift;
+				PRODUCT_NAME = "Grayed Lift";
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		8CC90A976498FE2396314A0E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = GrayedLiftWatch/Info.plist;
+				PRODUCT_BUNDLE_IDENTIFIER = com.isaiahproctor.workout.local.watchkitapp;
+				PRODUCT_MODULE_NAME = GrayedLiftWatch;
+				PRODUCT_NAME = "Grayed Lift Watch";
+				SDKROOT = watchos;
+				SKIP_INSTALL = NO;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 26.0;
+			};
+			name = Debug;
+		};
+		A71F4526D3425E75691BF905 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = GrayedLiftWatch/Info.plist;
+				PRODUCT_BUNDLE_IDENTIFIER = com.isaiahproctor.workout.local.watchkitapp;
+				PRODUCT_MODULE_NAME = GrayedLiftWatch;
+				PRODUCT_NAME = "Grayed Lift Watch";
+				SDKROOT = watchos;
+				SKIP_INSTALL = NO;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 26.0;
+			};
+			name = Release;
+		};
+		E0CCE631BF3E251DC59D8C46 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 3CVY7K9AJ6;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.0.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				WATCHOS_DEPLOYMENT_TARGET = 26.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		164E6C3C1B42412AB63F4447 /* Build configuration list for PBXProject "GrayedLift" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3D66645B509710B1C8E935C0 /* Debug */,
+				E0CCE631BF3E251DC59D8C46 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		5B200E87F4DB7B63B9A9B93A /* Build configuration list for PBXNativeTarget "GrayedLiftWatch" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8CC90A976498FE2396314A0E /* Debug */,
+				A71F4526D3425E75691BF905 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		E57FD74B4070255876CF42FA /* Build configuration list for PBXNativeTarget "GrayedLift" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6D487E8E21C1A9CF2467660D /* Debug */,
+				749A32E78A63421ED9F70C71 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		4020A1E9D297EA48694F7274 /* XCLocalSwiftPackageReference "Packages/GrayedStore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/GrayedStore;
+		};
+		449204E6D117CC48ED4AA7B3 /* XCLocalSwiftPackageReference "Packages/GrayedCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/GrayedCore;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		BCB63EE6CAC198EBACB52F08 /* XCRemoteSwiftPackageReference "clerk-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/clerk/clerk-ios.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.7.5;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		1CA586D88190A44F0EAEA4AD /* ClerkKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BCB63EE6CAC198EBACB52F08 /* XCRemoteSwiftPackageReference "clerk-ios" */;
+			productName = ClerkKit;
+		};
+		8C8821AD69F27622A1F1F368 /* GrayedCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = GrayedCore;
+		};
+		B12ADB83F218CD57A839B019 /* GrayedStore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = GrayedStore;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = C9403D4EAEAFE56836A3708F /* Project object */;
+}

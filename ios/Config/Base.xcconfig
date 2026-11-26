@@ -1,0 +1,7 @@
+// Shared base configuration for GrayedLift.
+// Local secrets live in Secrets.xcconfig (gitignored) and are included optionally
+// so a fresh checkout builds cleanly without keys.
+CLERK_PUBLISHABLE_KEY =
+CONVEX_SITE_HOST =
+
+#include? "Secrets.xcconfig"

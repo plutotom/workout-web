@@ -28,6 +28,7 @@ npm-debug.log*
 !.env.example
 
 # Xcode / Swift (ios/)
+ios/Config/Secrets.xcconfig
 ios/**/.build/
 ios/**/DerivedData/
 ios/**/xcuserdata/
